@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>BriefPilot</title>
+  <meta name="description" content="Post verstehen, Fristen im Blick behalten.">
+  <meta name="theme-color" content="#15324B">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="BriefPilot">
+  <link rel="stylesheet" href="/css/app.css">
+  <script type="module" src="/js/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Zum Inhalt springen</a>
+  <div class="shell">
+    <nav class="nav" id="nav" aria-label="Hauptnavigation" hidden></nav>
+    <div class="main-wrap">
+      <div id="banner" class="banner-slot"></div>
+      <main id="main" tabindex="-1">
+        <div class="boot">
+          <p>BriefPilot wird geladen …</p>
+          <noscript><p>Bitte aktivieren Sie JavaScript, um BriefPilot zu nutzen.</p></noscript>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

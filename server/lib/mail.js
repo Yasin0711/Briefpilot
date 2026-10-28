@@ -1,0 +1,190 @@
+// E-Mail-Versand über SMTP (ohne externe Bibliothek).
+// Ist kein SMTP-Server eingerichtet, werden E-Mails im Entwicklungsmodus nur im
+// Server-Fenster angezeigt – und die Oberfläche sagt das auch so.
+import net from 'node:net';
+import tls from 'node:tls';
+import crypto from 'node:crypto';
+
+function maskEmail(email) {
+  const [local, domain] = String(email).split('@');
+  if (!domain) return '***';
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+function stripLineBreaks(value) {
+  return String(value).replace(/[\r\n]+/g, ' ').trim();
+}
+
+function encodeHeader(value) {
+  const clean = stripLineBreaks(value);
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x20-\x7e]*$/.test(clean)) return clean;
+  return `=?UTF-8?B?${Buffer.from(clean, 'utf8').toString('base64')}?=`;
+}
+
+function extractAddress(from) {
+  const m = /<([^>]+)>/.exec(from);
+  return (m ? m[1] : from).trim();
+}
+
+export function buildMessage({ from, to, subject, text }) {
+  const fromAddress = extractAddress(from);
+  const fromHeader = from.includes('<') ? from : `BriefPilot <${fromAddress}>`;
+  const domain = fromAddress.split('@')[1] || 'localhost';
+  const body = Buffer.from(text.replace(/\r?\n/g, '\r\n'), 'utf8').toString('base64').replace(/.{76}/g, '$&\r\n');
+  const displayName = fromHeader.replace(/<.*$/, '').trim();
+  const headers = [
+    `From: ${displayName ? `${encodeHeader(displayName)} ` : ''}<${fromAddress}>`,
+    `To: <${stripLineBreaks(to)}>`,
+    `Subject: ${encodeHeader(subject)}`,
+    `Date: ${new Date().toUTCString().replace('GMT', '+0000')}`,
+    `Message-ID: <${crypto.randomUUID()}@${domain}>`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    'Auto-Submitted: auto-generated',
+  ];
+  return `${headers.join('\r\n')}\r\n\r\n${body}`;
+}
+
+function createResponseReader(socket) {
+  let buffer = '';
+  let lines = [];
+  const waiting = [];
+  const ready = [];
+  let failure = null;
+
+  const deliver = () => {
+    while (waiting.length && (ready.length || failure)) {
+      const w = waiting.shift();
+      if (ready.length) w.resolve(ready.shift());
+      else w.reject(failure);
+    }
+  };
+
+  const onData = (chunk) => {
+    buffer += chunk.toString('utf8');
+    let idx;
+    while ((idx = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, idx).replace(/\r$/, '');
+      buffer = buffer.slice(idx + 1);
+      lines.push(line);
+      if (/^\d{3} /.test(line) || /^\d{3}$/.test(line)) {
+        ready.push({ code: Number(line.slice(0, 3)), lines });
+        lines = [];
+      }
+    }
+    deliver();
+  };
+  const onError = (err) => {
+    failure = err;
+    deliver();
+  };
+  socket.on('data', onData);
+  socket.on('error', onError);
+  socket.on('close', () => onError(new Error('Verbindung zum Mailserver wurde geschlossen.')));
+
+  return {
+    read: () => new Promise((resolve, reject) => {
+      waiting.push({ resolve, reject });
+      deliver();
+    }),
+    detach: () => {
+      socket.off('data', onData);
+      socket.off('error', onError);
+    },
+  };
+}
+
+async function expect(reader, codes, step) {
+  const res = await reader.read();
+  if (!codes.includes(res.code)) throw new Error(`SMTP-Fehler bei ${step}: ${res.code}`);
+  return res;
+}
+
+function connect(cfg) {
+  return new Promise((resolve, reject) => {
+    const opts = { host: cfg.host, port: cfg.port, servername: cfg.host };
+    const socket = cfg.security === 'tls' ? tls.connect(opts) : net.connect(opts);
+    socket.setTimeout(20000, () => socket.destroy(new Error('Zeitüberschreitung beim Mailserver.')));
+    socket.once(cfg.security === 'tls' ? 'secureConnect' : 'connect', () => resolve(socket));
+    socket.once('error', reject);
+  });
+}
+
+export async function smtpSend(cfg, { to, subject, text }) {
+  let socket = await connect(cfg);
+  let reader = createResponseReader(socket);
+  const write = (line) => socket.write(`${line}\r\n`);
+  try {
+    await expect(reader, [220], 'Begrüßung');
+    write('EHLO briefpilot.local');
+    let ehlo = await expect(reader, [250], 'EHLO');
+    if (cfg.security === 'starttls') {
+      write('STARTTLS');
+      await expect(reader, [220], 'STARTTLS');
+      reader.detach();
+      socket = await new Promise((resolve, reject) => {
+        const secured = tls.connect({ socket, servername: cfg.host }, () => resolve(secured));
+        secured.once('error', reject);
+      });
+      reader = createResponseReader(socket);
+      write('EHLO briefpilot.local');
+      ehlo = await expect(reader, [250], 'EHLO nach STARTTLS');
+    }
+    if (cfg.user) {
+      const caps = ehlo.lines.join(' ').toUpperCase();
+      if (caps.includes('PLAIN')) {
+        write(`AUTH PLAIN ${Buffer.from(`\0${cfg.user}\0${cfg.pass}`).toString('base64')}`);
+        await expect(reader, [235], 'Anmeldung');
+      } else {
+        write('AUTH LOGIN');
+        await expect(reader, [334], 'Anmeldung');
+        write(Buffer.from(cfg.user).toString('base64'));
+        await expect(reader, [334], 'Anmeldung');
+        write(Buffer.from(cfg.pass).toString('base64'));
+        await expect(reader, [235], 'Anmeldung');
+      }
+    }
+    write(`MAIL FROM:<${extractAddress(cfg.from)}>`);
+    await expect(reader, [250], 'Absender');
+    write(`RCPT TO:<${stripLineBreaks(to)}>`);
+    await expect(reader, [250, 251], 'Empfänger');
+    write('DATA');
+    await expect(reader, [354], 'DATA');
+    const message = buildMessage({ from: cfg.from, to, subject, text }).replace(/^\./gm, '..');
+    socket.write(`${message}\r\n.\r\n`);
+    await expect(reader, [250], 'Nachricht');
+    write('QUIT');
+    socket.end();
+  } catch (err) {
+    socket.destroy();
+    throw err;
+  }
+}
+
+export function createMailer(config) {
+  if (!config.smtp.enabled) {
+    return {
+      configured: false,
+      async send({ to, subject, devNote }) {
+        if (config.isProduction) return { delivered: false, reason: 'nicht_eingerichtet' };
+        console.log(`\n[E-Mail NICHT versendet – kein SMTP eingerichtet] An: ${maskEmail(to)} · Betreff: ${subject}`);
+        if (devNote) console.log(devNote);
+        return { delivered: false, reason: 'simuliert' };
+      },
+    };
+  }
+  return {
+    configured: true,
+    async send({ to, subject, text }) {
+      try {
+        await smtpSend(config.smtp, { to, subject, text });
+        return { delivered: true };
+      } catch (err) {
+        console.error(`[E-Mail] Versand an ${maskEmail(to)} fehlgeschlagen: ${err.message}`);
+        return { delivered: false, reason: 'fehler' };
+      }
+    },
+  };
+}

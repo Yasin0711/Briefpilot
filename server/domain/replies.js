@@ -22,6 +22,86 @@ export const REPLY_TEMPLATES = [
 ];
 export const REPLY_TEMPLATE_IDS = REPLY_TEMPLATES.map((t) => t.id);
 
+const openTasks = (tasks) => tasks.filter((t) => !['erledigt', 'abgelehnt', 'verworfen'].includes(t.status));
+const taskDate = (t) => t?.due_date || t?.suggested_date || null;
+
+function letterText(letter) {
+  return [letter.document_type, letter.subject, letter.full_text].filter(Boolean).join('\n').toLowerCase();
+}
+
+/** Aufgaben, die nach Unterlagen/Nachweisen verlangen (für „Unterlagen nachreichen“). */
+function requestedDocuments(tasks) {
+  return openTasks(tasks)
+    .filter((t) => /unterlag|nachweis|beleg|bescheinigung|kopie|formular|vorlegen|einreichen|einsend|zusenden|nachreichen|kostenvoranschlag|fotos/i.test(`${t.title} ${t.description || ''}`))
+    .map((t) => t.title.replace(/\s+/g, ' ').trim())
+    .slice(0, 5);
+}
+
+/**
+ * Antwortvorschläge passend zum Brief: Jede Vorlage bekommt „passt gut“ (recommended) und eine
+ * kurze Begründung aus dem Brief. Empfohlene zuerst, „Leerer Brief“ immer zuletzt.
+ * Alle Vorlagen bleiben wählbar – es wird nur sortiert und markiert.
+ */
+export function suggestReplyTemplates(letter, tasks = []) {
+  const text = letterText(letter);
+  const summary = parseJson(letter.summary_json, {}) || {};
+  const open = openTasks(tasks);
+  const amounts = parseJson(letter.amounts_json, []);
+  // Freiwillige Rechte (Widerspruch, Einspruch, Kündigung) sind keine Fristen, die man verlängern kann
+  const optionalRight = (t) => /widerspruch|einspruch|kündig|rechtsbehelf|nur nötig/i.test(`${t.title} ${t.description || ''} ${t.relative_text || ''}`);
+  const payment = open.find((t) => t.kind === 'zahlung');
+  // Verlängern lassen sich Fristen, bei denen man dem Absender etwas schuldet (zahlen, einreichen, sich melden …)
+  const owesSender = (t) => t.kind === 'zahlung' || /zahl|überweis|einreich|nachreich|unterlag|nachweis|stellungnahme|äußer|melden|rückmeld|antwort|ausfüll|send|schick|übermittel|vorlegen/i.test(`${t.title} ${t.description || ''} ${t.relative_text || ''} ${t.source_quote || ''}`);
+  const deadline = open.find((t) => ['frist', 'zahlung'].includes(t.kind) && (taskDate(t) || t.relative_text) && !optionalRight(t) && owesSender(t));
+  const docs = requestedDocuments(tasks);
+  const isTaxOffice = /finanzamt/i.test(letter.sender || '');
+  const isDecision = /bescheid|festsetzung|rechtsbehelf|ablehnung|abgelehnt|rückforderung|erstattungsforderung/.test(text);
+  const isDunning = /mahnung|zahlungserinnerung|inkasso|letzte aufforderung/.test(text);
+  const isIncrease = /preiserhöhung|preisanpassung|beitragserhöhung|beitragsanpassung|sonderkündigungsrecht/.test(text);
+  const dubious = /unseriös|betrug|vorsicht|fake|gewinnspiel|gewinn von .* gegen gebühr/i.test(`${summary.what || ''} ${(summary.toCheck || []).join(' ')} ${letter.subject || ''}`);
+  const dateTxt = (t) => (taskDate(t) ? formatDate(taskDate(t), { short: true }) : t?.relative_text || '');
+  const sug = dubious ? {} : {
+    fristverlaengerung: deadline ? `Im Brief steht eine Frist${dateTxt(deadline) ? ` (${dateTxt(deadline)})` : ''}.` : null,
+    ratenzahlung: payment || isDunning
+      ? `Es geht um eine Zahlung${amounts[0] ? ` von ${amounts[0].amount} ${amounts[0].currency === 'EUR' ? '€' : amounts[0].currency || ''}`.trimEnd() : ''}.` : null,
+    widerspruch: isDecision || isDunning
+      ? (isDecision ? `Der Brief ist ein Bescheid – ${isTaxOffice ? 'ein Einspruch' : 'ein Widerspruch'} ist möglich, falls Sie nicht einverstanden sind.` : 'Falls die Forderung nicht stimmt, können Sie widersprechen.') : null,
+    unterlagen: docs.length || /unterlagen|nachweis|belege|bescheinigung|nachreichen/.test(text)
+      ? (docs.length ? `Angefordert: ${docs.slice(0, 2).join('; ')}.` : 'Im Brief geht es um Unterlagen oder Nachweise.') : null,
+    kuendigung: isIncrease || /kündigungsbestätigung|vertragsverlängerung|verlängert sich automatisch/.test(text)
+      ? (isIncrease ? 'Bei einer Preis- oder Beitragserhöhung ist oft eine Kündigung möglich.' : 'Der Brief betrifft die Laufzeit eines Vertrags.') : null,
+  };
+  if (!dubious && !Object.values(sug).some(Boolean)) {
+    if (summary.toCheck?.length && open.length) sug.rueckfrage = 'Einige Angaben im Brief sind unklar.';
+    else if (!open.length) sug.eingang = 'Im Brief ist nichts zu tun – falls nötig, genügt eine kurze Bestätigung.';
+  }
+  const rank = (id) => (id === 'leer' ? 2 : sug[id] ? 0 : 1);
+  return REPLY_TEMPLATES
+    .map((t, i) => ({ ...t, recommended: Boolean(sug[t.id]), reason: sug[t.id] || null, i }))
+    .sort((a, b) => rank(a.id) - rank(b.id) || a.i - b.i)
+    .map(({ i, ...t }) => t);
+}
+
+/** Fragen an die KI, passend zum Brief (Vorschlags-Chips). */
+export function suggestQuestions(letter, tasks = []) {
+  const text = letterText(letter);
+  const open = openTasks(tasks);
+  const payment = open.find((t) => t.kind === 'zahlung');
+  const termin = open.find((t) => t.kind === 'termin');
+  const summary = parseJson(letter.summary_json, {}) || {};
+  const dubious = /unseriös|betrug|vorsicht|fake|gewinnspiel/i.test(`${summary.what || ''} ${(summary.toCheck || []).join(' ')}`);
+  const out = dubious ? ['Ist dieser Brief seriös oder Betrug?', 'Muss ich darauf überhaupt reagieren?'] : ['Was muss ich jetzt tun?'];
+  if (payment) out.push(taskDate(payment) ? `Muss ich bis zum ${formatDate(taskDate(payment), { short: true })} wirklich zahlen?` : 'Wie viel muss ich bezahlen – und bis wann?');
+  if (/bescheid|rechtsbehelf/.test(text)) out.push(/finanzamt/i.test(letter.sender || '') ? 'Kann ich Einspruch einlegen – und bis wann?' : 'Kann ich widersprechen – und bis wann?');
+  if (/mahnung|inkasso/.test(text)) out.push('Ist diese Mahnung berechtigt?');
+  if (/preiserhöhung|preisanpassung|beitragserhöhung|beitragsanpassung/.test(text)) out.push('Darf ich wegen der Erhöhung kündigen?');
+  if (termin) out.push('Was muss ich zum Termin mitbringen?');
+  if (requestedDocuments(tasks).length || /unterlagen|nachweis/.test(text)) out.push('Welche Unterlagen genau soll ich schicken?');
+  out.push('Erkläre den Brief in einfachen Worten.');
+  out.push('Hilf mir bei einer Antwort.');
+  return [...new Set(out)].slice(0, 6);
+}
+
 const REF_ORDER = ['aktenzeichen', 'versicherungsnummer', 'vertragsnummer', 'kundennummer', 'rechnungsnummer', 'schadennummer', 'steuernummer', 'mitgliedsnummer', 'kassenzeichen', 'vertragskonto', 'zaehlernummer', 'kennzeichen'];
 
 /** Die wichtigsten Nummern des erhaltenen Briefes für Betreff und Infoblock (höchstens drei). */
@@ -58,8 +138,9 @@ export function templateReply(templateId, letter, tasks = []) {
   const topic = letter.subject || 'Ihr Schreiben';
   const subjectRefs = refs.length ? ` – ${refText(refs.slice(0, 2))}` : '';
   const isTaxOffice = /finanzamt/i.test(letter.sender || '');
-  const deadline = tasks.find((t) => t.kind === 'frist' || t.kind === 'zahlung');
-  const deadlineText = deadline?.due_date || deadline?.suggested_date ? ` bis zum ${formatDate(deadline.due_date || deadline.suggested_date, { short: true })}` : '';
+  const deadline = openTasks(tasks).find((t) => t.kind === 'frist' || t.kind === 'zahlung') || tasks.find((t) => t.kind === 'frist' || t.kind === 'zahlung');
+  const deadlineText = taskDate(deadline) ? ` bis zum ${formatDate(taskDate(deadline), { short: true })}` : deadline?.relative_text ? ` („${deadline.relative_text}“)` : '';
+  const docs = requestedDocuments(tasks);
   const amount = parseJson(letter.amounts_json, [])[0];
   const open = 'Sehr geehrte Damen und Herren,';
   const close = 'Mit freundlichen Grüßen';
@@ -78,15 +159,15 @@ export function templateReply(templateId, letter, tasks = []) {
     },
     unterlagen: {
       subject: `Nachreichung von Unterlagen${subjectRefs}`,
-      body: `${open}\n\nzu Ihrem Schreiben ${their}${refsLine} reiche ich folgende Unterlagen nach:\n\n- [Unterlage 1]\n- [Unterlage 2]\n\nBitte bestätigen Sie mir den Eingang.\n\n${close}`,
+      body: `${open}\n\nzu Ihrem Schreiben ${their}${refsLine} reiche ich folgende Unterlagen nach:\n\n${(docs.length ? docs : ['[Unterlage 1]', '[Unterlage 2]']).map((d) => `- ${d}`).join('\n')}\n\nBitte bestätigen Sie mir den Eingang.\n\n${close}`,
     },
     widerspruch: {
       subject: `${isTaxOffice ? 'Einspruch' : 'Widerspruch'} gegen ${/bescheid/i.test(topic) ? 'den Bescheid' : 'Ihr Schreiben'} ${their}${subjectRefs}`,
-      body: `${open}\n\ngegen ${/bescheid/i.test(topic) ? 'Ihren Bescheid' : 'Ihr Schreiben'} ${their}${refsLine} lege ich hiermit ${isTaxOffice ? 'Einspruch' : 'Widerspruch'} ein.\n\nBegründung: [Begründung ergänzen – oder: Die Begründung reiche ich nach.]\n\nBitte bestätigen Sie mir den Eingang dieses Schreibens.\n\n${close}`,
+      body: `${open}\n\ngegen ${/bescheid/i.test(topic) ? 'Ihren Bescheid' : 'Ihr Schreiben'} ${their}${refsLine} lege ich hiermit ${isTaxOffice ? 'Einspruch' : 'Widerspruch'} ein${amount ? ` (betroffener Betrag: ${amount.amount} ${amount.currency === 'EUR' ? '€' : amount.currency})` : ''}.\n\nBegründung: [Begründung ergänzen – oder: Die Begründung reiche ich nach.]\n\nBitte bestätigen Sie mir den Eingang dieses Schreibens.\n\n${close}`,
     },
     kuendigung: {
       subject: `Kündigung${subjectRefs}`,
-      body: `${open}\n\nhiermit kündige ich den Vertrag${refsLine} fristgerecht zum nächstmöglichen Zeitpunkt.\n\nBitte bestätigen Sie mir die Kündigung und das genaue Vertragsende schriftlich.\n\n${close}`,
+      body: `${open}\n\nhiermit kündige ich den Vertrag${refsLine} ${/preiserhöhung|preisanpassung|beitragserhöhung|beitragsanpassung/i.test(`${letter.subject || ''} ${letter.full_text || ''}`) ? `wegen der in Ihrem Schreiben ${their} angekündigten Preis- bzw. Beitragserhöhung außerordentlich zum Zeitpunkt des Inkrafttretens, hilfsweise ` : ''}fristgerecht zum nächstmöglichen Zeitpunkt.\n\nBitte bestätigen Sie mir die Kündigung und das genaue Vertragsende schriftlich.\n\n${close}`,
     },
     eingang: {
       subject: `Ihr Schreiben ${their}${subjectRefs}`,

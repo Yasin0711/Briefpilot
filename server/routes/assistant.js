@@ -7,7 +7,7 @@ import {
   ASK_SYSTEM_PROMPT, ASK_SCHEMA, REPLY_SYSTEM_PROMPT, REPLY_SCHEMA, letterContext,
 } from '../analysis/prompt.js';
 import {
-  REPLY_TEMPLATES, REPLY_TEMPLATE_IDS, templateReply, replyDefaults, serializeReply, replyPlainText, replyReferences,
+  REPLY_TEMPLATES, REPLY_TEMPLATE_IDS, templateReply, suggestReplyTemplates, suggestQuestions, replyDefaults, serializeReply, replyPlainText, replyReferences,
 } from '../domain/replies.js';
 import { renderReplyPdf } from '../pdf/letter.js';
 import { logLetterEvent } from '../domain/events.js';
@@ -101,6 +101,13 @@ export function registerAssistantRoutes(router, ctx) {
 
   // ---------- Antwortbriefe ----------
   router.get('/api/reply-templates', () => ({ templates: REPLY_TEMPLATES }));
+
+  // Vorschläge passend zu diesem Brief (Vorlagen sortiert/markiert, Fragen an die KI)
+  router.get('/api/letters/:id/reply-suggestions', (req, res, { user, params }) => {
+    const letter = ownLetter(user, params.id);
+    const tasks = db.all('SELECT * FROM tasks WHERE letter_id = ? ORDER BY position', letter.id);
+    return { templates: suggestReplyTemplates(letter, tasks), questions: suggestQuestions(letter, tasks) };
+  });
 
   router.post('/api/letters/:id/replies', async (req, res, { user, params }) => {
     const letter = ownLetter(user, params.id);

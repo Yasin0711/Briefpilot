@@ -20,6 +20,19 @@ async function loadTemplates() {
   return templatesCache;
 }
 
+/** Vorlagen und Fragen passend zum Brief; bei Fehler die allgemeine Liste. */
+async function loadSuggestions(letterId) {
+  try {
+    return await api.get(`/api/letters/${encodeURIComponent(letterId)}/reply-suggestions`);
+  } catch {
+    return { templates: await loadTemplates(), questions: null };
+  }
+}
+
+function templateButton(t) {
+  return html`<button class="template-btn${t.recommended ? ' is-recommended' : ''}" type="button" data-template="${t.id}">${icon(t.id === 'leer' ? 'file' : t.recommended ? 'star' : 'pen')}<span><span>${t.label}</span>${t.reason ? html`<small class="template-reason">${t.reason}</small>` : ''}</span></button>`;
+}
+
 /** Ob Rückfragen und KI-Entwürfe möglich sind – und wenn nicht, warum. */
 export function aiState(state, letter) {
   const ai = state.status?.ai;
@@ -125,7 +138,7 @@ export function chatPanel(data, state) {
         ${m.role === 'antwort' && m.replyBody ? html`<button class="btn btn-small btn-secondary" type="button" data-take-reply="${m.id}">${icon('reply')}Als Antwortentwurf übernehmen</button>` : ''}
       </li>`)}</ol>` : html`<ol class="chat-list" data-chat-list hidden></ol>`}
     ${ai.ready ? html`
-      ${!messages.length ? html`<div class="chips" role="group" aria-label="Vorschläge">${SUGGESTIONS.map((s) => html`<button class="chip" type="button" data-suggest="${s}">${s}</button>`)}</div>` : ''}
+      ${!messages.length ? html`<div class="chips" role="group" aria-label="Vorschläge" data-question-chips>${SUGGESTIONS.map((s) => html`<button class="chip" type="button" data-suggest="${s}">${s}</button>`)}</div>` : ''}
       <form class="chat-form" data-ask novalidate>
         <label class="visually-hidden" for="ask-q">Ihre Frage zum Brief</label>
         <textarea class="input" id="ask-q" name="question" rows="2" maxlength="1000" placeholder="Ihre Frage zum Brief …"></textarea>
@@ -149,9 +162,15 @@ export function bindAssistant(root, ctx) {
     const box = root.querySelector('[data-templates]');
     if (!box) return;
     try {
-      const templates = await loadTemplates();
+      const { templates, questions } = await loadSuggestions(letterId);
       if (!box.isConnected) return;
-      mount(box, templates.map((t) => html`<button class="template-btn" type="button" data-template="${t.id}">${icon(t.id === 'leer' ? 'file' : 'pen')}<span>${t.label}</span></button>`));
+      const recommended = templates.filter((t) => t.recommended);
+      const others = templates.filter((t) => !t.recommended);
+      mount(box, recommended.length
+        ? html`<p class="small template-head">${icon('star')} Passend zu diesem Brief</p>${recommended.map(templateButton)}<p class="small muted template-head">Weitere Vorlagen</p>${others.map(templateButton)}`
+        : templates.map(templateButton));
+      const chips = root.querySelector('[data-question-chips]');
+      if (chips && questions?.length) mount(chips, questions.map((s) => html`<button class="chip" type="button" data-suggest="${s}">${s}</button>`));
     } catch (err) {
       mount(box, html`<p class="small muted">${err.message}</p>`);
     }

@@ -18,6 +18,7 @@ const PATHS = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
   chevronRight: '<path d="m9 6 6 6-6 6"/>',
   chevronLeft: '<path d="m15 6-6 6 6 6"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   bell: '<path d="M6 16v-5a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',

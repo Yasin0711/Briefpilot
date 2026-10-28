@@ -208,7 +208,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         <h2 id="s-anzeige">Anzeige</h2>
         <fieldset class="field"><legend class="field-label">Schriftgröße</legend>
           <div class="chips" role="radiogroup">
-            ${[['normal', 'Normal'], ['gross', 'Groß'], ['sehr-gross', 'Sehr groß']].map(([v, l]) => html`<label class="chip"><input type="radio" name="textsize" value="${v}" ${textSize === v ? 'checked' : ''}>${l}</label>`)}
+            ${[['sehr-klein', 'Sehr klein'], ['klein', 'Klein'], ['normal', 'Normal'], ['gross', 'Groß'], ['sehr-gross', 'Sehr groß']].map(([v, l]) => html`<label class="chip"><input type="radio" name="textsize" value="${v}" ${textSize === v ? 'checked' : ''}>${l}</label>`)}
           </div></fieldset>
         <fieldset class="field"><legend class="field-label">Darstellung</legend>
           <div class="chips" role="radiogroup">

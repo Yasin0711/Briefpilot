@@ -60,7 +60,6 @@ export function mountDecision(container, { letter, assignment, current = [], onD
         <p class="decision-msg">${icon('folder')}<strong>Für diesen Brief gibt es noch keine passende Akte.</strong></p>
         <div class="field"><label for="proposal-${letter.id}">Neue Akte (${info.proposal.typeLabel})</label>
           <input class="input" id="proposal-${letter.id}" data-proposal-name maxlength="120" value="${info.proposal.name}"></div>
-        ${info.proposal.identifiers?.length ? html`<p class="small muted">Die Akte merkt sich: ${info.proposal.identifiers.map((i) => `${i.label} ${i.value}`).join(', ')} – künftige Briefe damit landen automatisch dort.</p>` : ''}
         <div class="row"><button class="btn" type="button" data-accept-proposal>${icon('check')}Akte anlegen und Brief ablegen</button></div>
       </div>` : ''}
       ${candidates.length ? html`<fieldset class="choices">

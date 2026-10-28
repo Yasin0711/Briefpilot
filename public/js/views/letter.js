@@ -132,7 +132,6 @@ function taskCard(task, letter, settings, today, correcting) {
     ${task.sourceQuote ? html`<div class="stack">
       <div><p class="quote-label">Im Brief steht${task.sourcePage ? ` (Seite ${task.sourcePage})` : ''}:</p>
       <blockquote class="quote">${task.sourceQuote}</blockquote></div>
-      <p><button class="btn btn-ghost btn-small" type="button" data-action="show-quote" data-id="${task.id}">${icon('eye')}Stelle im Brieftext zeigen</button></p>
     </div>` : ''}
     ${task.checkNotes?.length && task.status !== 'erledigt' ? html`<ul class="task-notes">${task.checkNotes.map((n) => html`<li>${icon('alert')}<span>${n}</span></li>`)}</ul>` : ''}
     ${isReview || correcting ? confirmForm(task, letter, settings, today, { correcting }) : ''}
@@ -166,7 +165,7 @@ function originalView(files, { split = null, editable = true, tools = true } = {
       const fmt = /presentation/.test(f.mime) ? 'PowerPoint' : /spreadsheet/.test(f.mime) ? 'Excel' : 'Word';
       const unit = fmt === 'PowerPoint' ? (f.pageCount === 1 ? 'Folie' : 'Folien') : fmt === 'Excel' ? (f.pageCount === 1 ? 'Tabelle' : 'Tabellen') : 'Dokument';
       return html`<figure class="original-page">
-        <figcaption class="original-cap row"><span class="grow">${fmt}-Datei${fmt === 'Word' ? '' : ` · ${f.pageCount} ${unit}`} – der Text steht im Reiter „Text“</span>
+        <figcaption class="original-cap row"><span class="grow">${fmt}-Datei${fmt === 'Word' ? '' : ` · ${f.pageCount} ${unit}`} </span>
           <a class="btn btn-small btn-secondary" href="/api/files/${f.id}">${icon('download')}Herunterladen</a></figcaption>
       </figure>`;
     }
@@ -225,42 +224,41 @@ function factsPanel(letter, persons = []) {
   </section>`;
 }
 
-function explanation(data, settings, today, correcting) {
+function explanation(data, settings, today, correcting, openSteps = new Set()) {
   const { letter, tasks } = data;
   const s = letter.summary || {};
   const sorted = [...tasks].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
   const active = tasks.filter((t) => t.status !== 'erledigt');
+  const review = tasks.filter((t) => t.status === 'zu_pruefen').length;
   const toCheck = [...(s.toCheck || [])];
   if (letter.letterDateStatus === 'erkannt' && !letter.reviewed) toCheck.push('Stimmt das erkannte Briefdatum?');
+  const next = sorted.filter((t) => t.status !== 'erledigt' && (t.dueDate || t.suggestedDate)).map((t) => t.dueDate || t.suggestedDate).sort()[0];
+  // Jeder Punkt ist ein aufklappbarer Balken; rechts steht nur eine kurze Angabe
+  const step = (n, title, hint, body, attention = false) => html`<details class="explain-step" data-step="${n}" ${openSteps.has(n) ? html`open` : ''}>
+    <summary><span class="step-num" aria-hidden="true">${n}</span><span class="step-title">${title}</span>
+      ${hint ? html`<span class="step-hint ${attention ? 'is-attention' : ''}">${hint}</span>` : ''}<span class="step-chevron" aria-hidden="true">${icon('chevronDown')}</span></summary>
+    <div class="step-body">${body}</div>
+  </details>`;
   return html`<div class="explain">
-    <section class="explain-step"><span class="step-num" aria-hidden="true">1</span><div>
-      <h2>Worum geht es?</h2>
-      <div class="explain-body stack">
+    ${step('1', 'Worum geht es?', s.legalNote ? 'Wichtig' : '', html`<div class="explain-body stack">
         <p>${s.what || 'Für diesen Brief gibt es keine automatische Erklärung. Bitte lesen Sie das Original.'}</p>
         ${s.legalNote ? html`<div class="note note-warn">${icon('alert')}<div><strong>Wichtig</strong><p>${s.legalNote}</p></div></div>` : ''}
-      </div></div></section>
+      </div>`, Boolean(s.legalNote))}
 
-    <section class="explain-step"><span class="step-num" aria-hidden="true">2</span><div>
-      <h2>Was muss ich tun?</h2>
+    ${step('2', 'Was muss ich tun?', active.length ? String(active.length) : 'nichts', html`
       ${active.length ? html`<ul class="todo-list">${active.map((t) => html`<li>${icon(t.status === 'zu_pruefen' ? 'alert' : 'circle')}<span>${t.title}${t.status === 'zu_pruefen' ? html` <span class="badge badge-review">zu prüfen</span>` : ''}</span></li>`)}</ul>`
-        : s.nothingToDo ? html`<p class="explain-body">Nichts. Der Brief dient nur zu Ihrer Information.</p>`
+        : s.nothingToDo ? html`<p class="explain-body">Nichts.</p>`
           : tasks.length ? html`<p class="explain-body">Alles erledigt.</p>`
-            : html`<p class="explain-body">Es wurden keine Aufgaben erkannt. Bitte lesen Sie den Brief selbst und legen Sie bei Bedarf eine Aufgabe an.</p>`}
-      <p><button class="btn btn-small btn-ghost" type="button" data-action="add-task">${icon('plus')}Eigene Aufgabe hinzufügen</button></p>
-    </div></section>
+            : html`<p class="explain-body">Keine Aufgaben erkannt.</p>`}
+      <p><button class="btn btn-small btn-ghost" type="button" data-action="add-task">${icon('plus')}Eigene Aufgabe</button></p>`, active.length > 0)}
 
-    <section class="explain-step"><span class="step-num" aria-hidden="true">3</span><div>
-      <h2>Bis wann?</h2>
-      ${tasks.some((t) => t.status === 'zu_pruefen') ? html`<p class="muted">Prüfen Sie jedes Datum mit dem Original. Erst nach Ihrer Bestätigung plant BriefPilot Erinnerungen.</p>` : ''}
+    ${step('3', 'Bis wann?', next ? formatDate(next, { short: true }) : '', html`
       ${sorted.length ? html`<div class="stack">${sorted.map((t) => taskCard(t, letter, settings, today, correcting.has(t.id)))}</div>`
-        : html`<p class="explain-body">Keine Fristen oder Termine erkannt.</p>`}
-    </div></section>
+        : html`<p class="explain-body">Keine Fristen.</p>`}`, review > 0)}
 
-    <section class="explain-step"><span class="step-num" aria-hidden="true">4</span><div>
-      <h2>Was muss ich noch prüfen?</h2>
-      ${toCheck.length ? html`<ul class="check-list">${toCheck.map((c) => html`<li>${icon('alert')}<span>${c}</span></li>`)}</ul>` : html`<p class="explain-body">Keine offenen Punkte.</p>`}
-      ${!letter.reviewed && letter.analysisStatus !== 'wartet' && letter.analysisStatus !== 'laeuft' ? html`<p><button class="btn btn-secondary" type="button" data-action="review">${icon('check')}Angaben stimmen</button></p>` : ''}
-    </div></section>
+    ${step('4', 'Was muss ich prüfen?', toCheck.length ? String(toCheck.length) : '', html`
+      ${toCheck.length ? html`<ul class="check-list">${toCheck.map((c) => html`<li>${icon('alert')}<span>${c}</span></li>`)}</ul>` : html`<p class="explain-body">Nichts.</p>`}
+      ${!letter.reviewed && letter.analysisStatus !== 'wartet' && letter.analysisStatus !== 'laeuft' ? html`<p><button class="btn btn-secondary" type="button" data-action="review">${icon('check')}Angaben stimmen</button></p>` : ''}`)}
   </div>`;
 }
 
@@ -305,7 +303,9 @@ function historyList(events = []) {
 export async function render({ root, params, query, state, navigate, isCurrent }) {
   const id = params.id;
   let data = null;
-  let tab = ['antworten', 'original', 'text'].includes(query.get('ansicht')) ? query.get('ansicht') : 'erklaerung';
+  // Ansicht: Erklärung, Antwort, Original – oder keine (null): dann folgt direkt der nächste Abschnitt
+  let tab = ['antworten', 'original'].includes(query.get('ansicht')) ? query.get('ansicht') : 'erklaerung';
+  const openSteps = new Set(); // aufgeklappte Punkte der Erklärung (bleiben beim Neuzeichnen offen)
   let pollTimer = null;
   const correcting = new Set();
   const today = todayIn(state.me?.timezone || 'Europe/Berlin');
@@ -340,6 +340,35 @@ export async function render({ root, params, query, state, navigate, isCurrent }
   function showTab(next) {
     tab = next;
     draw();
+  }
+
+  /** Was vor dem Ablegen noch offen ist (kurz). */
+  function openPoints() {
+    const { letter, tasks } = data;
+    const points = [];
+    const review = tasks.filter((t) => t.status === 'zu_pruefen').length;
+    if (review) points.push(review === 1 ? '1 Frist nicht bestätigt' : `${review} Fristen nicht bestätigt`);
+    if (['neue_akte', 'pruefen', 'vorschlag'].includes(letter.assignmentStatus)) points.push('keine Akte gewählt');
+    return points;
+  }
+
+  /** Feste Leiste unten: kurze Zusammenfassung, „Später“ und „Brief ablegen“. */
+  function fileBar() {
+    const { letter, tasks, links } = data;
+    const confirmed = tasks.filter((t) => t.status === 'offen').length;
+    const open = openPoints();
+    const akte = links.length ? links.map((l) => l.name).join(', ') : null;
+    const info = open.length ? open.join(' · ')
+      : [confirmed ? `${confirmed} ${confirmed === 1 ? 'Aufgabe' : 'Aufgaben'} bestätigt` : null, akte ? `Akte: ${akte}` : null].filter(Boolean).join(' · ');
+    void letter;
+    return html`<div class="file-bar-spacer" aria-hidden="true"></div>
+      <div class="file-bar" role="region" aria-label="Brief ablegen">
+        ${info ? html`<p class="file-bar-info ${open.length ? 'is-open' : ''}">${icon(open.length ? 'alert' : 'check')}<span>${info}</span></p>` : ''}
+        <div class="file-bar-actions">
+          <a class="btn btn-secondary" href="#/briefe">Später</a>
+          <button class="btn file-bar-main" type="button" data-action="file-away">${icon('folder')}Brief ablegen</button>
+        </div>
+      </div>`;
   }
 
   /** Akte: Zuordnung mit Nachweis – oder die Entscheidung, wenn BriefPilot unsicher ist. */
@@ -396,13 +425,10 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         ${categoryTile(letter.category)}
         <div class="grow">
           <h1>${letter.subject || (analyzing ? 'Neuer Brief' : 'Brief ohne Betreff')}</h1>
-          <div class="letter-meta">
-            <span>${letter.sender || 'Absender unbekannt'}</span>
-            <span>${letter.letterDate ? `Brief vom ${formatDate(letter.letterDate)}` : 'Briefdatum unbekannt'}</span>
-          </div>
+          <p class="letter-meta">${[letter.sender || 'Absender unbekannt', letter.letterDate ? formatDate(letter.letterDate, { short: true }) : null].filter(Boolean).join(' · ')}</p>
           <div class="row-meta">
             ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
-            ${sourceLabel ? html`<span class="badge ${letter.analysisSource === 'beispiel' ? 'badge-demo' : ''}">${icon(letter.analysisSource === 'ki' ? 'spark' : 'info')}${sourceLabel}</span>` : ''}
+            ${letter.analysisSource === 'beispiel' && sourceLabel ? html`<span class="badge badge-demo">${icon('info')}${sourceLabel}</span>` : ''}
             ${letter.reviewed ? html`<span class="badge badge-done">${icon('check')}Angaben geprüft</span>` : ''}
           </div>
         </div>
@@ -416,31 +442,24 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         <button class="btn btn-small btn-secondary" type="button" data-action="add-task">${icon('plus')}Aufgabe anlegen</button></div></div></div>` : ''}
       ${letter.injectionWarning ? html`<div class="note note-danger" role="alert">${icon('shield')}<div><strong>Vorsicht bei diesem Schreiben</strong><p>Der Brief enthält Text, der sich wie eine Anweisung an eine KI oder ein Programm liest. BriefPilot hat diesen Text nicht befolgt und nichts automatisch erledigt.</p></div></div>` : ''}
       ${duplicateNote()}
-      ${!letter.reviewed && letter.analysisStatus === 'fertig' ? html`<div class="note note-warn">${icon('eye')}<p><strong>Bitte prüfen Sie die Angaben mit dem Original.</strong> ${letter.analysisSource === 'ki' ? 'Die KI kann sich irren.' : 'Die automatische Erkennung kann sich irren.'}</p></div>` : ''}
       ${analyzing ? '' : assignmentPanel()}
 
       <div class="tabs" role="tablist" aria-label="Ansicht">
         <button class="tab" role="tab" type="button" data-tab="erklaerung" aria-selected="${tab === 'erklaerung'}">Erklärung</button>
         <button class="tab" role="tab" type="button" data-tab="antworten" aria-selected="${tab === 'antworten'}">Antwort${drafts ? html` <span class="tab-count">${drafts}</span>` : ''}</button>
         <button class="tab tab-original" role="tab" type="button" data-tab="original" aria-selected="${tab === 'original'}">Original</button>
-        <button class="tab" role="tab" type="button" data-tab="text" aria-selected="${tab === 'text'}">Text</button>
       </div>
 
       <div class="detail-grid">
         <div class="stack-l">
           <div data-panel="erklaerung" class="stack-l" ${tab === 'erklaerung' ? '' : html`hidden`}>
-            ${analyzing ? html`<p class="muted">Die Erklärung erscheint hier, sobald der Brief gelesen ist.</p>` : explanation(data, settings, today, correcting)}
+            ${analyzing ? html`<p class="muted">Die Erklärung erscheint hier, sobald der Brief gelesen ist.</p>` : explanation(data, settings, today, correcting, openSteps)}
             ${analyzing ? '' : chatPanel(data, state)}
           </div>
           <div data-panel="antworten" ${tab === 'antworten' ? '' : html`hidden`}>${tab === 'antworten' ? repliesPanel(data, state) : ''}</div>
           <div data-panel="original" ${tab === 'original' ? '' : html`hidden`}>${originalView(files, { split, editable })}</div>
-          <div data-panel="text" ${tab === 'text' ? '' : html`hidden`}>
-            ${letter.fullText ? html`<p class="small muted">So hat BriefPilot den Text erkannt. Markiert sind die Stellen, aus denen Aufgaben und Fristen stammen.</p>
-              <div class="fulltext">${highlightedText(letter.fullText, tasks)}</div>`
-              : html`<p class="muted">Für diesen Brief liegt kein erkannter Text vor.</p>`}
-          </div>
-          ${tab === 'erklaerung' && !analyzing ? factsPanel(letter, persons) : ''}
-          ${tab === 'erklaerung' && !analyzing ? html`<section class="panel stack">
+          ${(tab === 'erklaerung' || !tab) && !analyzing ? factsPanel(letter, persons) : ''}
+          ${(tab === 'erklaerung' || !tab) && !analyzing ? html`<section class="panel stack">
             <h2>Weitere Möglichkeiten</h2>
             <div class="row">
               <button class="btn btn-small btn-secondary" type="button" data-tab="antworten">${icon('reply')}Antwort schreiben</button>
@@ -456,6 +475,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
           ${originalView(files, { split, editable })}
         </aside>
       </div>
+      ${analyzing ? '' : fileBar()}
     </div>`);
 
     // Entscheidung über die Akte einbauen (Kandidaten mit Nachweisen, Nummern merken …)
@@ -571,12 +591,21 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     });
   });
 
+  // Aufgeklappte Punkte merken (toggle steigt nicht auf – daher in der Capture-Phase)
+  root.addEventListener('toggle', (e) => {
+    const step = e.target.closest?.('[data-step]');
+    if (!step) return;
+    if (step.open) openSteps.add(step.dataset.step);
+    else openSteps.delete(step.dataset.step);
+  }, true);
+
   root.addEventListener('click', async (e) => {
     const tabBtn = e.target.closest('[data-tab]');
     if (tabBtn) {
-      tab = tabBtn.dataset.tab;
+      // Erneutes Tippen auf den gewählten Reiter schließt ihn (keine Ansicht gewählt)
+      tab = tabBtn.classList.contains('tab') && tab === tabBtn.dataset.tab ? null : tabBtn.dataset.tab;
       draw();
-      const tabEl = root.querySelector(`.tabs [data-tab="${tab}"]`);
+      const tabEl = root.querySelector(`.tabs [data-tab="${tab || tabBtn.dataset.tab}"]`);
       tabEl?.focus();
       if (!tabBtn.classList.contains('tab')) tabEl?.scrollIntoView({ block: 'start' });
       return;
@@ -586,15 +615,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     const taskId = el.dataset.id;
     const action = el.dataset.action;
     try {
-      if (action === 'show-quote') {
-        tab = 'text';
-        draw();
-        const mark = document.getElementById(`q-${taskId}`);
-        if (mark) {
-          mark.classList.add('is-target');
-          mark.scrollIntoView({ block: 'center' });
-        } else toast('Die Stelle wurde im erkannten Text nicht gefunden. Bitte im Original nachsehen.');
-      } else if (action === 'done') {
+      if (action === 'done') {
         await api.post(`/api/tasks/${taskId}/done`);
         toast('Als erledigt markiert.');
         await reload();
@@ -619,6 +640,13 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         toast('Kalenderdatei heruntergeladen. Öffnen Sie sie, um den Termin in Ihren Kalender zu übernehmen.');
       } else if (action === 'reminders') {
         editReminders(data.tasks.find((t) => t.id === taskId));
+      } else if (action === 'file-away') {
+        const open = openPoints();
+        if (open.length && !(await confirmDialog({ title: 'Trotzdem ablegen?', body: `Noch offen: ${open.join(', ')}.`, confirmLabel: 'Ablegen', cancelLabel: 'Zurück' }))) return;
+        if (!data.letter.reviewed) await api.post(`/api/letters/${id}/review`);
+        const akte = data.links.map((l) => l.name).join(', ');
+        toast(akte ? `Abgelegt in ${akte}.` : 'Abgelegt.');
+        navigate('/briefe');
       } else if (action === 'review') {
         await api.post(`/api/letters/${id}/review`);
         toast('Danke! Die Angaben sind als geprüft markiert.');

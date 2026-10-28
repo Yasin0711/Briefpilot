@@ -171,6 +171,8 @@ function applyTextSize() {
   } catch {
     size = 'normal';
   }
+  document.documentElement.classList.toggle('ts-sehr-klein', size === 'sehr-klein');
+  document.documentElement.classList.toggle('ts-klein', size === 'klein');
   document.documentElement.classList.toggle('ts-gross', size === 'gross');
   document.documentElement.classList.toggle('ts-sehr-gross', size === 'sehr-gross');
 }

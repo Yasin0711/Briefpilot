@@ -93,8 +93,8 @@ test('Upload-Prüfungen: Dateityp, Größe, aktive PDF-Inhalte', async () => {
     const jsPdf = Buffer.from(buildPdf([[{ type: 'text', x: 70, y: 700, text: 'x' }]]).toString('latin1')
       .replace('/Type /Catalog', '/Type /Catalog /OpenAction << /S /JavaScript /JS (app.alert(1)) >>'), 'latin1');
     r = await c.upload(jsPdf, 'application/pdf');
-    assert.equal(r.status, 400);
-    assert.match(r.data.error, /ausführbare/);
+    assert.equal(r.status, 200, 'PDF mit JavaScript wird angenommen – aber entschärft');
+    assert.ok(r.data.sanitized?.removed >= 1);
     const okPdf = buildPdf([[{ type: 'text', x: 70, y: 700, text: 'Hallo' }]]);
     r = await c.upload(okPdf, 'image/png');
     assert.equal(r.status, 415, 'falscher Dateityp-Kopf wird abgelehnt');

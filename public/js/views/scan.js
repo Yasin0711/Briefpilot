@@ -431,6 +431,7 @@ export async function render({ root, query, state, navigate, refreshMe }) {
             const res = await api.upload(p.blob, onProgress);
             p.fileId = res.id;
             p.duplicate = res.duplicateOf || null;
+            if (res.sanitized) toast(res.sanitized.message);
           } else if (role === 'original' && !p.originalFileId) {
             text.textContent = `Originalfoto von Seite ${i + 1} wird übertragen …`;
             const res = await api.upload(p.source, onProgress, { 'X-File-Role': 'original' });

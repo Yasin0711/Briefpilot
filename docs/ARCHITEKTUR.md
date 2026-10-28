@@ -36,7 +36,7 @@
 ### Ablauf eines Briefes
 
 1. **Erfassen** (`views/scan.js`, `scanner/`): Live-Kamera mit Blatterkennung und automatischer Auslösung oder Foto/Screenshot/PDF auswählen. Jede Seite wird zugeschnitten, entzerrt, verbessert und als JPEG neu gespeichert (dabei fallen Standortdaten aus dem Foto weg). Auf Wunsch wird das unbearbeitete Foto zusätzlich hochgeladen (`X-File-Role: original`). PDFs werden unverändert übertragen.
-2. **Hochladen** (`POST /api/files`, je Seite): Prüfung von Größe, echtem Dateityp (erste Bytes, nicht Endung), PDF-Seitenzahl, Verschlüsselung und aktiven Inhalten (JavaScript). Speicherung verschlüsselt. Ist genau diese Datei schon in einem Brief gespeichert, meldet die Antwort `duplicateOf` – die Oberfläche fragt dann nach.
+2. **Hochladen** (`POST /api/files`, je Seite): Prüfung von Größe, echtem Dateityp (erste Bytes, nicht Endung), PDF-Seitenzahl, Verschlüsselung und aktiven Inhalten (JavaScript u. Ä. – solche PDFs werden neu geschrieben und entschärft, siehe `server/pdf/sanitize.js`; Antwort enthält dann `sanitized`). Speicherung verschlüsselt. Ist genau diese Datei schon in einem Brief gespeichert, meldet die Antwort `duplicateOf` – die Oberfläche fragt dann nach.
 3. **Brief anlegen** (`POST /api/letters`): Seiten in Reihenfolge zuordnen, Auswertung in die Warteschlange.
 4. **Auswerten** (`analysis/index.js`): Mit KI-Zustimmung → eingestellter KI-Anbieter (nur die Seiten, keine Originalfotos); ist das kostenlose Kontingent erschöpft → Ersatzmodell, danach ehrlicher Hinweis und Regel-Erkennung; ohne KI Text aus PDFs lesen → Regel-Erkennung; sonst ehrlich „nicht möglich“.
 5. **Prüfen** (`analysis/validate.js`) – gilt für KI und Regeln gleichermaßen:

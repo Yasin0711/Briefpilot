@@ -4,6 +4,7 @@ import { HttpError, badRequest, notFound, readBody, readJson } from '../lib/http
 import { newId } from '../lib/security.js';
 import { detectFileType } from '../lib/storage.js';
 import { inspectPdf } from '../pdf/extract.js';
+import { sanitizePdf, hasActiveObjects } from '../pdf/sanitize.js';
 import { buildScanPdf } from '../pdf/write.js';
 import {
   serializeLetter, serializeLetterSummary, serializeTask, buildSearchText, compact,
@@ -48,7 +49,7 @@ export function registerLetterRoutes(router, ctx) {
   // ---------- Datei (eine Seite) hochladen ----------
   router.post('/api/files', async (req, res, { user }) => {
     limiter.hit(`upload:${user.id}`, 300, 3600_000, 'Sie haben sehr viele Dateien hochgeladen. Bitte warten Sie etwas.');
-    const data = await readBody(req, config.limits.maxFileBytes);
+    let data = await readBody(req, config.limits.maxFileBytes);
     if (data.length < 100) throw badRequest('Die Datei ist leer oder beschädigt.');
     const type = detectFileType(data);
     if (!type) throw new HttpError(415, 'Dieses Dateiformat wird nicht unterstützt. Erlaubt sind Fotos (JPG, PNG, WebP) und PDF-Dateien.');
@@ -60,11 +61,30 @@ export function registerLetterRoutes(router, ctx) {
       throw new HttpError(415, 'Der Dateityp passt nicht zum Inhalt der Datei.');
     }
     let pageCount = 1;
+    let sanitized = null;
     if (type.kind === 'pdf') {
-      const info = inspectPdf(data);
+      let info = inspectPdf(data);
       if (!info.valid) throw badRequest('Die PDF-Datei ist beschädigt oder unvollständig.');
       if (info.encrypted) throw badRequest('Passwortgeschützte PDF-Dateien können nicht verarbeitet werden. Bitte entfernen Sie den Schutz und laden Sie die Datei erneut hoch.');
-      if (info.activeContent) throw badRequest('Diese PDF-Datei enthält ausführbare Inhalte (z. B. JavaScript) und wird aus Sicherheitsgründen nicht angenommen.');
+      if (info.activeContent || hasActiveObjects(data)) {
+        // PDF mit JavaScript, Startaktion o. Ä.: neu schreiben, ohne aktive Inhalte.
+        // Gespeichert, angezeigt und an die KI gegeben wird nur die entschärfte Fassung.
+        const pagesBefore = info.pageCount;
+        let result;
+        try {
+          result = sanitizePdf(data);
+        } catch {
+          result = null;
+        }
+        const after = result ? inspectPdf(result.pdf) : null;
+        if (!result || !after.valid || after.activeContent || after.pageCount !== pagesBefore || hasActiveObjects(result.pdf)) {
+          throw badRequest('Diese PDF-Datei enthält ausführbare Inhalte (z. B. JavaScript), die sich nicht sicher entfernen ließen. Bitte drucken Sie die Datei als neue PDF („Als PDF drucken“) und laden Sie diese hoch.');
+        }
+        if (result.pdf.length > config.limits.maxFileBytes) throw new HttpError(413, 'Die PDF-Datei ist zu groß.');
+        data = result.pdf;
+        info = after;
+        sanitized = { removed: result.removed };
+      }
       if (info.pageCount > 50) throw badRequest('Die PDF-Datei hat mehr als 50 Seiten. Bitte laden Sie nur den Brief hoch.');
       pageCount = info.pageCount;
     }
@@ -88,6 +108,7 @@ export function registerLetterRoutes(router, ctx) {
     );
     return {
       id, kind: type.kind, size: data.length, pageCount, role,
+      sanitized: sanitized ? { removed: sanitized.removed, message: 'Die PDF enthielt aktive Inhalte (z. B. JavaScript). Sie wurden entfernt – Text und Seiten bleiben erhalten.' } : null,
       duplicateOf: duplicate ? { letterId: duplicate.id, subject: duplicate.subject, uploadedAt: duplicate.uploaded_at } : null,
     };
   });

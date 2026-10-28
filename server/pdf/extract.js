@@ -274,7 +274,7 @@ class PdfDocument {
       } else if (lex.pos > re.lastIndex) {
         re.lastIndex = lex.pos;
       }
-      this.objects.set(num, { value, stream });
+      this.objects.set(num, { value, stream, gen: Number(m[2]) || 0 });
     }
 
     // Komprimierte Objekt-Sammlungen (ab PDF 1.5) auspacken
@@ -299,7 +299,7 @@ class PdfDocument {
         if (this.objects.has(num)) continue;
         try {
           const value = parseValue(new Lexer(data, first + offset));
-          this.objects.set(num, { value, stream: null });
+          this.objects.set(num, { value, stream: null, gen: 0, inObjStm: true });
         } catch {
           /* beschädigtes Objekt überspringen */
         }
@@ -709,6 +709,8 @@ export function extractPdfText(buf) {
 }
 
 /** Sicherheitsprüfung beim Hochladen: Seitenzahl, Verschlüsselung, aktive Inhalte. */
+export { PdfDocument, Name, Ref, Op, Lexer, parseValue };
+
 export function inspectPdf(buf) {
   const raw = buf.toString('latin1');
   const hasEof = raw.slice(-2048).includes('%%EOF');

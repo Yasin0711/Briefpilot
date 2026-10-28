@@ -18,7 +18,7 @@ Diese Datei beschreibt, was in der ersten Version technisch umgesetzt ist – un
 **Dateien**
 - Jede Datei einzeln mit AES-256-GCM verschlüsselt; der Speicherpfad ist kryptografisch an die Datei gebunden.
 - Keine öffentlichen Links: Originale werden nur über `GET /api/files/:id` mit gültiger Sitzung ausgeliefert (`Cache-Control: private, no-store`).
-- Upload-Prüfung: echter Dateityp anhand der ersten Bytes; Größen-, Seiten- und Speicherlimit; PDFs mit JavaScript/Launch-Aktionen und verschlüsselte PDFs werden abgelehnt; Entpacken von PDF-Inhalten ist auf 64 MB begrenzt.
+- Upload-Prüfung: echter Dateityp anhand der ersten Bytes; Größen-, Seiten- und Speicherlimit; PDFs mit aktiven Inhalten (JavaScript, Startaktionen, Launch/Programmaufrufe, Formular-Senden, XFA, RichMedia, `javascript:`-Links) werden vor dem Speichern vollständig neu geschrieben und dabei entschärft (`server/pdf/sanitize.js`) – gespeichert, angezeigt und an die KI gegeben wird nur die entschärfte Fassung; lässt sich eine Datei nicht sicher entschärfen, wird sie abgelehnt. Verschlüsselte PDFs werden abgelehnt; Entpacken von PDF-Inhalten ist auf 64 MB begrenzt.
 - Fotos werden im Browser neu kodiert – dabei entfallen Metadaten wie der Aufnahmeort. Zuschnitt, Entzerrung und Bildverbesserung laufen vollständig auf dem Gerät.
 - Unbearbeitete Originalfotos werden nur gespeichert, wenn der Nutzer das beim Scannen ausdrücklich wählt; sie gehen nicht an die KI.
 - Zwischen-Uploads, die nie einem Brief zugeordnet wurden, werden beim Entfernen einer Seite sofort und sonst nach 24 Stunden gelöscht.

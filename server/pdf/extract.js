@@ -731,3 +731,26 @@ export function inspectPdf(buf) {
   if (!pageCount) pageCount = (haystack.match(/\/Type\s*\/Page(?![a-zA-Z])/g) || []).length;
   return { valid: hasEof && pageCount > 0, pageCount, encrypted: doc.isEncrypted(), activeContent };
 }
+
+/** Erstes JPEG-Bild der ersten Seite (für Vorschauen gescannter PDFs) – oder null. */
+export function firstPageJpeg(buf) {
+  try {
+    const doc = new PdfDocument(buf);
+    const page = doc.pages()[0];
+    if (!page) return null;
+    const resources = doc.resolve(page.resources);
+    const xobjects = resources instanceof Map ? doc.resolve(resources.get('XObject')) : null;
+    if (!(xobjects instanceof Map)) return null;
+    for (const [, ref] of xobjects) {
+      const obj = doc.objectOf(ref);
+      if (!obj?.stream || !(obj.value instanceof Map)) continue;
+      if (doc.nameOf(obj.value.get('Subtype')) !== 'Image') continue;
+      const filter = doc.resolve(obj.value.get('Filter'));
+      const name = Array.isArray(filter) ? (filter.length === 1 ? doc.nameOf(filter[0]) : null) : doc.nameOf(filter);
+      if (name === 'DCTDecode' && obj.stream[0] === 0xff && obj.stream[1] === 0xd8) return Buffer.from(obj.stream);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}

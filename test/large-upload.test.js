@@ -77,3 +77,21 @@ test('PowerPoint und Word: angenommen, Text gelesen und durchsuchbar; Makros abg
     await server.stop();
   }
 });
+
+test('Vorschau: gescannte PDF liefert das erste JPEG, Foto sich selbst', async () => {
+  const { buildScanPdf } = await import('../server/pdf/write.js');
+  const server = await startTestServer();
+  try {
+    const { c } = await registerUser(server);
+    const jpeg = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==', 'base64');
+    const pdf = buildScanPdf([jpeg, jpeg], { title: 'Scan' });
+    const up = await c.upload(pdf, 'application/pdf');
+    assert.equal(up.status, 200, JSON.stringify(up.data));
+    const t = await c.get(`/api/files/${up.data.id}/thumb`);
+    assert.equal(t.status, 200);
+    assert.equal(t.headers.get('content-type'), 'image/jpeg');
+    assert.equal(Buffer.from(t.data).subarray(0, 2).toString('hex'), 'ffd8');
+  } finally {
+    await server.stop();
+  }
+});

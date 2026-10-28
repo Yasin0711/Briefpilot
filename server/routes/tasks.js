@@ -8,7 +8,9 @@ import {
   isValidIsoDate, isValidTime, todayIn, daysBetween, computeRelativeEnd, zonedTimeToUtc, addDays,
 } from '../../public/js/shared/dates.js';
 
-const TASK_SELECT = 'SELECT t.*, l.subject AS letter_subject, l.sender AS letter_sender FROM tasks t LEFT JOIN letters l ON l.id = t.letter_id';
+const TASK_SELECT = `SELECT t.*, l.subject AS letter_subject, l.sender AS letter_sender,
+  (SELECT f.id || ':' || f.kind FROM files f WHERE f.letter_id = t.letter_id AND f.role = 'seite' ORDER BY f.position LIMIT 1) AS first_file
+  FROM tasks t LEFT JOIN letters l ON l.id = t.letter_id`;
 
 function checkDate(value, field, label = 'Datum') {
   if (!isValidIsoDate(value)) throw badRequest(`Bitte ein gültiges ${label} angeben.`, { field });
@@ -74,7 +76,14 @@ export function registerTaskRoutes(router, ctx) {
     const counts = Object.fromEntries(
       db.all('SELECT status, COUNT(*) AS n FROM tasks WHERE user_id = ? GROUP BY status', user.id).map((r) => [r.status, r.n])
     );
-    return { tasks: rows.map(serializeTask), counts, today: todayIn(user.timezone) };
+    return {
+      tasks: rows.map((r) => {
+        const [fileId, kind] = String(r.first_file || '').split(':');
+        return { ...serializeTask(r), letterFile: fileId ? { id: fileId, kind } : null };
+      }),
+      counts,
+      today: todayIn(user.timezone),
+    };
   });
 
   // Eigene Aufgabe anlegen – vom Nutzer selbst eingetragen, daher direkt „Offen“
@@ -151,6 +160,13 @@ export function registerTaskRoutes(router, ctx) {
       throw badRequest('Diese Frist hängt davon ab, wann Sie den Brief erhalten haben. Bitte geben Sie das Zugangsdatum an.', { field: 'receivedDate' });
     }
 
+    // Schnell-Bestätigung mit Zugangsdatum: Fristende aus der Regel berechnen
+    if (task.is_relative && body.receivedDate && !body.dueDate && body.withoutDate !== true && task.relative_rule) {
+      checkDate(body.receivedDate, 'receivedDate', 'Zugangsdatum');
+      const computed = computeRelativeEnd(JSON.parse(task.relative_rule), { receivedDate: body.receivedDate, letterDate: letter?.letter_date }).date;
+      if (!computed) throw badRequest('Das Fristende ließ sich nicht berechnen. Bitte im Brief bestätigen.', { field: 'dueDate' });
+      body.dueDate = computed;
+    }
     if (body.withoutDate === true) {
       dueDate = null;
     } else {

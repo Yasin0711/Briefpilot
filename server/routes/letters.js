@@ -6,7 +6,7 @@ import { detectFileType } from '../lib/storage.js';
 import { extractOfficeText, OFFICE_TYPES } from '../lib/office.js';
 import path from 'node:path';
 import fsp from 'node:fs/promises';
-import { inspectPdf } from '../pdf/extract.js';
+import { inspectPdf, firstPageJpeg } from '../pdf/extract.js';
 import { sanitizePdf, hasActiveObjects } from '../pdf/sanitize.js';
 import { buildScanPdf } from '../pdf/write.js';
 import {
@@ -196,6 +196,26 @@ export function registerLetterRoutes(router, ctx) {
     db.run('DELETE FROM files WHERE id = ?', file.id);
     await storage.remove(file.storage_key);
     return { ok: true };
+  });
+
+  // Kleine Vorschau der ersten Seite (Foto direkt, bei PDF das erste eingebettete JPEG-Bild)
+  router.get('/api/files/:id/thumb', async (req, res, { user, params }) => {
+    const file = db.get('SELECT * FROM files WHERE id = ? AND user_id = ?', params.id, user.id);
+    if (!file) throw notFound();
+    const data = await storage.get(file.storage_key);
+    let out = null;
+    let mime = file.mime;
+    if (file.kind === 'image') out = data;
+    else if (file.kind === 'pdf') {
+      out = firstPageJpeg(data);
+      mime = 'image/jpeg';
+    }
+    if (!out) throw notFound('Keine Vorschau.');
+    res.writeHead(200, {
+      'Content-Type': mime, 'Content-Length': out.length, 'Cache-Control': 'private, max-age=3600',
+      'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'",
+    });
+    res.end(out);
   });
 
   // Originaldatei anzeigen – nur für den Eigentümer, nie öffentlich, nie zwischengespeichert

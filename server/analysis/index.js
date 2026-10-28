@@ -2,6 +2,7 @@
 // Ablauf: Dateien entschlüsseln → KI (falls eingerichtet und erlaubt) oder
 // Regel-Erkennung → Ergebnis prüfen (validate.js) → speichern.
 import { analyzeWithClaude, AiError } from './claude.js';
+import { analyzeWithMistral } from './mistral.js';
 import { analyzeWithRules } from './rules.js';
 import { normalizeAnalysis } from './validate.js';
 import { extractPdfText } from '../pdf/extract.js';
@@ -85,7 +86,8 @@ export function createAnalyzer({ db, storage, config, log = console }) {
 
     if (useAi) {
       try {
-        const { result, model } = await analyzeWithClaude({ files, config, today });
+        const analyze = config.ai.provider === 'mistral' ? analyzeWithMistral : analyzeWithClaude;
+        const { result, model } = await analyze({ files, config, today });
         const analysis = normalizeAnalysis(result, { fullText: result.full_text, today, source: 'ki' });
         saveAnalysis(db, letterId, analysis, { source: 'ki', model });
         log.info(`[Auswertung] Brief ausgewertet · Quelle=ki · Dateien=${files.length} · Aufgaben=${analysis.actions.length} · ${Date.now() - started} ms`);

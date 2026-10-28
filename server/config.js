@@ -33,11 +33,16 @@ export function loadConfig(env = process.env) {
     publicDir: path.join(ROOT_DIR, 'public'),
     fileEncryptionKey: env.FILE_ENCRYPTION_KEY || '',
     ai: {
-      provider: (env.AI_PROVIDER || 'anthropic').toLowerCase(),
+      provider: (env.AI_PROVIDER || 'anthropic').trim().toLowerCase(),
       apiKey: env.ANTHROPIC_API_KEY || '',
       model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
       baseUrl: (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, ''),
       providerLabel: env.AI_PROVIDER_LABEL || 'Anthropic (Claude-API)',
+      // Mistral (nur für Machbarkeitstests, AI_PROVIDER=mistral)
+      mistralApiKey: (env.MISTRAL_API_KEY || '').trim(),
+      mistralModel: env.MISTRAL_MODEL || 'mistral-small-latest',
+      mistralOcrModel: env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
+      mistralBaseUrl: (env.MISTRAL_BASE_URL || 'https://api.mistral.ai').replace(/\/+$/, ''),
       dailyLimit: int(env.AI_DAILY_LIMIT, 30),
       demoDailyLimit: int(env.DEMO_AI_DAILY_LIMIT, 5),
       timeoutMs: int(env.AI_TIMEOUT_SECONDS, 180) * 1000,
@@ -69,7 +74,13 @@ export function loadConfig(env = process.env) {
     privacyContact: env.PRIVACY_CONTACT || '',
   };
 
-  config.ai.enabled = config.ai.provider === 'anthropic' && config.ai.apiKey.length > 10;
+  if (config.ai.provider === 'mistral') {
+    config.ai.enabled = config.ai.mistralApiKey.length > 10;
+    config.ai.model = config.ai.mistralModel;
+    if (!env.AI_PROVIDER_LABEL) config.ai.providerLabel = 'Mistral AI (Testbetrieb)';
+  } else {
+    config.ai.enabled = config.ai.provider === 'anthropic' && config.ai.apiKey.length > 10;
+  }
   config.smtp.enabled = Boolean(config.smtp.host && config.smtp.from);
   config.push.enabled = Boolean(config.push.publicKey && config.push.privateKey);
   return config;
@@ -88,7 +99,13 @@ export function validateConfig(config) {
     if (!config.smtp.enabled) warnings.push('E-Mail-Versand ist nicht eingerichtet: Passwort-Zurücksetzen funktioniert nicht.');
     if (config.demo.enabled) warnings.push('Der Demomodus ist im Produktivbetrieb eingeschaltet (DEMO_ENABLED).');
   }
-  if (!config.ai.enabled) warnings.push('Kein ANTHROPIC_API_KEY gesetzt: KI-Auswertung und Texterkennung für Fotos sind ausgeschaltet.');
+  if (!config.ai.enabled) {
+    warnings.push(config.ai.provider === 'mistral'
+      ? 'AI_PROVIDER=mistral, aber kein MISTRAL_API_KEY gesetzt: KI-Auswertung ist ausgeschaltet.'
+      : 'Kein ANTHROPIC_API_KEY gesetzt: KI-Auswertung und Texterkennung für Fotos sind ausgeschaltet.');
+  } else if (config.ai.provider === 'mistral') {
+    warnings.push('KI läuft über Mistral (Testbetrieb). Im kostenlosen Tarif können Anfragen zum Training genutzt werden – bitte nur Demo- oder unkritische Briefe verwenden.');
+  }
   if (!config.push.enabled) warnings.push('Keine VAPID-Schlüssel gesetzt: Push-Benachrichtigungen sind ausgeschaltet.');
   return { errors, warnings };
 }

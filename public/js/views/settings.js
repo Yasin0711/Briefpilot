@@ -1,7 +1,7 @@
 // Einstellungen: Konto, Erinnerungen, Benachrichtigungen, Anzeige, Datenschutz, Geräte, Daten.
 import { html, mount } from '../html.js';
 import { api, download } from '../api.js';
-import { icon, toast, formValues, showError, clearErrors, busy, openDialog, confirmDialog } from '../ui.js';
+import { icon, toast, formValues, showError, clearErrors, busy, openDialog, confirmDialog, naStar } from '../ui.js';
 import { REMINDER_OFFSETS, PERSON_RELATIONS, ADDRESS_KINDS } from '../shared/constants.js';
 import { loadHousehold, forgetHousehold } from './objectDialog.js';
 import { formatDateTime } from '../shared/dates.js';
@@ -20,7 +20,7 @@ function b64ToUint8(base64) {
 }
 
 async function pushState(status) {
-  if (!status?.push?.enabled) return { available: false, reason: 'Auf diesem Server sind Push-Benachrichtigungen nicht eingerichtet.' };
+  if (!status?.push?.enabled) return { available: false, na: true, reason: '' };
   if (!window.isSecureContext || !('serviceWorker' in navigator) || !('PushManager' in window)) {
     const ios = /iPhone|iPad/.test(navigator.userAgent);
     return {
@@ -183,7 +183,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
             <div class="chips">${REMINDER_OFFSETS.map((o) => html`<label class="chip"><input type="checkbox" name="reminderOffsets" value="${o.id}" ${s.reminderOffsets.includes(o.id) ? 'checked' : ''}>${o.label}</label>`)}</div></fieldset>
           <div class="field"><label for="r-time">Uhrzeit der Erinnerung</label><input class="input" type="time" id="r-time" name="reminderTime" value="${s.reminderTime}"></div>
           <label class="check"><input type="checkbox" name="emailReminders" ${s.emailReminders ? 'checked' : ''}>
-            <span>Zusätzlich per E-Mail erinnern${mailOn ? '' : html`<br><span class="small muted">Hinweis: Auf diesem Server ist kein E-Mail-Versand eingerichtet – es würde keine E-Mail ankommen.</span>`}</span></label>
+            <span>Zusätzlich per E-Mail erinnern${mailOn ? '' : naStar()}</span></label>
           <label class="check"><input type="checkbox" name="notificationDetails" ${s.notificationDetails ? 'checked' : ''}>
             <span>Aufgabe in Benachrichtigungen nennen<br><span class="small muted">Aus: Es erscheint nur „Sie haben eine anstehende Aufgabe“ – besser, wenn andere Ihren Bildschirm sehen können.</span></span></label>
           <p><button class="btn btn-secondary" type="submit">Erinnerungen speichern</button></p>
@@ -201,7 +201,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
               ? html`<button class="btn btn-secondary" type="button" data-action="push-test">${icon('bell')}Test senden</button>
                 <button class="btn btn-ghost" type="button" data-action="push-off">Ausschalten</button>`
               : html`<button class="btn" type="button" data-action="push-on" ${push.permission === 'denied' ? 'disabled' : ''}>${icon('bell')}Benachrichtigungen einschalten</button>`}
-          </div>` : html`<div class="note">${icon('info')}<p>${push.reason}</p></div>`}
+          </div>` : push.na ? html`<p class="small na-row">Benachrichtigungen${naStar()}</p>` : html`<div class="note">${icon('info')}<p>${push.reason}</p></div>`}
       </section>
 
       <section class="panel stack settings-section" aria-labelledby="s-anzeige">
@@ -226,8 +226,8 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
           <div class="row">
             ${me.aiConsent !== 'ja' ? html`<button class="btn btn-secondary" type="button" data-consent="ja">KI-Auswertung erlauben</button>` : ''}
             ${me.aiConsent !== 'nein' ? html`<button class="btn btn-ghost" type="button" data-consent="nein">KI-Auswertung nicht mehr verwenden</button>` : ''}
-          </div>` : html`<p class="muted">Auf diesem Server ist keine KI eingerichtet. Ihre Briefe werden nicht an einen KI-Dienst übermittelt.</p>`}
-        <p><a href="#/datenschutz">Was passiert mit meinen Daten?</a> · <a href="#/status">Was funktioniert echt?</a></p>
+          </div>` : html`<p class="small na-row">KI-Auswertung${naStar()}</p>`}
+        <p><a href="#/datenschutz">Was passiert mit meinen Daten?</a> · <a href="#/status">Was funktioniert?</a> · <span class="small muted">* zurzeit nicht verfügbar</span></p>
       </section>
 
       <section class="panel stack settings-section" aria-labelledby="s-geraete">

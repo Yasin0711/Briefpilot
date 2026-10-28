@@ -3,7 +3,7 @@
 // Hochgeladen wird jede Seite als bearbeitetes JPEG; die Originalfotos auf Wunsch zusätzlich.
 import { html, mount } from '../html.js';
 import { api } from '../api.js';
-import { icon, toast, formatBytes, busy, openDialog, formatUploaded } from '../ui.js';
+import { icon, toast, formatBytes, busy, openDialog, formatUploaded, naStar } from '../ui.js';
 import { liveCameraAvailable, openCamera } from '../scanner/camera.js';
 import { openEditor } from '../scanner/editor.js';
 import { FILTERS, MAX_SOURCE_SIDE, decodeImage, toCanvas, detectCorners, renderPage, cleanOriginal, imageproc } from '../scanner/processing.js';
@@ -57,8 +57,7 @@ export async function render({ root, query, state, navigate, refreshMe }) {
   function aiNote() {
     const ai = state.status?.ai;
     if (!ai?.enabled) {
-      return html`<div class="note">${icon('info')}<div><strong>Ohne KI-Auswertung</strong>
-        <p>Auf diesem Server ist keine KI eingerichtet. PDFs mit Text werden mit einer einfachen Erkennung gelesen. Fotos werden sicher gespeichert, aber nicht automatisch gelesen – Sie können die Angaben dann selbst eintragen.</p></div></div>`;
+      return html`<p class="small na-row">Fotos automatisch lesen (KI)${naStar()}</p>`;
     }
     if (state.me.aiConsent === 'nein') {
       return html`<div class="note">${icon('info')}<div><strong>KI-Auswertung ist ausgeschaltet</strong>

@@ -1,7 +1,7 @@
 // Anmelden, Registrieren, Passwort vergessen / neu setzen.
 import { html, mount } from '../html.js';
 import { api } from '../api.js';
-import { icon, LOGO, formValues, showError, clearErrors, busy, toast } from '../ui.js';
+import { icon, LOGO, formValues, showError, clearErrors, busy, toast, naStar } from '../ui.js';
 import { PASSWORD_MIN_LENGTH } from '../shared/constants.js';
 
 function brand(subtitle) {
@@ -10,10 +10,8 @@ function brand(subtitle) {
 
 function statusHint(state) {
   const ai = state.status?.ai?.enabled;
-  return html`<p class="small muted">${ai
-    ? 'Briefe werden auf diesem Server mit KI ausgewertet – nur, wenn Sie zustimmen.'
-    : 'Auf diesem Server ist keine KI-Auswertung eingerichtet.'}
-    <a href="#/status">Was funktioniert echt?</a> · <a href="#/datenschutz">Datenschutz</a></p>`;
+  void ai;
+  return html`<p class="small muted"><a href="#/status">Was funktioniert?</a> · <a href="#/datenschutz">Datenschutz</a></p>`;
 }
 
 export async function renderLogin({ root, state, navigate, refreshMe }) {
@@ -146,11 +144,9 @@ export async function renderForgot({ root, state }) {
     await busy(form.querySelector('[type=submit]'), async () => {
       try {
         const res = await api.post('/api/auth/forgot', { email: formValues(form).email });
-        const extra = res.mail === 'simuliert'
-          ? html`<p class="small"><strong>Entwicklungsmodus:</strong> Auf diesem Server ist kein E-Mail-Versand eingerichtet. Es wurde keine E-Mail verschickt. Den Link finden Sie im Server-Fenster (Terminal).</p>`
-          : res.mail === 'nicht_eingerichtet'
-            ? html`<p class="small"><strong>Hinweis:</strong> Auf diesem Server ist kein E-Mail-Versand eingerichtet. Bitte wenden Sie sich an den Betreiber.</p>`
-            : '';
+        const extra = res.mail === 'simuliert' || res.mail === 'nicht_eingerichtet'
+          ? html`<p class="small na-row">E-Mail-Versand${naStar()}</p>`
+          : '';
         mount(root.querySelector('[data-result]'), html`<div class="note note-ok" role="status">${icon('mail')}<div class="stack">
           <p>Wenn es ein Konto mit dieser Adresse gibt, ist ein Link unterwegs. Er ist 60 Minuten gültig. Schauen Sie auch im Spam-Ordner nach.</p>${extra}</div></div>`);
         form.hidden = true;

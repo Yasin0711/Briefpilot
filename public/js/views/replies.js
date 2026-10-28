@@ -2,7 +2,7 @@
 // und Rückfragen an die KI zum Brief. Grundsatz: Nichts wird ohne ausdrückliche Freigabe verschickt.
 import { html, mount } from '../html.js';
 import { api, download } from '../api.js';
-import { icon, toast, openDialog, showError, clearErrors, busy, confirmDialog } from '../ui.js';
+import { icon, toast, openDialog, showError, clearErrors, busy, confirmDialog, naStar } from '../ui.js';
 import { formatDate } from '../shared/dates.js';
 
 const SENT_VIA = { email: 'per E-Mail aus BriefPilot', post: 'per Post', eigenes_programm: 'mit eigenem E-Mail-Programm', kopiert: 'Text kopiert' };
@@ -36,7 +36,7 @@ function templateButton(t) {
 /** Ob Rückfragen und KI-Entwürfe möglich sind – und wenn nicht, warum. */
 export function aiState(state, letter) {
   const ai = state.status?.ai;
-  if (!ai?.enabled) return { ready: false, reason: 'Auf diesem Server ist keine KI eingerichtet. Antwortbriefe gibt es als Vorlagen.' };
+  if (!ai?.enabled) return { ready: false, reason: html`Mit KI formulieren und fragen${naStar()}`, na: true };
   if (state.me?.aiConsent !== 'ja') return { ready: false, reason: html`Dafür muss die KI-Auswertung erlaubt sein (<a href="#/einstellungen">Einstellungen → Datenschutz und KI</a>).`, consent: true };
   if (!letter.fullText || letter.fullText.trim().length < 20) return { ready: false, reason: 'Fragen und KI-Entwürfe sind möglich, sobald der Brief gelesen wurde.' };
   return { ready: true, provider: ai.provider };
@@ -93,7 +93,7 @@ export function repliesPanel(data, state) {
           <textarea class="input" id="ai-instr" name="instruction" rows="3" maxlength="1000" placeholder="Was soll in der Antwort stehen? Zum Beispiel: Ich bitte um Ratenzahlung von 50 € im Monat."></textarea>
           <p class="hint">Der Brief und Ihr Wunsch werden dafür an ${ai.provider} übermittelt.</p></div>
         <p><button class="btn" type="submit">${icon('spark')}Entwurf erstellen</button></p>
-      </form>` : html`<div class="note">${icon('info')}<p>${ai.reason}</p></div>`}
+      </form>` : ai.na ? html`<p class="small na-row">${ai.reason}</p>` : html`<div class="note">${icon('info')}<p>${ai.reason}</p></div>`}
     </div>
 
     <div class="stack" aria-labelledby="drafts-h">
@@ -145,7 +145,7 @@ export function chatPanel(data, state) {
         <button class="btn" type="submit">${icon('send')}Fragen</button>
       </form>
       <p class="small muted">Antworten kommen von der KI (${ai.provider}) und können Fehler enthalten. Keine Rechtsberatung – bei Fristen und Geld im Zweifel beim Absender oder einer Beratungsstelle nachfragen.</p>`
-      : html`<div class="note">${icon('info')}<p>${ai.reason}</p></div>`}
+      : ai.na ? html`<p class="small na-row">${ai.reason}</p>` : html`<div class="note">${icon('info')}<p>${ai.reason}</p></div>`}
   </section>`;
 }
 
@@ -288,7 +288,7 @@ export function bindAssistant(root, ctx) {
           <p class="small muted">Gesendet wird über den Mailserver dieser BriefPilot-Installation, mit Ihrem Namen als Absender und Ihrer E-Mail-Adresse für Antworten.</p>
           <div class="row"><button class="btn" type="submit" ${blocked ? 'disabled' : ''}>${icon('send')}Jetzt senden</button></div>
         </form>
-        <div class="divider">oder</div>` : html`<p class="muted">Auf diesem Server ist kein Mailserver eingerichtet${state.me?.isDemo ? ' (im Demomodus werden keine E-Mails versendet)' : ''}. Öffnen Sie die Antwort in Ihrem eigenen E-Mail-Programm:</p>`}
+        <div class="divider">oder</div>` : html`<p class="small na-row">Direkt aus BriefPilot senden${naStar(state.me?.isDemo ? 'Im Demomodus nicht verfügbar' : 'Zurzeit nicht verfügbar')}</p>`}
       <div class="stack">
         <a class="btn btn-secondary" href="${mailtoLink(to, reply)}" data-mailto>${icon('external')}Im E-Mail-Programm öffnen</a>
         <p class="small muted">Sehr lange Texte werden dabei gekürzt – nutzen Sie dann „Text kopieren“. Das PDF hängen Sie im E-Mail-Programm selbst an.</p>

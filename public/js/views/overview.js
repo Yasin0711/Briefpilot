@@ -1,7 +1,7 @@
 // Startseite: Erinnerungen, Briefe zum Zuordnen, offene Aufgaben, anstehende Fristen, zuletzt hinzugefügte Briefe.
 import { html, mount } from '../html.js';
 import { api } from '../api.js';
-import { icon, dateTile, whenLabel, greeting, taskKindLabel, toast, statusBadge } from '../ui.js';
+import { icon, dateTile, whenLabel, greeting, taskKindLabel, toast, statusBadge, naStar } from '../ui.js';
 import { formatDate } from '../shared/dates.js';
 import { setReviewCount, setInboxCount } from '../app.js';
 import { letterRow } from './parts.js';
@@ -80,8 +80,7 @@ function draw(root, state, data) {
         <span class="row-sub">BriefPilot hat mehrere mögliche Akten gefunden. Bitte wählen Sie die richtige aus.</span></span>
       ${icon('chevronRight', 'chev')}</a>` : ''}
 
-    ${aiOff ? html`<div class="note">${icon('info')}<div><strong>KI-Auswertung ist auf diesem Server nicht eingerichtet.</strong>
-      <p>PDFs mit Text werden mit einer einfachen Erkennung gelesen, Fotos nur gespeichert. <a href="#/status">Mehr dazu</a></p></div></div>` : ''}
+    ${aiOff ? html`<p class="small na-row">KI-Auswertung${naStar()}</p>` : ''}
 
     ${isEmpty ? html`<section class="panel stack">
       <h2>So funktioniert BriefPilot</h2>

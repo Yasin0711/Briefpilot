@@ -281,3 +281,8 @@ export function formatUploaded(isoString) {
   const d = new Date(isoString);
   return new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
 }
+
+/** Stern für Funktionen, die zurzeit nicht verfügbar sind (statt erklärendem Text). Antippen → Übersicht „Was funktioniert?“. */
+export function naStar(title = 'Zurzeit nicht verfügbar') {
+  return html`<a class="na-star" href="#/status" title="${title}" aria-label="${title}">*</a>`;
+}

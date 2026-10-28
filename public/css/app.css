@@ -957,3 +957,7 @@ a.tag:hover { color: var(--ink); }
 .tag-edit { cursor: pointer; font: inherit; font-size: 0.78rem; }
 .chip-count { margin-left: 6px; font-size: 0.75em; opacity: 0.7; }
 .tag-chips[hidden] { display: none; }
+
+/* Stern: Funktion zurzeit nicht verfügbar */
+.na-star { color: var(--muted); text-decoration: none; font-weight: 600; margin-left: 3px; }
+.na-row { color: var(--muted); }

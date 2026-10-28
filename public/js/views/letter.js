@@ -162,6 +162,14 @@ function originalView(files, { split = null, editable = true, tools = true } = {
     page += f.pageCount || 1;
     const label = f.pageCount > 1 ? `Seiten ${first}–${page}` : `Seite ${first}`;
     const pick = split ? html`<label class="page-pick"><input type="checkbox" data-split-page="${f.id}" ${split.has(f.id) ? 'checked' : ''}><span>${label} in neuen Brief verschieben</span></label>` : '';
+    if (f.kind === 'office') {
+      const fmt = /presentation/.test(f.mime) ? 'PowerPoint' : /spreadsheet/.test(f.mime) ? 'Excel' : 'Word';
+      const unit = fmt === 'PowerPoint' ? (f.pageCount === 1 ? 'Folie' : 'Folien') : fmt === 'Excel' ? (f.pageCount === 1 ? 'Tabelle' : 'Tabellen') : 'Dokument';
+      return html`<figure class="original-page">
+        <figcaption class="original-cap row"><span class="grow">${fmt}-Datei${fmt === 'Word' ? '' : ` · ${f.pageCount} ${unit}`} – der Text steht im Reiter „Text“</span>
+          <a class="btn btn-small btn-secondary" href="/api/files/${f.id}">${icon('download')}Herunterladen</a></figcaption>
+      </figure>`;
+    }
     if (f.kind === 'image') {
       return html`<figure class="original-page ${split?.has(f.id) ? 'is-picked' : ''}">${pick}<a href="/api/files/${f.id}" target="_blank" rel="noopener"><img src="/api/files/${f.id}" alt="Originalbrief, ${label}" loading="lazy"></a>
         <figcaption class="original-cap">${label} (Foto) – zum Vergrößern antippen</figcaption></figure>`;
@@ -178,7 +186,7 @@ function originalView(files, { split = null, editable = true, tools = true } = {
         <div class="row"><button class="btn btn-small" type="button" data-action="split-do" ${split.size ? '' : 'disabled'}>${icon('split')}${split.size ? `${split.size === 1 ? '1 Seite' : `${split.size} Seiten`} als neuen Brief speichern` : 'Seiten auswählen'}</button>
           <button class="btn btn-small btn-ghost" type="button" data-action="split-cancel">Abbrechen</button></div></div>`
     : html`<div class="page-toolbar row" role="group" aria-label="Seiten">
-        <button class="btn btn-small btn-secondary" type="button" data-action="pdf">${icon('download')}Als PDF</button>
+        ${pages.every((p) => p.kind === 'office') ? '' : html`<button class="btn btn-small btn-secondary" type="button" data-action="pdf">${icon('download')}Als PDF</button>`}
         ${editable && pages.length > 1 ? html`<button class="btn btn-small btn-ghost" type="button" data-action="split-start">${icon('split')}Seiten trennen</button>` : ''}
         ${editable ? html`<button class="btn btn-small btn-ghost" type="button" data-action="merge">${icon('merge')}Seiten eines anderen Briefes anhängen</button>` : ''}
       </div>`;

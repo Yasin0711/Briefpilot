@@ -51,7 +51,7 @@ function splitSentences(text) {
 
 export function analyzeWithRules(fullText) {
   const text = String(fullText || '');
-  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l && !/^--- Seite \d+ ---$/.test(l));
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l && !/^--- (Seite|Folie|Tabelle) \d+ ---$/.test(l));
   const salutationIndex = lines.findIndex((l) => /^(sehr geehrte|guten tag|hallo|liebe[rs]?\s)/i.test(l));
   const headerEnd = salutationIndex > 0 ? salutationIndex : Math.min(lines.length, 25);
 

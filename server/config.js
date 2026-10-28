@@ -116,9 +116,11 @@ export function loadConfig(env = process.env) {
       ttlHours: int(env.DEMO_TTL_HOURS, 24),
     },
     limits: {
-      maxFileBytes: int(env.MAX_FILE_MB, 15) * 1024 * 1024,
+      maxFileBytes: int(env.MAX_FILE_MB, 100) * 1024 * 1024,
+      maxPdfPages: int(env.MAX_PDF_PAGES, 1000),
+      uploadChunkBytes: int(env.UPLOAD_CHUNK_KB, 4096) * 1024,
       maxFilesPerLetter: int(env.MAX_PAGES_PER_LETTER, 20),
-      maxStorageBytesPerUser: int(env.MAX_STORAGE_MB_PER_USER, 500) * 1024 * 1024,
+      maxStorageBytesPerUser: int(env.MAX_STORAGE_MB_PER_USER, 5000) * 1024 * 1024,
     },
     reminderIntervalMs: int(env.REMINDER_INTERVAL_SECONDS, 60) * 1000,
     passwordHashCost: int(env.PASSWORD_HASH_COST, 15), // scrypt N = 2^cost

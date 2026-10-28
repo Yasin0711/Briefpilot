@@ -79,11 +79,13 @@ async function run({ config, fetchImpl, messages, maxTokens }) {
   throw lastError;
 }
 
-export async function analyzeLetterOpenAi({ files, config, today, fetchImpl = fetch }) {
+export async function analyzeLetterOpenAi({ files, config, today, note = '', fetchImpl = fetch }) {
   const content = [];
   files.forEach((f, i) => {
     content.push({ type: 'text', text: `Datei ${i + 1} von ${files.length}:` });
-    if (f.kind === 'pdf') {
+    if (f.kind === 'text') {
+      content.push({ type: 'text', text: `${f.label || 'Ausgelesener Text'}:\n${f.text}` });
+    } else if (f.kind === 'pdf') {
       const { text } = extractPdfText(f.data);
       if (!text || text.replace(/\s|-|Seite \d+/g, '').length < 40) {
         throw new AiError('Dieser KI-Dienst kann gescannte PDF-Dateien (nur Bilder) nicht lesen. Bitte die Seiten mit der Kamera in BriefPilot scannen oder Gemini verwenden.', { code: 'pdf_ohne_text' });
@@ -93,7 +95,7 @@ export async function analyzeLetterOpenAi({ files, config, today, fetchImpl = fe
       content.push({ type: 'image_url', image_url: { url: `data:${f.mime};base64,${f.data.toString('base64')}` } });
     }
   });
-  content.push({ type: 'text', text: `${userInstruction({ today, fileCount: files.length })}\n\n${formatInstruction(RESPONSE_SCHEMA)}` });
+  content.push({ type: 'text', text: `${userInstruction({ today, fileCount: files.length, note })}\n\n${formatInstruction(RESPONSE_SCHEMA)}` });
   return run({ config, fetchImpl, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content }], maxTokens: 16384 });
 }
 

@@ -77,7 +77,7 @@ function cleanList(list, mapper, max = 30) {
  */
 export function normalizeAnalysis(raw, { fullText: providedText, today, source }) {
   const r = raw && typeof raw === 'object' ? raw : {};
-  const fullText = str(providedText || r.full_text, 300000);
+  const fullText = str(providedText || r.full_text, 3000000);
   const toCheck = [];
 
   // Absender, Betreff, Kategorie

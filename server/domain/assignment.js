@@ -367,7 +367,17 @@ export function assignLetter(db, letterId, { force = false, ctx = null, log = tr
   let proposal = null;
   if (decision.status === 'keine' && !letter.is_demo_content) {
     proposal = proposeObject(letter, identifiers);
-    if (proposal) {
+    // Gibt es schon eine Akte mit genau diesem Namen (z. B. „Weiterbildung“)? Dann diese vorschlagen statt einer zweiten
+    const sameName = proposal && context.objects.find((o) => o.status !== 'beendet' && o.name.trim().toLowerCase() === proposal.name.trim().toLowerCase());
+    if (sameName) {
+      candidates.push({ objectId: sameName.id, name: sameName.name, type: sameName.type, score: 1, exactScore: 0, evidence: [{ type: 'name', note: `Passt zum Namen der Akte „${sameName.name}“` }] });
+      decision.status = 'vorschlag';
+      decision.reason = 'gleicher_name';
+      decision.message = `Gehört das Dokument in die Akte „${sameName.name}“?`;
+      decision.shown = [sameName.id];
+      decision.preselected = [sameName.id];
+      proposal = null;
+    } else if (proposal) {
       decision.status = 'neue_akte';
       decision.reason = 'keine_akte';
       decision.message = `Für diesen Brief gibt es noch keine passende Akte. Neue Akte „${proposal.name}“ anlegen und den Brief dort ablegen?`;

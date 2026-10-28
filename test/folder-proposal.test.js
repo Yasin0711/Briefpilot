@@ -58,3 +58,28 @@ test('Ohne passende Akte: Vorschlag im Eingang, Anlegen nach Zustimmung, nächst
     await server.stop();
   }
 });
+
+test('Gleichnamige Akte existiert schon: kein zweiter Ordner, sondern Vorschlag dieser Akte', async () => {
+  const { makePptx } = await import('./office-fixtures.js');
+  const server = await startTestServer();
+  try {
+    const { c } = await registerUser(server);
+    const upload = async (title) => {
+      const up = await c.upload(makePptx([title, 'Inhalte der Schulung zur Arbeitssicherheit im Betrieb']), 'application/octet-stream');
+      const cr = await c.post('/api/letters', { fileIds: [up.data.id] });
+      await server.app.ctx.analyzer.idle();
+      return (await c.get(`/api/letters/${cr.data.id}`)).data.letter;
+    };
+    const first = await upload('Weiterbildung Arbeitssicherheit 2025');
+    assert.equal(first.assignmentStatus, 'neue_akte');
+    const p = first.assignment.proposal;
+    assert.equal(p.name, 'Weiterbildung');
+    await c.post('/api/objects', { type: p.type, name: p.name, letterId: first.id, identifiers: [] });
+    const second = await upload('Weiterbildung Brandschutz 2026');
+    assert.equal(second.assignmentStatus, 'vorschlag');
+    assert.equal(second.assignment.candidates[0].name, 'Weiterbildung');
+    assert.equal(second.assignment.proposal, null);
+  } finally {
+    await server.stop();
+  }
+});

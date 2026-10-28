@@ -57,17 +57,19 @@ export function restoreNulls(value, schema) {
   return value;
 }
 
-function letterContent(files, today) {
+function letterContent(files, today, note = '') {
   const content = [];
   files.forEach((file, i) => {
     content.push({ type: 'text', text: `Datei ${i + 1} von ${files.length}:` });
-    if (file.kind === 'pdf') {
+    if (file.kind === 'text') {
+      content.push({ type: 'text', text: `${file.label || 'Ausgelesener Text'}:\n<<<DOKUMENT\n${file.text}\nDOKUMENT>>>` });
+    } else if (file.kind === 'pdf') {
       content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.data.toString('base64') } });
     } else {
       content.push({ type: 'image', source: { type: 'base64', media_type: imageMime(file), data: file.data.toString('base64') } });
     }
   });
-  content.push({ type: 'text', text: userInstruction({ today, fileCount: files.length }) });
+  content.push({ type: 'text', text: userInstruction({ today, fileCount: files.length, note }) });
   return content;
 }
 
@@ -169,8 +171,8 @@ async function call(config, { system, content, schema, maxTokens }, fetchImpl) {
  * files: [{ kind: 'pdf'|'image', mime, data: Buffer }]
  * Ergebnis: { result: <Rohdaten gemäß Schema>, model }
  */
-export async function analyzeWithClaude({ files, config, today, fetchImpl = fetch }) {
-  return call(config, { system: SYSTEM_PROMPT, content: letterContent(files, today), schema: RESPONSE_SCHEMA, maxTokens: 32000 }, fetchImpl);
+export async function analyzeWithClaude({ files, config, today, note = '', fetchImpl = fetch }) {
+  return call(config, { system: SYSTEM_PROMPT, content: letterContent(files, today, note), schema: RESPONSE_SCHEMA, maxTokens: 32000 }, fetchImpl);
 }
 
 /** Text-Anfrage mit JSON-Antwort (Rückfragen, Antwortentwürfe). */

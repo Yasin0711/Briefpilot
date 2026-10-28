@@ -3,6 +3,8 @@
 // Regel-Erkennung → Ergebnis prüfen (validate.js) → speichern → Akte zuordnen,
 // Duplikate prüfen, Verlauf schreiben.
 import { AiError } from './ai.js';
+import { prepareForAi, preparationNote } from './prepare.js';
+import { extractOfficeText } from '../lib/office.js';
 import { analyzeWithRules } from './rules.js';
 import { normalizeAnalysis } from './validate.js';
 import { extractPdfText } from '../pdf/extract.js';
@@ -108,8 +110,15 @@ export function createAnalyzer({ db, storage, config, ai, log = console }) {
 
     if (useAi) {
       try {
-        const { result, model } = await ai.analyzeLetter({ files, today });
-        const analysis = normalizeAnalysis(result, { fullText: result.full_text, today, source: 'ki' });
+        const prepared = prepareForAi(files);
+        const { result, model } = await ai.analyzeLetter({ files: prepared.aiFiles, today, note: preparationNote(prepared) });
+        // Vollständiger Text: lokal gelesener Text (alle Seiten) plus Abschrift gescannter Teile durch die KI
+        const aiText = String(result.full_text || '').trim();
+        const fullText = prepared.localText
+          ? [prepared.localText, aiText && !prepared.localText.includes(aiText.slice(0, 200)) ? aiText : ''].filter(Boolean).join('\n\n')
+          : aiText;
+        result.full_text = fullText;
+        const analysis = normalizeAnalysis(result, { fullText, today, source: 'ki' });
         saveAnalysis(db, letterId, analysis, { source: 'ki', model });
         afterAnalysis(letterId, { source: 'ki', model });
         log.info(`[Auswertung] Brief ausgewertet · Quelle=ki · Dateien=${files.length} · Aufgaben=${analysis.actions.length} · ${Date.now() - started} ms`);
@@ -137,6 +146,12 @@ export function createAnalyzer({ db, storage, config, ai, log = console }) {
         const extracted = extractPdfText(f.data);
         if (extracted.encrypted) encrypted = true;
         if (extracted.text) texts.push(extracted.text);
+      } else if (f.kind === 'office') {
+        try {
+          texts.push(extractOfficeText(f.data).text);
+        } catch {
+          /* unlesbar: wie leerer Text */
+        }
       } else {
         photos++;
       }
@@ -163,6 +178,15 @@ export function createAnalyzer({ db, storage, config, ai, log = console }) {
       return;
     }
     const raw = analyzeWithRules(fullText);
+    if (files.length && files.every((f) => f.kind === 'office')) {
+      // Präsentationen und Dokumente haben keine Absenderzeile: erste Zeile ist der Titel
+      const title = fullText.split('\n').map((l) => l.trim()).find((l) => l && !/^--- (Seite|Folie|Tabelle) \d+ ---$/.test(l)) || null;
+      raw.sender = null;
+      raw.sender_quote = null;
+      raw.subject = title ? title.slice(0, 200) : raw.subject;
+      raw.document_type = files.some((f) => /presentation/.test(f.mime)) ? 'Präsentation' : files.some((f) => /spreadsheet/.test(f.mime)) ? 'Tabelle' : 'Dokument';
+      raw.to_check = (raw.to_check || []).filter((t) => !/Absender/.test(t));
+    }
     if (photos) raw.to_check.push(`${photos} Foto(s) dieses Briefes wurden nicht gelesen (Texterkennung für Fotos benötigt KI).`);
     if (quotaNote) raw.to_check.unshift(quotaNote);
     if (config.ai.enabled && user.ai_consent !== 'ja') {

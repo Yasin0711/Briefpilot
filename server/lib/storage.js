@@ -5,6 +5,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { detectOffice } from './office.js';
 
 const MAGIC = Buffer.from('BPF1');
 const KEY_PATTERN = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.bin$/;
@@ -66,5 +67,7 @@ export function detectFileType(buf) {
   if (head.includes('%PDF-')) return { kind: 'pdf', mime: 'application/pdf', ext: 'pdf' };
   const brand = buf.subarray(4, 12).toString('latin1');
   if (/^ftyp(heic|heix|hevc|mif1|msf1|avif)/.test(brand)) return { kind: 'unsupported', mime: 'image/heic', reason: 'heic' };
+  const office = detectOffice(buf);
+  if (office) return office.macros ? { kind: 'unsupported', mime: office.mime, reason: 'macros', label: office.label } : office;
   return null;
 }

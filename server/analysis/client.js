@@ -19,7 +19,7 @@ export function createAiClient(config, { fetchImpl = (...args) => fetch(...args)
     label: ai.providerLabel,
     model: ai.model,
     /** @returns {Promise<{result: object, model: string}>} */
-    analyzeLetter: ({ files, today }) => impl.analyze({ files, today, config, fetchImpl }),
+    analyzeLetter: ({ files, today, note }) => impl.analyze({ files, today, note, config, fetchImpl }),
     /** @returns {Promise<{result: object, model: string}>} */
     completeJson: ({ system, prompt, schema, maxTokens }) => impl.complete({ system, prompt, schema, config, fetchImpl, maxTokens }),
   };

@@ -30,8 +30,9 @@ export function proposeObject(letter, identifiers = []) {
   const summary = parseJson(letter.summary_json, {}) || {};
   if (letter.injection_warning || /unseriös|betrug|gewinnspiel|fake/i.test(`${summary.what || ''} ${(summary.toCheck || []).join(' ')}`)) return null;
   const sender = shortSender(letter.sender);
-  if (!sender && !identifiers.length) return null;
-  const text = [letter.document_type, letter.subject, letter.full_text].filter(Boolean).join('\n').toLowerCase();
+  // Bei sehr langen Dokumenten zählt für die Einordnung vor allem der Anfang
+  const text = [letter.document_type, letter.subject, String(letter.full_text || '').slice(0, 20000)].filter(Boolean).join('\n').toLowerCase();
+  if (!sender && !identifiers.length && !/weiterbildung|fortbildung|schulung|seminar|zertifikat|teilnahmebescheinigung|zeugnis/.test(text)) return null;
   const ids = identifiers.filter((i) => i.value && i.status !== 'alt');
   let type = 'sonstiges';
   let name = null;
@@ -47,6 +48,10 @@ export function proposeObject(letter, identifiers = []) {
   } else if (meter || /zählerstand|abschlag|jahresabrechnung|verbrauchsabrechnung/.test(text)) {
     type = /\bgas\b|erdgas/.test(text) ? 'gas' : /wasser/.test(text) && !/strom/.test(text) ? 'wasser' : 'strom';
     name = `${objectType(type).label.replace('zähler', '')} · ${sender || meter.value}`;
+  } else if (/weiterbildung|fortbildung|schulung|seminar|lehrgang|zertifikat|teilnahmebescheinigung|zeugnis|prüfungsergebnis|kursunterlagen|präsentation|vortrag/.test(text) && !find(ids, 'versicherungsnummer', 'steuernummer', 'zaehlernummer')) {
+    type = 'sonstiges';
+    const topic = /zeugnis|zertifikat|teilnahmebescheinigung|prüfungsergebnis/.test(text) ? 'Zertifikate & Nachweise' : 'Weiterbildung';
+    name = sender ? `${topic} · ${sender}` : topic;
   } else if (letter.category === 'gesundheit' && /praxis|dr\. med|klinik|krankenhaus|arzt|zahnarzt|apotheke|therapie/i.test(`${letter.sender || ''} ${text}`) && !/krankenkasse/i.test(letter.sender || '')) {
     type = 'sonstiges';
     name = `Gesundheit · ${sender}`;

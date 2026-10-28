@@ -51,6 +51,8 @@ export const api = {
    * headers: z. B. { 'X-File-Role': 'original' } für eine zusätzlich aufbewahrte Originalaufnahme
    */
   upload(blob, onProgress, headers = {}) {
+    // Große Dateien in Stücken: stabiler im Mobilfunknetz, einzelne Teile werden bei Fehlern wiederholt
+    if (blob.size > CHUNKED_FROM) return uploadChunked(blob, onProgress, headers);
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/files');
@@ -78,6 +80,29 @@ export const api = {
     });
   },
 };
+
+const CHUNKED_FROM = 8 * 1024 * 1024;
+
+async function uploadChunked(blob, onProgress, headers = {}) {
+  const role = headers['X-File-Role'] === 'original' ? 'original' : 'seite';
+  const { id, chunkSize, chunks } = await request('POST', '/api/uploads', { size: blob.size, type: blob.type || 'application/octet-stream', role });
+  for (let i = 0; i < chunks; i++) {
+    const part = blob.slice(i * chunkSize, Math.min(blob.size, (i + 1) * chunkSize));
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await request('PUT', `/api/uploads/${id}/${i}`, part, { headers: { 'Content-Type': 'application/octet-stream' } });
+        break;
+      } catch (err) {
+        if (attempt >= 4 || (err.status && err.status !== 0 && err.status < 500 && err.status !== 429)) throw err;
+        await new Promise((r) => setTimeout(r, attempt * 1500));
+      }
+    }
+    onProgress?.((i + 1) / chunks * 0.97);
+  }
+  const result = await request('POST', `/api/uploads/${id}/complete`, {});
+  onProgress?.(1);
+  return result;
+}
 
 /** Lädt eine Datei herunter (z. B. Export, Kalenderdatei), ohne öffentliche Links. */
 export async function download(path, fallbackName) {

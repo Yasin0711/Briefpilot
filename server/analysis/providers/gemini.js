@@ -118,13 +118,14 @@ async function run({ config, fetchImpl, build }) {
 }
 
 /** Brief lesen und auswerten (Fotos und PDFs werden direkt übergeben, auch gescannte PDFs). */
-export async function analyzeLetterGemini({ files, config, today, fetchImpl = fetch }) {
+export async function analyzeLetterGemini({ files, config, today, note = '', fetchImpl = fetch }) {
   const parts = [];
   files.forEach((f, i) => {
     parts.push({ text: `Datei ${i + 1} von ${files.length}:` });
-    parts.push({ inlineData: { mimeType: f.kind === 'pdf' ? 'application/pdf' : f.mime, data: f.data.toString('base64') } });
+    if (f.kind === 'text') parts.push({ text: `${f.label || 'Ausgelesener Text'}:\n<<<DOKUMENT\n${f.text}\nDOKUMENT>>>` });
+    else parts.push({ inlineData: { mimeType: f.kind === 'pdf' ? 'application/pdf' : f.mime, data: f.data.toString('base64') } });
   });
-  parts.push({ text: userInstruction({ today, fileCount: files.length }) });
+  parts.push({ text: userInstruction({ today, fileCount: files.length, note }) });
   return run({ config, fetchImpl, build: (useSchema) => buildGeminiRequest({ system: SYSTEM_PROMPT, parts, schema: RESPONSE_SCHEMA, useSchema }) });
 }
 

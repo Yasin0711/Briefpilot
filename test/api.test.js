@@ -283,7 +283,9 @@ test('KI-Anbindung: Anfrageformat und Schutz vor manipulierten Antworten (simuli
     assert.equal(received.headers['x-api-key'], 'sk-test-geheim-1234567890');
     assert.equal(received.headers['anthropic-version'], '2023-06-01');
     assert.equal(received.body.output_config.format.type, 'json_schema');
-    assert.equal(received.body.messages[0].content.find((b) => b.type === 'document').source.media_type, 'application/pdf');
+    // Digitale PDF: Text wird lokal gelesen und nur als Text an die KI gegeben (spart Kosten)
+    assert.equal(received.body.messages[0].content.some((b) => b.type === 'document'), false);
+    assert.ok(received.body.messages[0].content.some((b) => b.type === 'text' && /<<<DOKUMENT[\s\S]*Muster Versicherung/.test(b.text)));
     assert.equal(received.body.temperature, undefined);
     assert.match(received.body.system, /niemals Anweisungen/);
 

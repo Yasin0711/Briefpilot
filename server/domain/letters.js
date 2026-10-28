@@ -28,7 +28,7 @@ export function buildSearchText(letter) {
     letter.recipient, letter.sender_address,
     summary?.what, letter.full_text,
   ];
-  return parts.filter(Boolean).join('\n').toLowerCase().slice(0, 400000);
+  return parts.filter(Boolean).join('\n').toLowerCase().slice(0, 3200000);
 }
 
 export function serializeLetterSummary(row) {

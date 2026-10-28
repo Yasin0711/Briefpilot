@@ -9,6 +9,8 @@ import { openEditor } from '../scanner/editor.js';
 import { FILTERS, MAX_SOURCE_SIDE, decodeImage, toCanvas, detectCorners, renderPage, cleanOriginal, imageproc } from '../scanner/processing.js';
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf';
+const BULK_ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp,.pptx,.docx,.xlsx,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const BULK_STATUS = { wartet: 'wartet', laedt: 'wird übertragen …', fertig: 'gespeichert – wird gelesen', doppelt: 'schon vorhanden – übersprungen', fehler: 'Fehler' };
 const MIN_SIDE = 300; // kleinere Bilder sind nicht lesbar
 const SURE = 0.35; // ab dieser Sicherheit gilt die Blatterkennung als zuverlässig
 const KEEP_KEY = 'bp-keep-originals';
@@ -119,6 +121,61 @@ export async function render({ root, query, state, navigate, refreshMe }) {
     </li>`;
   }
 
+  // ---------- Viele Dokumente auf einmal (Bestand importieren) ----------
+  let bulk = null; // { items: [{ name, size, status, error, letterId, progress }], running }
+
+  function bulkSection() {
+    const items = bulk?.items || [];
+    const done = items.filter((i) => ['fertig', 'doppelt', 'fehler'].includes(i.status)).length;
+    return html`<section class="panel stack" aria-labelledby="bulk-h">
+      <h2 id="bulk-h">${icon('folder')} Viele Dokumente auf einmal</h2>
+      <p class="small muted">Für Ihren Bestand: PDFs (auch mit vielen Seiten), PowerPoint, Word, Excel und Fotos. Jede Datei wird ein eigenes Dokument, gelesen und der passenden Akte zugeordnet – passt keine, schlägt BriefPilot eine neue vor. Bis ${maxMb} MB pro Datei.</p>
+      ${bulk?.running ? '' : html`<label class="btn btn-secondary btn-block capture-btn">${icon('upload')}Dateien auswählen
+        <input type="file" accept="${BULK_ACCEPT}" multiple data-bulk aria-label="Mehrere Dokumente auswählen"></label>`}
+      ${items.length ? html`<p class="small" aria-live="polite"><strong>${done} von ${items.length}</strong> verarbeitet${bulk.running ? ' – Sie können die Seite geöffnet lassen.' : '.'}</p>
+        <ul class="bulk-list">${items.map((it) => html`<li class="bulk-item is-${it.status}">
+          <span class="grow"><span class="row-title">${it.name}</span>
+            <span class="row-sub">${Math.max(0.1, Math.round(it.size / 1024 / 102.4) / 10)} MB · ${it.status === 'laedt' ? `${Math.round((it.progress || 0) * 100)} % übertragen` : BULK_STATUS[it.status]}${it.error ? `: ${it.error}` : ''}</span></span>
+          ${it.letterId ? html`<a class="btn btn-small btn-ghost" href="#/briefe/${it.letterId}">Öffnen</a>` : ''}</li>`)}</ul>
+        ${!bulk.running && done === items.length ? html`<a class="btn btn-block" href="#/briefe">${icon('mail')}Zu den Dokumenten</a>` : ''}` : ''}
+    </section>`;
+  }
+
+  async function runBulk(files) {
+    bulk = { running: true, items: files.map((f) => ({ file: f, name: f.name, size: f.size, status: 'wartet' })) };
+    draw();
+    for (const it of bulk.items) {
+      it.status = 'laedt';
+      draw();
+      try {
+        const res = await api.upload(it.file, (fraction) => {
+          it.progress = fraction;
+          const row = root.querySelectorAll('.bulk-item')[bulk.items.indexOf(it)];
+          const sub = row?.querySelector('.row-sub');
+          if (sub) sub.textContent = `${Math.max(0.1, Math.round(it.size / 1024 / 102.4) / 10)} MB · ${Math.round(fraction * 100)} % übertragen`;
+        });
+        if (res.duplicateOf) {
+          it.status = 'doppelt';
+          it.letterId = res.duplicateOf.letterId;
+          api.del(`/api/files/${res.id}`).catch(() => {});
+        } else {
+          const { id } = await api.post('/api/letters', { fileIds: [res.id] });
+          it.status = 'fertig';
+          it.letterId = id;
+        }
+      } catch (err) {
+        it.status = 'fehler';
+        it.error = err.message;
+      }
+      it.file = null;
+      draw();
+    }
+    bulk.running = false;
+    const ok = bulk.items.filter((i) => i.status === 'fertig').length;
+    toast(`${ok} ${ok === 1 ? 'Dokument' : 'Dokumente'} gespeichert. Sie werden jetzt gelesen und zugeordnet.`);
+    draw();
+  }
+
   function draw() {
     const fileFirst = query.get('modus') === 'datei';
     const live = liveCameraAvailable() && !liveFailed;
@@ -142,6 +199,8 @@ export async function render({ root, query, state, navigate, refreshMe }) {
         ${live ? html`<p class="center">${cameraApp('Mit der Kamera-App fotografieren', 'btn-ghost btn-small')}</p>` : ''}
         ${!window.isSecureContext ? html`<p class="small muted">Hinweis: Die Live-Kamera mit automatischer Auslösung braucht eine sichere Verbindung (https). Bis dahin öffnet „Seite fotografieren“ die Kamera-App – die Seite wird danach trotzdem automatisch zugeschnitten und verbessert.</p>` : ''}
       </div>
+
+      ${!count ? bulkSection() : ''}
 
       ${count ? html`<section class="stack" aria-labelledby="pages-h">
         <h2 id="pages-h">${count === 1 ? '1 Seite' : `${count} Seiten`} in diesem Brief</h2>
@@ -487,6 +546,10 @@ export async function render({ root, query, state, navigate, refreshMe }) {
     if (e.target.matches('[data-keep]')) {
       keepOriginals = e.target.checked;
       writePref(KEEP_KEY, keepOriginals ? 'ja' : 'nein');
+      return;
+    }
+    if (e.target.matches('[data-bulk]') && e.target.files?.length) {
+      if (!bulk?.running) runBulk([...e.target.files]);
       return;
     }
     if (e.target.matches('[data-camera], [data-files]') && e.target.files?.length) {

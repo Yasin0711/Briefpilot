@@ -3,6 +3,9 @@ import crypto from 'node:crypto';
 import { HttpError, badRequest, notFound, readBody, readJson } from '../lib/http.js';
 import { newId } from '../lib/security.js';
 import { detectFileType } from '../lib/storage.js';
+import { extractOfficeText, OFFICE_TYPES } from '../lib/office.js';
+import path from 'node:path';
+import fsp from 'node:fs/promises';
 import { inspectPdf } from '../pdf/extract.js';
 import { sanitizePdf, hasActiveObjects } from '../pdf/sanitize.js';
 import { buildScanPdf } from '../pdf/write.js';
@@ -46,22 +49,29 @@ export function registerLetterRoutes(router, ctx) {
     return letter;
   }
 
-  // ---------- Datei (eine Seite) hochladen ----------
-  router.post('/api/files', async (req, res, { user }) => {
-    limiter.hit(`upload:${user.id}`, 300, 3600_000, 'Sie haben sehr viele Dateien hochgeladen. Bitte warten Sie etwas.');
-    let data = await readBody(req, config.limits.maxFileBytes);
+  // ---------- Datei hochladen ----------
+  // Gemeinsame Prüfung und Ablage – für den direkten Upload und den Upload in Stücken.
+  async function storeUpload(user, inputData, { declared = '', role = 'seite' } = {}) {
+    let data = inputData;
     if (data.length < 100) throw badRequest('Die Datei ist leer oder beschädigt.');
     const type = detectFileType(data);
-    if (!type) throw new HttpError(415, 'Dieses Dateiformat wird nicht unterstützt. Erlaubt sind Fotos (JPG, PNG, WebP) und PDF-Dateien.');
+    if (!type) throw new HttpError(415, 'Dieses Dateiformat wird nicht unterstützt. Erlaubt sind Fotos (JPG, PNG, WebP), PDF-Dateien sowie PowerPoint, Word und Excel (.pptx, .docx, .xlsx).');
     if (type.kind === 'unsupported') {
+      if (type.reason === 'macros') throw new HttpError(415, `Diese ${type.label}-Datei enthält Makros und wird aus Sicherheitsgründen nicht angenommen. Bitte speichern Sie sie ohne Makros (z. B. als .${type.label === 'Word' ? 'docx' : type.label === 'Excel' ? 'xlsx' : 'pptx'}) oder als PDF.`);
       throw new HttpError(415, 'HEIC-Fotos (iPhone-Format) werden noch nicht unterstützt. Bitte fotografieren Sie direkt in BriefPilot oder stellen Sie die Kamera auf „Maximale Kompatibilität“.');
     }
-    const declared = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
-    if (declared && declared !== 'application/octet-stream' && declared !== type.mime) {
+    if (declared && declared !== 'application/octet-stream' && declared !== type.mime && !(type.kind === 'office' && /zip|officedocument|ms-powerpoint|msword|ms-excel/.test(declared))) {
       throw new HttpError(415, 'Der Dateityp passt nicht zum Inhalt der Datei.');
     }
     let pageCount = 1;
     let sanitized = null;
+    if (type.kind === 'office') {
+      try {
+        pageCount = extractOfficeText(data).pageCount;
+      } catch {
+        throw badRequest('Die Office-Datei ist beschädigt oder lässt sich nicht lesen.');
+      }
+    }
     if (type.kind === 'pdf') {
       let info = inspectPdf(data);
       if (!info.valid) throw badRequest('Die PDF-Datei ist beschädigt oder unvollständig.');
@@ -85,7 +95,7 @@ export function registerLetterRoutes(router, ctx) {
         info = after;
         sanitized = { removed: result.removed };
       }
-      if (info.pageCount > 50) throw badRequest('Die PDF-Datei hat mehr als 50 Seiten. Bitte laden Sie nur den Brief hoch.');
+      if (info.pageCount > config.limits.maxPdfPages) throw badRequest(`Die PDF-Datei hat mehr als ${config.limits.maxPdfPages} Seiten. Bitte teilen Sie sie auf.`);
       pageCount = info.pageCount;
     }
     const used = db.get('SELECT COALESCE(SUM(size), 0) AS total FROM files WHERE user_id = ?', user.id).total;
@@ -93,7 +103,6 @@ export function registerLetterRoutes(router, ctx) {
       throw new HttpError(413, 'Ihr Speicherplatz ist voll. Bitte löschen Sie ältere Briefe oder exportieren Sie Ihre Daten.');
     }
     const sha256 = crypto.createHash('sha256').update(data).digest('hex');
-    const role = req.headers['x-file-role'] === 'original' ? 'original' : 'seite';
     // Exakt dieselbe Datei schon in einem Brief? (z. B. dasselbe PDF zweimal hochgeladen)
     const duplicate = role === 'seite' ? db.get(
       `SELECT l.id, l.subject, l.uploaded_at FROM files f JOIN letters l ON l.id = f.letter_id
@@ -111,6 +120,74 @@ export function registerLetterRoutes(router, ctx) {
       sanitized: sanitized ? { removed: sanitized.removed, message: 'Die PDF enthielt aktive Inhalte (z. B. JavaScript). Sie wurden entfernt – Text und Seiten bleiben erhalten.' } : null,
       duplicateOf: duplicate ? { letterId: duplicate.id, subject: duplicate.subject, uploadedAt: duplicate.uploaded_at } : null,
     };
+  }
+
+  router.post('/api/files', async (req, res, { user }) => {
+    limiter.hit(`upload:${user.id}`, 600, 3600_000, 'Sie haben sehr viele Dateien hochgeladen. Bitte warten Sie etwas.');
+    const data = await readBody(req, Math.min(config.limits.maxFileBytes, 32 * 1024 * 1024));
+    const declared = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    return storeUpload(user, data, { declared, role: req.headers['x-file-role'] === 'original' ? 'original' : 'seite' });
+  });
+
+  // ---------- Große Dateien in Stücken hochladen ----------
+  // 1) POST /api/uploads {size, type, role} → id  2) PUT /api/uploads/:id/:index (je ≤ 4 MB)
+  // 3) POST /api/uploads/:id/complete → wie /api/files. Teile liegen nur kurz im Datenordner.
+  const uploads = new Map();
+  const uploadDir = path.join(config.dataDir, 'uploads-tmp');
+  const cleanupUpload = async (id) => {
+    uploads.delete(id);
+    await fsp.rm(path.join(uploadDir, id), { recursive: true, force: true });
+  };
+  const sweeper = setInterval(() => {
+    for (const [id, u] of uploads) if (Date.now() - u.touched > 3600_000) cleanupUpload(id).catch(() => {});
+  }, 600_000);
+  sweeper.unref?.();
+
+  router.post('/api/uploads', async (req, res, { user }) => {
+    limiter.hit(`upload:${user.id}`, 600, 3600_000, 'Sie haben sehr viele Dateien hochgeladen. Bitte warten Sie etwas.');
+    const body = await readJson(req);
+    const size = Number(body.size);
+    if (!Number.isInteger(size) || size < 100) throw badRequest('Die Datei ist leer oder beschädigt.');
+    if (size > config.limits.maxFileBytes) throw new HttpError(413, `Die Datei ist zu groß (maximal ${Math.round(config.limits.maxFileBytes / 1024 / 1024)} MB).`);
+    if ([...uploads.values()].filter((u) => u.userId === user.id).length >= 6) throw new HttpError(429, 'Zu viele gleichzeitige Uploads. Bitte warten Sie, bis die laufenden fertig sind.');
+    const id = newId();
+    const chunkSize = config.limits.uploadChunkBytes;
+    await fsp.mkdir(path.join(uploadDir, id), { recursive: true, mode: 0o700 });
+    uploads.set(id, {
+      userId: user.id, size, chunkSize, chunks: Math.ceil(size / chunkSize), received: new Set(), touched: Date.now(),
+      declared: String(body.type || '').slice(0, 200).toLowerCase(), role: body.role === 'original' ? 'original' : 'seite',
+    });
+    return { id, chunkSize, chunks: Math.ceil(size / chunkSize) };
+  });
+
+  router.put('/api/uploads/:id/:index', async (req, res, { user, params }) => {
+    const u = uploads.get(params.id);
+    if (!u || u.userId !== user.id) throw notFound('Dieser Upload ist abgelaufen. Bitte erneut versuchen.');
+    const index = Number(params.index);
+    if (!Number.isInteger(index) || index < 0 || index >= u.chunks) throw badRequest('Ungültiger Teil.');
+    const data = await readBody(req, u.chunkSize);
+    const expected = index === u.chunks - 1 ? u.size - index * u.chunkSize : u.chunkSize;
+    if (data.length !== expected) throw badRequest('Dieser Teil ist unvollständig angekommen. Bitte erneut senden.');
+    await fsp.writeFile(path.join(uploadDir, params.id, String(index)), data, { mode: 0o600 });
+    u.received.add(index);
+    u.touched = Date.now();
+    return { ok: true, received: u.received.size, chunks: u.chunks };
+  });
+
+  router.post('/api/uploads/:id/complete', async (req, res, { user, params }) => {
+    const u = uploads.get(params.id);
+    if (!u || u.userId !== user.id) throw notFound('Dieser Upload ist abgelaufen. Bitte erneut versuchen.');
+    if (u.received.size !== u.chunks) throw badRequest(`Es fehlen noch ${u.chunks - u.received.size} Teile.`);
+    try {
+      const parts = [];
+      for (let i = 0; i < u.chunks; i++) parts.push(await fsp.readFile(path.join(uploadDir, params.id, String(i))));
+      const data = Buffer.concat(parts);
+      parts.length = 0;
+      if (data.length !== u.size) throw badRequest('Die Datei ist unvollständig angekommen. Bitte erneut versuchen.');
+      return await storeUpload(user, data, { declared: u.declared, role: u.role });
+    } finally {
+      await cleanupUpload(params.id);
+    }
   });
 
   router.delete('/api/files/:id', async (req, res, { user, params }) => {
@@ -126,11 +203,14 @@ export function registerLetterRoutes(router, ctx) {
     const file = db.get('SELECT * FROM files WHERE id = ? AND user_id = ?', params.id, user.id);
     if (!file) throw notFound('Diese Datei wurde nicht gefunden.');
     const data = await storage.get(file.storage_key);
-    const ext = file.kind === 'pdf' ? 'pdf' : file.mime.split('/')[1].replace('jpeg', 'jpg');
+    const office = file.kind === 'office' ? Object.values(OFFICE_TYPES).find((t) => t.mime === file.mime) : null;
+    const ext = file.kind === 'pdf' ? 'pdf' : office ? office.ext : file.mime.split('/')[1].replace('jpeg', 'jpg');
     res.writeHead(200, {
       'Content-Type': file.mime,
       'Content-Length': data.length,
-      'Content-Disposition': `inline; filename="brief-seite-${(file.position ?? 0) + 1}.${ext}"`,
+      // Office-Dateien nur zum Herunterladen, nie im Browser ausführen
+      'Content-Disposition': `${office ? 'attachment' : 'inline'}; filename="${office ? 'dokument' : 'brief-seite'}-${(file.position ?? 0) + 1}.${ext}"`,
+      'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'private, no-store',
       'X-Frame-Options': 'SAMEORIGIN',
       'Content-Security-Policy': "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'",
@@ -149,7 +229,7 @@ export function registerLetterRoutes(router, ctx) {
     if (files.some((f) => !f)) throw badRequest('Mindestens eine Seite wurde nicht gefunden oder gehört bereits zu einem Brief. Bitte erneut hochladen.');
     if (files.some((f) => f.role !== 'seite')) throw badRequest('Originalaufnahmen gehören in „originalIds“, nicht zu den Seiten.');
     const totalPages = files.reduce((n, f) => n + f.page_count, 0);
-    if (totalPages > 50) throw badRequest('Der Brief hat zu viele Seiten (höchstens 50).');
+    if (totalPages > config.limits.maxPdfPages) throw badRequest(`Das Dokument hat zu viele Seiten (höchstens ${config.limits.maxPdfPages}).`);
     // Auf Wunsch aufbewahrte Originalaufnahmen (vor Zuschnitt und Bildverbesserung)
     const originalIds = Array.isArray(body.originalIds) ? body.originalIds.map(String).slice(0, config.limits.maxFilesPerLetter) : [];
     const originals = originalIds.map((id) => db.get("SELECT * FROM files WHERE id = ? AND user_id = ? AND letter_id IS NULL AND role = 'original'", id, user.id));

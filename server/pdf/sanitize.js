@@ -203,3 +203,101 @@ export function hasActiveObjects(input) {
   for (const [, obj] of doc.objects) walk(obj.value);
   return found;
 }
+
+// ---------- Auszug: nur die ersten Seiten (für die KI bei langen gescannten Dokumenten) ----------
+
+function collectPageRefs(doc, rootRef, max) {
+  const out = [];
+  const catalog = doc.resolve(rootRef);
+  const pagesRef = catalog instanceof Map ? catalog.get('Pages') : null;
+  const visit = (ref, inherited, depth) => {
+    if (out.length >= max || depth > 50) return;
+    const node = doc.resolve(ref);
+    if (!(node instanceof Map)) return;
+    const inh = { ...inherited };
+    for (const k of ['Resources', 'MediaBox', 'CropBox', 'Rotate']) if (node.has(k)) inh[k] = node.get(k);
+    const kids = doc.resolve(node.get('Kids'));
+    if (Array.isArray(kids) && !isName(node.get('Type'), 'Page')) {
+      for (const kid of kids) visit(kid, inh, depth + 1);
+    } else if (ref instanceof Ref) {
+      out.push({ ref, inherited: inh });
+    }
+  };
+  if (pagesRef) visit(pagesRef, {}, 0);
+  return out;
+}
+
+/**
+ * Neue PDF mit nur den ersten `maxPages` Seiten (ohne Lesezeichen, Formulare, Links).
+ * Nicht mehr benötigte Bilder und Schriften fallen weg, damit die Datei klein bleibt.
+ * @returns {{ pdf: Buffer, pages: number, total: number }}
+ */
+export function subsetPdf(input, maxPages) {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  const doc = new PdfDocument(buf);
+  const { root } = findTrailerRefs(doc, buf);
+  if (!root) throw new Error('Die PDF-Datei hat keinen gültigen Katalog.');
+  const all = collectPageRefs(doc, root, Number.MAX_SAFE_INTEGER);
+  const keep = all.slice(0, maxPages);
+  if (!keep.length) throw new Error('Keine Seiten gefunden.');
+  const nums = [...doc.objects.keys()];
+  const pagesNum = Math.max(...nums) + 1;
+  const catalogNum = pagesNum + 1;
+  const override = new Map();
+  override.set(pagesNum, { value: new Map([['Type', new Name('Pages')], ['Kids', keep.map((p) => p.ref)], ['Count', keep.length]]), stream: null, gen: 0 });
+  override.set(catalogNum, { value: new Map([['Type', new Name('Catalog')], ['Pages', new Ref(pagesNum, 0)]]), stream: null, gen: 0 });
+  for (const p of keep) {
+    const obj = doc.objects.get(p.ref.num);
+    const dict = new Map(doc.resolve(p.ref));
+    for (const [k, v] of Object.entries(p.inherited)) if (!dict.has(k)) dict.set(k, v);
+    dict.set('Parent', new Ref(pagesNum, 0));
+    for (const k of ['Annots', 'B', 'AA', 'StructParents', 'Thumb']) dict.delete(k);
+    override.set(p.ref.num, { value: dict, stream: null, gen: obj?.gen || 0 });
+  }
+  const get = (num) => override.get(num) || doc.objects.get(num);
+  // Erreichbare Objekte ab dem neuen Katalog
+  const reachable = new Set();
+  const stack = [catalogNum];
+  const walk = (v, d = 0) => {
+    if (d > 100) return;
+    if (v instanceof Ref) { if (!reachable.has(v.num)) stack.push(v.num); return; }
+    if (Array.isArray(v)) v.forEach((x) => walk(x, d + 1));
+    else if (v instanceof Map) for (const [, x] of v) walk(x, d + 1);
+  };
+  while (stack.length) {
+    const num = stack.pop();
+    if (reachable.has(num)) continue;
+    const obj = get(num);
+    if (!obj) continue;
+    reachable.add(num);
+    walk(obj.value);
+  }
+  const stats = { removed: 0 };
+  const chunks = [Buffer.from('%PDF-1.7\n%\xe2\xe3\xcf\xd3\n', 'latin1')];
+  let pos = chunks[0].length;
+  const offsets = new Map();
+  for (const num of [...reachable].sort((a, b) => a - b)) {
+    const obj = get(num);
+    const gen = obj.gen || 0;
+    let body;
+    if (obj.stream) {
+      const data = streamBytes(doc, buf, obj);
+      const dict = neutralize(obj.value instanceof Map ? obj.value : new Map(), stats);
+      dict.set('Length', data.length);
+      body = Buffer.concat([Buffer.from(`${num} ${gen} obj\n${serialize(dict)}\nstream\n`, 'latin1'), data, Buffer.from('\nendstream\nendobj\n', 'latin1')]);
+    } else {
+      body = Buffer.from(`${num} ${gen} obj\n${serialize(neutralize(obj.value, stats))}\nendobj\n`, 'latin1');
+    }
+    offsets.set(num, { pos, gen });
+    chunks.push(body);
+    pos += body.length;
+  }
+  const size = Math.max(...reachable) + 1;
+  let xref = `xref\n0 ${size}\n0000000000 65535 f \n`;
+  for (let i = 1; i < size; i++) {
+    const o = offsets.get(i);
+    xref += o ? `${String(o.pos).padStart(10, '0')} ${String(o.gen).padStart(5, '0')} n \n` : '0000000000 65535 f \n';
+  }
+  chunks.push(Buffer.from(`${xref}trailer\n<</Size ${size} /Root ${catalogNum} 0 R>>\nstartxref\n${pos}\n%%EOF\n`, 'latin1'));
+  return { pdf: Buffer.concat(chunks), pages: keep.length, total: all.length };
+}

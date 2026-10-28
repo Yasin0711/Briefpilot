@@ -57,6 +57,8 @@ Ein Tageslimit pro Nutzer (`AI_DAILY_LIMIT`, Demo: `DEMO_AI_DAILY_LIMIT`) schüt
 | Registrierung, Anmeldung, mehrere Geräte, Passwort ändern/zurücksetzen | **echt** (Zurücksetzen-Link ohne Mailserver nur im Server-Fenster) |
 | **Ohne Konto fortfahren** (Gastzugang ohne E-Mail und Passwort, Sitzung 1 Jahr, Daten nur auf diesem Gerät erreichbar) | **echt** |
 | **Scanner:** Live-Kamera mit Kantenerkennung und automatischer Auslösung, Perspektivkorrektur, Aufhellen von Schatten, Kontrast, Filter (Verbessert, Graustufen, Schwarzweiß, Original), Ecken von Hand anpassen, drehen, Seiten sortieren, mehrere Seiten, Import von Fotos/Screenshots/PDFs, Originalfotos auf Wunsch zusätzlich speichern, Scan als PDF | **echt**, läuft komplett auf dem Gerät. Live-Kamera braucht `https` oder `localhost`; sonst öffnet sich die Kamera-App, der Zuschnitt erfolgt danach automatisch |
+| **Großer Bestand:** viele Dokumente auf einmal importieren (Scannen → „Viele Dokumente auf einmal“), Dateien bis 100 MB (Upload in Stücken), PDFs bis 1000 Seiten, PowerPoint/Word/Excel (.pptx/.docx/.xlsx, ohne Makros) – Text wird lokal gelesen und ist durchsuchbar | **echt** |
+| Sparsame KI bei langen Dokumenten: digitale PDFs und Office-Dateien gehen nur als Text (Anfang) an die KI, bei gescannten Dokumenten nur die ersten 20 Seiten | **echt** |
 | Verschlüsselte Ablage der Originale | **echt** (AES-256-GCM) |
 | KI liest und erklärt Briefe (Absender, Empfänger, Datum, Nummern, Beträge, Fristen, nächste Schritte) | **echt, sobald ein KI-Schlüssel eingetragen ist** und der Nutzer zustimmt |
 | Erkennung ohne KI | **echt, aber einfach:** PDFs mit Textebene werden mit Suchregeln gelesen; Fotos ohne KI nicht |

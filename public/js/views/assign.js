@@ -55,7 +55,14 @@ export function mountDecision(container, { letter, assignment, current = [], onD
     if (learnChecked === null || !single) learnChecked = new Set(toLearn.filter((i) => i.status === 'neu').map((i) => i.value));
     const others = (allObjects || []).filter((o) => !candidates.some((c) => c.objectId === o.id));
     mount(container, html`<div class="decision stack">
-      ${info.message && !current.length ? html`<p class="decision-msg">${icon('inbox')}<strong>${info.message}</strong></p>` : ''}
+      ${info.message && !current.length && !(info.proposal && !candidates.length) ? html`<p class="decision-msg">${icon('inbox')}<strong>${info.message}</strong></p>` : ''}
+      ${info.proposal && !candidates.length && !current.length ? html`<div class="proposal panel stack">
+        <p class="decision-msg">${icon('folder')}<strong>Für diesen Brief gibt es noch keine passende Akte.</strong></p>
+        <div class="field"><label for="proposal-${letter.id}">Neue Akte (${info.proposal.typeLabel})</label>
+          <input class="input" id="proposal-${letter.id}" data-proposal-name maxlength="120" value="${info.proposal.name}"></div>
+        ${info.proposal.identifiers?.length ? html`<p class="small muted">Die Akte merkt sich: ${info.proposal.identifiers.map((i) => `${i.label} ${i.value}`).join(', ')} – künftige Briefe damit landen automatisch dort.</p>` : ''}
+        <div class="row"><button class="btn" type="button" data-accept-proposal>${icon('check')}Akte anlegen und Brief ablegen</button></div>
+      </div>` : ''}
       ${candidates.length ? html`<fieldset class="choices">
         <legend class="visually-hidden">Mögliche Akten</legend>
         ${candidates.map((c) => html`<label class="choice ${selected.has(c.objectId) ? 'is-on' : ''}">
@@ -171,13 +178,36 @@ export function mountDecision(container, { letter, assignment, current = [], onD
       await save(noneBtn, { objectIds: [], none: true }, 'Gespeichert: Der Brief gehört zu keiner Akte.');
       return;
     }
+    const acceptBtn = e.target.closest('[data-accept-proposal]');
+    if (acceptBtn && info.proposal) {
+      const name = container.querySelector('[data-proposal-name]')?.value.trim() || info.proposal.name;
+      await busy(acceptBtn, async () => {
+        try {
+          const res = await api.post('/api/objects', {
+            type: info.proposal.type, name, provider: info.proposal.provider || '', letterId: letter.id,
+            identifiers: (info.proposal.identifiers || []).map((i) => ({ kind: i.kind, value: i.value, status: 'aktuell' })),
+          });
+          forgetObjects();
+          toast(`Akte „${name}“ angelegt – der Brief liegt jetzt dort.${reassignedText(res.reassigned)}`);
+          onDone?.(res);
+        } catch (err) {
+          toast(err.message, { error: true });
+        }
+      });
+      return;
+    }
     if (e.target.closest('[data-new]')) {
       const ids = objectLevelIdentifiers(identifiers);
       const type = guessType(ids, letter.category);
       const plate = ids.find((i) => i.kind === 'kennzeichen')?.value;
       openObjectDialog({
         letterId: letter.id,
-        prefill: {
+        prefill: info.proposal ? {
+          type: info.proposal.type,
+          name: info.proposal.name,
+          provider: info.proposal.provider || '',
+          identifiers: ids.slice(0, 6).map((i) => ({ kind: i.kind, value: i.value, status: i.status === 'alt' ? 'alt' : 'aktuell' })),
+        } : {
           type,
           name: plate ? `Fahrzeug · ${plate}` : letter.sender ? `${objectType(type).label} · ${letter.sender}`.slice(0, 120) : '',
           provider: letter.sender || '',

@@ -338,7 +338,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
   function assignmentPanel() {
     const { letter, links } = data;
     const status = letter.assignmentStatus;
-    const attention = status === 'pruefen' || status === 'vorschlag';
+    const attention = status === 'pruefen' || status === 'vorschlag' || status === 'neue_akte';
     if (assignEditing || attention) {
       return html`<section class="panel stack assign-panel ${attention && !assignEditing ? 'is-attention' : ''}" aria-labelledby="assign-h">
         <h2 id="assign-h">${icon('folder')} ${assignEditing ? 'Akte ändern' : 'Zu welcher Akte gehört dieser Brief?'}</h2>

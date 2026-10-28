@@ -176,7 +176,7 @@ export function registerObjectRoutes(router, ctx) {
         ...serializeObject(r),
         identifiers: ids.filter((i) => i.object_id === r.id).slice(0, 6).map(serializeIdentifier),
       })),
-      inbox: db.get("SELECT COUNT(*) AS n FROM letters WHERE user_id = ? AND assignment_status IN ('pruefen', 'vorschlag')", user.id).n,
+      inbox: db.get("SELECT COUNT(*) AS n FROM letters WHERE user_id = ? AND assignment_status IN ('pruefen', 'vorschlag', 'neue_akte')", user.id).n,
     };
   });
 
@@ -456,7 +456,7 @@ export function registerObjectRoutes(router, ctx) {
   router.get('/api/inbox', (req, res, { user }) => {
     const rows = db.all(
       `SELECT l.*, (SELECT COUNT(*) FROM tasks t WHERE t.letter_id = l.id AND t.status = 'zu_pruefen') AS review_tasks
-         FROM letters l WHERE l.user_id = ? AND l.assignment_status IN ('pruefen', 'vorschlag')
+         FROM letters l WHERE l.user_id = ? AND l.assignment_status IN ('pruefen', 'vorschlag', 'neue_akte')
         ORDER BY l.uploaded_at DESC LIMIT 200`,
       user.id
     );

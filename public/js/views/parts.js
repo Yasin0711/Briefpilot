@@ -43,6 +43,7 @@ export function letterRow(l, { note = null } = {}) {
   else if (l.tasksToReview) badges.push(html`<span class="badge badge-review">${icon('alert')}${l.tasksToReview} zu prüfen</span>`);
   else if (!l.reviewed && l.analysisStatus === 'fertig') badges.push(html`<span class="badge badge-review">Angaben prüfen</span>`);
   if (l.assignmentStatus === 'pruefen' || l.assignmentStatus === 'vorschlag') badges.push(html`<span class="badge badge-review">${icon('inbox')}Akte wählen</span>`);
+  if (l.assignmentStatus === 'neue_akte') badges.push(html`<span class="badge badge-review">${icon('folder')}Neue Akte?</span>`);
   if (l.duplicateStatus === 'verdacht') badges.push(html`<span class="badge badge-review">${icon('copy')}Doppelt?</span>`);
   return html`<li><a class="list-row" href="#/briefe/${l.id}">
     ${categoryTile(l.category)}

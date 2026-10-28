@@ -168,7 +168,9 @@ test('Gleiche Rechnungsnummer bei einer anderen Firma zählt nicht (Kontext)', (
   assert.equal(state(reminder).links[0].case_id, caseId, 'Mahnung landet im selben Vorgang');
   // Gleiche Rechnungsnummer, anderer Absender
   const shop = letter({ sender: 'Beispielhaus Versand GmbH', text: 'Rechnungsnummer: 12345\nVielen Dank für Ihre Bestellung.' });
-  assert.equal(assignLetter(db, shop).status, 'keine');
+  // Kein Treffer: keine Zuordnung, stattdessen Vorschlag für eine neue Akte (erst nach Zustimmung)
+  assert.equal(assignLetter(db, shop).status, 'neue_akte');
+  assert.equal(state(shop).links.length, 0);
   void user;
 });
 

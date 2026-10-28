@@ -9,6 +9,7 @@
 //  4. Jede Zuordnung speichert, welche Angaben im Brief ausschlaggebend waren.
 //  5. Entscheidungen des Nutzers werden nie automatisch überschrieben.
 import { newId } from '../lib/security.js';
+import { proposeObject } from './proposal.js';
 import {
   identifierKind, normalizeIdentifier, compareIdentifiers, extractIdentifiers, kindFromLabel, orgMatches, orgKey,
   IDENTIFIER_KIND_IDS, identifierKindLabel,
@@ -362,6 +363,16 @@ export function assignLetter(db, letterId, { force = false, ctx = null, log = tr
   const context = ctx || loadAssignmentContext(db, letter.user_id);
   const { identifiers, candidates } = scoreLetter(db, letter, context);
   const decision = decideAssignment(candidates);
+  // Keine passende Akte: neue Akte mit passendem Namen vorschlagen (angelegt wird erst nach Zustimmung)
+  let proposal = null;
+  if (decision.status === 'keine' && !letter.is_demo_content) {
+    proposal = proposeObject(letter, identifiers);
+    if (proposal) {
+      decision.status = 'neue_akte';
+      decision.reason = 'keine_akte';
+      decision.message = `Für diesen Brief gibt es noch keine passende Akte. Neue Akte „${proposal.name}“ anlegen und den Brief dort ablegen?`;
+    }
+  }
   const now = new Date().toISOString();
   const previous = letter.assignment_status;
   const previousLinks = db.all("SELECT object_id FROM letter_links WHERE letter_id = ? AND origin = 'auto'", letterId).map((l) => l.object_id).sort();
@@ -371,6 +382,7 @@ export function assignLetter(db, letterId, { force = false, ctx = null, log = tr
     message: decision.message,
     candidates: candidates.filter((c) => decision.shown.includes(c.objectId)).slice(0, 12).map((c) => publicCandidate(c, decision.preselected)),
     identifiers,
+    proposal,
     evaluatedAt: now,
   };
   db.tx(() => {
@@ -388,7 +400,7 @@ export function assignLetter(db, letterId, { force = false, ctx = null, log = tr
   if (log && (previous !== decision.status || previousLinks.join() !== nowLinks.join())) {
     if (decision.status === 'zugeordnet') {
       logLetterEvent(db, letter.user_id, letterId, 'zugeordnet', { akten: decision.chosen.map((id) => context.objectById.get(id)?.name), durch: 'automatisch' });
-    } else if (decision.status === 'pruefen' || decision.status === 'vorschlag') {
+    } else if (decision.status === 'pruefen' || decision.status === 'vorschlag' || decision.status === 'neue_akte') {
       logLetterEvent(db, letter.user_id, letterId, 'zuordnung_pruefen', { grund: decision.message });
     }
   }
@@ -400,7 +412,7 @@ export function reassignOpenLetters(db, userId) {
   const ctx = loadAssignmentContext(db, userId);
   const rows = db.all(
     `SELECT l.id FROM letters l
-      WHERE l.user_id = ? AND l.assignment_status IN ('offen', 'keine', 'pruefen', 'vorschlag', 'zugeordnet')
+      WHERE l.user_id = ? AND l.assignment_status IN ('offen', 'keine', 'neue_akte', 'pruefen', 'vorschlag', 'zugeordnet')
         AND l.analysis_status IN ('fertig', 'nicht_moeglich')
         AND NOT EXISTS (SELECT 1 FROM letter_links ll WHERE ll.letter_id = l.id AND ll.origin = 'nutzer')`,
     userId
@@ -409,7 +421,7 @@ export function reassignOpenLetters(db, userId) {
   for (const r of rows) {
     const d = assignLetter(db, r.id, { ctx });
     if (d?.status === 'zugeordnet') result.zugeordnet++;
-    if (d?.status === 'pruefen' || d?.status === 'vorschlag') result.pruefen++;
+    if (d?.status === 'pruefen' || d?.status === 'vorschlag' || d?.status === 'neue_akte') result.pruefen++;
   }
   return result;
 }

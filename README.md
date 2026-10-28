@@ -61,6 +61,7 @@ Ein Tageslimit pro Nutzer (`AI_DAILY_LIMIT`, Demo: `DEMO_AI_DAILY_LIMIT`) schüt
 | KI liest und erklärt Briefe (Absender, Empfänger, Datum, Nummern, Beträge, Fristen, nächste Schritte) | **echt, sobald ein KI-Schlüssel eingetragen ist** und der Nutzer zustimmt |
 | Erkennung ohne KI | **echt, aber einfach:** PDFs mit Textebene werden mit Suchregeln gelesen; Fotos ohne KI nicht |
 | **Akten und automatische Zuordnung:** Fahrzeuge, Zähler, Verträge, Ämter … mit Nummern (Kennzeichen, Vertrags-, Kunden-, Zähler-, Rechnungsnummer …); Vergleich trotz Leerzeichen/Bindestrichen; Nummern nur im passenden Absender-Kontext; alte/neue Nummern, Zählerwechsel, Umzug, Nachfolger; Vorgänge (Rechnung, Schaden); Nachweis „warum diese Akte?“ mit Textstelle | **echt** |
+| **Neue Akte vorschlagen:** Passt ein Brief zu keiner Akte, schlägt BriefPilot eine neue mit passendem Namen vor (z. B. „Strom · Stadtwerke Musterstadt“, „Fahrzeug · SB-EF 789“, „Steuern · Finanzamt …“) und merkt sich die Nummern – angelegt wird sie erst nach Zustimmung („Akte anlegen und Brief ablegen“). Künftige Briefe landen dann automatisch dort | **echt** |
 | **Zuordnen:** Ist die Akte unsicher („Wir haben zwei mögliche Verträge gefunden. Bitte wählen Sie den richtigen aus.“), entscheidet der Nutzer – BriefPilot merkt sich Nummern für künftige Briefe | **echt** |
 | Briefe zusammenführen/trennen, Akten zusammenführen, Verlauf je Brief | **echt** |
 | Doppelte Briefe erkennen (gleicher Inhalt oder gleiche Datei) | **echt** – nur Hinweis, nichts wird gelöscht |

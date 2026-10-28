@@ -211,7 +211,7 @@ export function registerLetterRoutes(router, ctx) {
     const filter = query.get('filter');
     if (filter === 'datum_pruefen') where.push("l.letter_date_status IN ('fehlt', 'unsicher') AND l.analysis_status IN ('fertig', 'nicht_moeglich', 'fehler')");
     if (filter === 'ungeprueft') where.push("l.reviewed_at IS NULL AND l.analysis_status = 'fertig'");
-    if (filter === 'zuordnung') where.push("l.assignment_status IN ('pruefen', 'vorschlag')");
+    if (filter === 'zuordnung') where.push("l.assignment_status IN ('pruefen', 'vorschlag', 'neue_akte')");
     if (filter === 'ohne_akte') where.push('NOT EXISTS (SELECT 1 FROM letter_links ll WHERE ll.letter_id = l.id)');
     if (filter === 'doppelt') where.push("l.duplicate_status = 'verdacht'");
     const objectId = query.get('object');
@@ -528,7 +528,7 @@ export function registerLetterRoutes(router, ctx) {
         analyzing: count("SELECT COUNT(*) AS n FROM letters WHERE user_id = ? AND analysis_status IN ('wartet', 'laeuft')"),
         open: count("SELECT COUNT(*) AS n FROM tasks WHERE user_id = ? AND status = 'offen'"),
         overdue: count("SELECT COUNT(*) AS n FROM tasks WHERE user_id = ? AND status = 'offen' AND due_date < ?", today),
-        inbox: count("SELECT COUNT(*) AS n FROM letters WHERE user_id = ? AND assignment_status IN ('pruefen', 'vorschlag')"),
+        inbox: count("SELECT COUNT(*) AS n FROM letters WHERE user_id = ? AND assignment_status IN ('pruefen', 'vorschlag', 'neue_akte')"),
         objects: count('SELECT COUNT(*) AS n FROM objects WHERE user_id = ?'),
         duplicates: count("SELECT COUNT(*) AS n FROM letters WHERE user_id = ? AND duplicate_status = 'verdacht'"),
       },

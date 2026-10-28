@@ -23,7 +23,9 @@ export function buildSearchText(letter) {
     letter.letter_date, letter.letter_date ? formatDate(letter.letter_date, { short: true }) : '',
     letter.letter_date ? formatDate(letter.letter_date) : '',
     ...refs.map((r) => `${r.label} ${r.value} ${compact(r.value)}`),
+    ...parseJson(letter.identifiers_json, []).map((i) => `${i.label} ${i.value} ${compact(i.value)}`),
     ...amounts.map((a) => `${a.label} ${a.amount}`),
+    letter.recipient, letter.sender_address,
     summary?.what, letter.full_text,
   ];
   return parts.filter(Boolean).join('\n').toLowerCase().slice(0, 400000);
@@ -49,6 +51,9 @@ export function serializeLetterSummary(row) {
     tasksToReview: row.review_tasks ?? undefined,
     nextDue: row.next_due ?? undefined,
     pageCount: row.page_count ?? undefined,
+    assignmentStatus: row.assignment_status || 'offen',
+    duplicateStatus: row.duplicate_status || null,
+    personId: row.person_id || null,
   };
 }
 
@@ -65,6 +70,12 @@ export function serializeLetter(row) {
     analyzedAt: row.analyzed_at,
     userEdited: parseJson(row.user_edited, []),
     reviewedAt: row.reviewed_at,
+    identifiers: parseJson(row.identifiers_json, []),
+    recipient: row.recipient || null,
+    senderAddress: row.sender_address || null,
+    senderEmail: row.sender_email || null,
+    assignment: parseJson(row.assignment_json, null),
+    duplicateOf: row.duplicate_of || null,
   };
 }
 
@@ -120,16 +131,22 @@ export function saveAnalysis(db, letterId, analysis, { source, model }) {
       amounts_json: JSON.stringify(analysis.amounts),
       summary_json: JSON.stringify(analysis.summary),
       full_text: analysis.fullText,
+      identifiers_json: edited.has('references') ? letter.identifiers_json : JSON.stringify(analysis.identifiers || []),
+      recipient: analysis.recipient ?? null,
+      sender_address: keep('sender_address', analysis.senderAddress ?? null),
+      sender_email: keep('sender_email', analysis.senderEmail ?? null),
     };
     db.run(
       `UPDATE letters SET sender = ?, subject = ?, document_type = ?, category = ?, letter_date = ?, letter_date_status = ?,
               letter_date_quote = ?, refs_json = ?, amounts_json = ?, summary_json = ?, full_text = ?, search_text = ?,
+              identifiers_json = ?, recipient = ?, sender_address = ?, sender_email = ?,
               analysis_status = 'fertig', analysis_source = ?, analysis_model = ?, analysis_error = NULL, analyzed_at = ?,
               injection_warning = ?, updated_at = ?
         WHERE id = ?`,
       updated.sender, updated.subject, updated.document_type, updated.category, updated.letter_date, updated.letter_date_status,
       updated.letter_date_quote, updated.refs_json, updated.amounts_json, updated.summary_json, updated.full_text,
-      buildSearchText(updated), source, model || null, now, analysis.injection ? 1 : 0, now, letterId
+      buildSearchText(updated), updated.identifiers_json, updated.recipient, updated.sender_address, updated.sender_email,
+      source, model || null, now, analysis.injection ? 1 : 0, now, letterId
     );
     // Nur unbestätigte, automatisch erzeugte Vorschläge werden ersetzt
     db.run("DELETE FROM tasks WHERE letter_id = ? AND status = 'zu_pruefen' AND origin != 'nutzer'", letterId);

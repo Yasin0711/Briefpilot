@@ -1,4 +1,5 @@
-// Brief-Detailansicht: Erklärung in vier Schritten, Fristen bestätigen, Original und erkannter Text.
+// Brief-Detailansicht: Erklärung in vier Schritten, Fristen bestätigen, Akte (Zuordnung mit Nachweis),
+// Fragen an die KI, Antworten, Original mit Seitenwerkzeugen, erkannter Text und Verlauf.
 import { html, mount } from '../html.js';
 import { api, download } from '../api.js';
 import {
@@ -8,8 +9,13 @@ import {
 import {
   CATEGORIES, REMINDER_OFFSETS, ANALYSIS_SOURCE_LABELS, TASK_KINDS, categoryLabel,
 } from '../shared/constants.js';
+import { identifierKindLabel } from '../shared/identifiers.js';
 import { formatDate, formatDateTime, computeRelativeEnd, todayIn, isValidIsoDate, isWeekend } from '../shared/dates.js';
-import { setReviewCount } from '../app.js';
+import { setReviewCount, setInboxCount } from '../app.js';
+import { objectChips, objectTile, evidenceList, identifierStatusBadge } from './parts.js';
+import { mountDecision, forgetObjects } from './assign.js';
+import { repliesPanel, chatPanel, bindAssistant } from './replies.js';
+import { loadHousehold } from './objectDialog.js';
 
 const STATUS_ORDER = { zu_pruefen: 0, offen: 1, erledigt: 2 };
 
@@ -144,27 +150,44 @@ function taskCard(task, letter, settings, today, correcting) {
   </article>`;
 }
 
-function originalView(files) {
-  if (!files.length) return html`<p class="muted">Keine Datei vorhanden.</p>`;
+/** Originalseiten (ohne zusätzlich aufbewahrte Originalfotos) mit Werkzeugen: PDF, trennen, zusammenführen. */
+function originalView(files, { split = null, editable = true, tools = true } = {}) {
+  const pages = files.filter((f) => f.role !== 'original');
+  const originals = files.filter((f) => f.role === 'original');
+  if (!pages.length) return html`<p class="muted">Keine Datei vorhanden.</p>`;
   const inlinePdf = navigator.pdfViewerEnabled === true;
   let page = 0;
-  return files.map((f) => {
+  const views = pages.map((f) => {
     const first = page + 1;
     page += f.pageCount || 1;
     const label = f.pageCount > 1 ? `Seiten ${first}–${page}` : `Seite ${first}`;
+    const pick = split ? html`<label class="page-pick"><input type="checkbox" data-split-page="${f.id}" ${split.has(f.id) ? 'checked' : ''}><span>${label} in neuen Brief verschieben</span></label>` : '';
     if (f.kind === 'image') {
-      return html`<figure class="original-page"><a href="/api/files/${f.id}" target="_blank" rel="noopener"><img src="/api/files/${f.id}" alt="Originalbrief, ${label}" loading="lazy"></a>
+      return html`<figure class="original-page ${split?.has(f.id) ? 'is-picked' : ''}">${pick}<a href="/api/files/${f.id}" target="_blank" rel="noopener"><img src="/api/files/${f.id}" alt="Originalbrief, ${label}" loading="lazy"></a>
         <figcaption class="original-cap">${label} (Foto) – zum Vergrößern antippen</figcaption></figure>`;
     }
-    return html`<figure class="original-page">
+    return html`<figure class="original-page ${split?.has(f.id) ? 'is-picked' : ''}">${pick}
       ${inlinePdf ? html`<iframe src="/api/files/${f.id}" title="Originalbrief, ${label} (PDF)"></iframe>` : ''}
       <figcaption class="original-cap row"><span class="grow">${label} (PDF)</span>
         <a class="btn btn-small btn-secondary" href="/api/files/${f.id}" target="_blank" rel="noopener">${icon('file')}PDF öffnen</a></figcaption>
     </figure>`;
   });
+  const toolbar = !tools ? '' : split
+    ? html`<div class="page-toolbar is-split" role="group" aria-label="Seiten trennen">
+        <p class="small">Wählen Sie die Seiten, die zu einem <strong>anderen</strong> Brief gehören. Sie werden ein eigener Brief und neu ausgewertet.</p>
+        <div class="row"><button class="btn btn-small" type="button" data-action="split-do" ${split.size ? '' : 'disabled'}>${icon('split')}${split.size ? `${split.size === 1 ? '1 Seite' : `${split.size} Seiten`} als neuen Brief speichern` : 'Seiten auswählen'}</button>
+          <button class="btn btn-small btn-ghost" type="button" data-action="split-cancel">Abbrechen</button></div></div>`
+    : html`<div class="page-toolbar row" role="group" aria-label="Seiten">
+        <button class="btn btn-small btn-secondary" type="button" data-action="pdf">${icon('download')}Als PDF</button>
+        ${editable && pages.length > 1 ? html`<button class="btn btn-small btn-ghost" type="button" data-action="split-start">${icon('split')}Seiten trennen</button>` : ''}
+        ${editable ? html`<button class="btn btn-small btn-ghost" type="button" data-action="merge">${icon('merge')}Seiten eines anderen Briefes anhängen</button>` : ''}
+      </div>`;
+  return html`${toolbar}${views}
+    ${originals.length ? html`<details class="originals"><summary>${originals.length === 1 ? 'Originalfoto' : `${originals.length} Originalfotos`} (unbearbeitet)</summary>
+      <div class="originals-grid">${originals.map((f, i) => html`<a href="/api/files/${f.id}" target="_blank" rel="noopener"><img src="/api/files/${f.id}" alt="Originalfoto ${i + 1}" loading="lazy"></a>`)}</div></details>` : ''}`;
 }
 
-function factsPanel(letter) {
+function factsPanel(letter, persons = []) {
   const dateStatus = {
     erkannt: html`<span class="badge badge-review">bitte prüfen</span>`,
     unsicher: html`<span class="badge badge-review">${icon('alert')}unsicher</span>`,
@@ -180,7 +203,13 @@ function factsPanel(letter) {
         ${letter.letterDateQuote && letter.letterDateStatus !== 'bestaetigt' ? html`<br><span class="small muted">Im Brief: „${letter.letterDateQuote}“</span>` : ''}</dd></div>
       <div><dt>Betreff</dt><dd>${letter.subject || html`<span class="muted">nicht erkannt</span>`}</dd></div>
       <div><dt>Kategorie</dt><dd>${categoryLabel(letter.category)}</dd></div>
-      ${letter.references?.length ? html`<div><dt>Aktenzeichen und Nummern</dt><dd>${letter.references.map((r) => html`<div>${r.label}: ${r.value}</div>`)}</dd></div>` : ''}
+      ${letter.recipient ? html`<div><dt>Empfänger</dt><dd>${letter.recipient}</dd></div>` : ''}
+      ${persons.length ? html`<div><dt>Betrifft</dt><dd>${persons.find((p) => p.id === letter.personId)?.name || html`<span class="muted">nicht zugeordnet</span>`}</dd></div>` : ''}
+      ${letter.identifiers?.length
+        ? html`<div><dt>Nummern im Brief</dt><dd>${letter.identifiers.map((i) => html`<div>${identifierKindLabel(i.kind)}: <span class="mono">${i.value}</span> ${identifierStatusBadge(i.status)}</div>`)}</dd></div>`
+        : letter.references?.length ? html`<div><dt>Aktenzeichen und Nummern</dt><dd>${letter.references.map((r) => html`<div>${r.label}: ${r.value}</div>`)}</dd></div>` : ''}
+      ${letter.senderAddress ? html`<div><dt>Anschrift des Absenders</dt><dd>${letter.senderAddress}</dd></div>` : ''}
+      ${letter.senderEmail ? html`<div><dt>E-Mail des Absenders</dt><dd>${letter.senderEmail}</dd></div>` : ''}
       ${letter.amounts?.length ? html`<div><dt>Beträge</dt><dd>${letter.amounts.map((a) => html`<div>${a.label}: ${a.amount} ${a.currency === 'EUR' ? '€' : a.currency}</div>`)}</dd></div>` : ''}
       <div><dt>Brief erhalten am</dt><dd>${letter.receivedDate ? formatDate(letter.receivedDate) : html`<span class="muted">nicht angegeben</span>`}</dd></div>
       <div><dt>Hochgeladen am</dt><dd>${formatUploaded(letter.uploadedAt)}</dd></div>
@@ -227,18 +256,64 @@ function explanation(data, settings, today, correcting) {
   </div>`;
 }
 
+const FIELD_LABELS = {
+  sender: 'Absender', subject: 'Betreff', category: 'Kategorie', letter_date: 'Briefdatum', letter_date_status: 'Briefdatum',
+  received_date: 'Zugangsdatum', refs_json: 'Nummern', sender_address: 'Absender-Anschrift', sender_email: 'Absender-E-Mail', person_id: 'Person',
+};
+const SOURCE_TEXT = { ki: 'mit KI', regeln: 'ohne KI (einfache Erkennung)', beispiel: 'Beispielauswertung', manuell: 'von Ihnen' };
+
+/** Kurze Erläuterung zu einem Verlaufseintrag. */
+function eventDetail(e) {
+  const d = e.detail || {};
+  const parts = [];
+  if (d.quelle) parts.push(SOURCE_TEXT[d.quelle] || d.quelle);
+  if (d.akten?.length) parts.push(d.akten.filter(Boolean).join(', '));
+  if (d.akte) parts.push(d.akte);
+  if (d.durch) parts.push(d.durch === 'nutzer' ? 'von Ihnen' : 'automatisch');
+  if (d.grund) parts.push(d.grund);
+  if (d.ohneAkte) parts.push('gehört zu keiner Akte');
+  if (d.seiten) parts.push(d.seiten === 1 ? '1 Seite' : `${d.seiten} Seiten`);
+  if (d.originale) parts.push(d.originale === 1 ? '1 Originalfoto' : `${d.originale} Originalfotos`);
+  if (d.ausBrief) parts.push(`aus „${d.ausBrief}“`);
+  if (d.mit) parts.push(`mit „${d.mit}“`);
+  if (d.felder?.length) parts.push([...new Set(d.felder.map((f) => FIELD_LABELS[f] || f))].join(', '));
+  if (d.anzahl) parts.push(d.anzahl === 1 ? '1 Nummer' : `${d.anzahl} Nummern`);
+  if (d.herkunft) parts.push(d.herkunft === 'ki' ? 'KI-Entwurf' : 'Vorlage');
+  if (d.weg) parts.push(d.weg);
+  if (d.an) parts.push(`an ${d.an}`);
+  if (d.ueber) parts.push(d.ueber === 'text' ? 'gleicher Inhalt' : d.ueber === 'datei' ? 'gleiche Datei' : d.ueber);
+  return parts.join(' · ');
+}
+
+function historyList(events = []) {
+  if (!events.length) return html`<p class="muted small">Noch keine Einträge.</p>`;
+  return html`<ol class="timeline">${[...events].reverse().map((e) => {
+    const detail = eventDetail(e);
+    return html`<li><span class="timeline-time">${formatDateTime(e.at)}</span>
+      <span><strong>${e.label}</strong>${detail ? html`<span class="muted"> – ${detail}</span>` : ''}</span></li>`;
+  })}</ol>`;
+}
+
 export async function render({ root, params, query, state, navigate, isCurrent }) {
   const id = params.id;
   let data = null;
-  let tab = 'erklaerung';
+  let tab = ['antworten', 'original', 'text'].includes(query.get('ansicht')) ? query.get('ansicht') : 'erklaerung';
   let pollTimer = null;
   const correcting = new Set();
   const today = todayIn(state.me?.timezone || 'Europe/Berlin');
   const settings = state.me?.settings || { reminderOffsets: ['7d', '1d'] };
   let scrolledToTask = false;
+  let persons = [];
+  let assignEditing = false; // „Akte ändern“ geöffnet
+  let split = null; // Set der Seiten im Modus „Seiten trennen“
 
   async function load() {
-    data = await api.get(`/api/letters/${id}`);
+    const [letterData, household] = await Promise.all([
+      api.get(`/api/letters/${id}`),
+      persons.length ? null : loadHousehold().catch(() => null),
+    ]);
+    data = letterData;
+    if (household) persons = household.persons || [];
     if (!isCurrent()) return;
     draw();
     clearTimeout(pollTimer);
@@ -254,10 +329,59 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     }
   }
 
+  function showTab(next) {
+    tab = next;
+    draw();
+  }
+
+  /** Akte: Zuordnung mit Nachweis – oder die Entscheidung, wenn BriefPilot unsicher ist. */
+  function assignmentPanel() {
+    const { letter, links } = data;
+    const status = letter.assignmentStatus;
+    const attention = status === 'pruefen' || status === 'vorschlag';
+    if (assignEditing || attention) {
+      return html`<section class="panel stack assign-panel ${attention && !assignEditing ? 'is-attention' : ''}" aria-labelledby="assign-h">
+        <h2 id="assign-h">${icon('folder')} ${assignEditing ? 'Akte ändern' : 'Zu welcher Akte gehört dieser Brief?'}</h2>
+        <div data-decision></div>
+      </section>`;
+    }
+    if (links.length) {
+      return html`<section class="panel stack assign-panel" aria-labelledby="assign-h">
+        <div class="section-title"><h2 id="assign-h">${icon('folder')} ${links.length === 1 ? 'Akte' : 'Akten'}</h2>
+          <button class="btn btn-small btn-secondary" type="button" data-action="assign-change">${icon('edit')}Ändern</button></div>
+        <ul class="linked">${links.map((l) => html`<li>
+          ${objectTile(l.type)}
+          <div class="grow"><a class="row-title" href="#/akten/${l.objectId}">${l.name}</a>
+            <span class="row-sub">${l.origin === 'nutzer' ? 'Von Ihnen zugeordnet' : 'Automatisch zugeordnet'}${l.caseTitle ? ` · Vorgang: ${l.caseTitle}` : ''}</span>
+            ${l.evidence?.some((e) => e.type !== 'nutzer') ? html`<details class="why"><summary>Warum diese Akte?</summary>${evidenceList(l.evidence)}</details>` : ''}
+          </div></li>`)}</ul>
+      </section>`;
+    }
+    return html`<section class="panel assign-panel" aria-labelledby="assign-h">
+      <div class="row"><span class="grow"><strong id="assign-h" class="row-title">${icon('folder')} ${status === 'ohne' ? 'Gehört zu keiner Akte' : 'Keiner Akte zugeordnet'}</strong>
+        <span class="row-sub">${status === 'ohne' ? 'So von Ihnen festgelegt.' : 'BriefPilot hat keine Akte mit passender Nummer gefunden.'}</span></span>
+        <button class="btn btn-small btn-secondary" type="button" data-action="assign-change">${icon('folder')}Akte wählen</button></div>
+    </section>`;
+  }
+
+  function duplicateNote() {
+    const { letter, duplicate } = data;
+    if (letter.duplicateStatus !== 'verdacht' || !duplicate) return '';
+    return html`<div class="note note-warn" role="status">${icon('copy')}<div class="stack">
+      <div><strong>Möglicherweise doppelt gespeichert</strong>
+        <p>Ein sehr ähnlicher Brief ist schon vorhanden: „${duplicate.subject || 'Brief ohne Betreff'}“${duplicate.sender ? ` von ${duplicate.sender}` : ''}${duplicate.letterDate ? `, Brief vom ${formatDate(duplicate.letterDate)}` : ''} (hochgeladen am ${formatUploaded(duplicate.uploadedAt)}). Es wurde nichts gelöscht.</p></div>
+      <div class="row"><a class="btn btn-small btn-secondary" href="#/briefe/${duplicate.id}">${icon('eye')}Vorhandenen Brief ansehen</a>
+        <button class="btn btn-small btn-secondary" type="button" data-action="not-duplicate">${icon('check')}Kein Duplikat</button>
+        <button class="btn btn-small btn-ghost" type="button" data-action="delete">${icon('trash')}Diesen Brief löschen</button></div>
+    </div></div>`;
+  }
+
   function draw() {
-    const { letter, files, tasks } = data;
+    const { letter, files, tasks, links } = data;
     const analyzing = ['wartet', 'laeuft'].includes(letter.analysisStatus);
     const sourceLabel = ANALYSIS_SOURCE_LABELS[letter.analysisSource];
+    const editable = !letter.isDemoContent && !analyzing;
+    const drafts = data.replies.filter((r) => r.status !== 'gesendet').length;
     mount(root, html`<div class="stack-l">
       <p><a class="btn btn-ghost btn-small" href="#/briefe">${icon('chevronLeft')}Alle Briefe</a></p>
       <header class="letter-head">
@@ -269,6 +393,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
             <span>${letter.letterDate ? `Brief vom ${formatDate(letter.letterDate)}` : 'Briefdatum unbekannt'}</span>
           </div>
           <div class="row-meta">
+            ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
             ${sourceLabel ? html`<span class="badge ${letter.analysisSource === 'beispiel' ? 'badge-demo' : ''}">${icon(letter.analysisSource === 'ki' ? 'spark' : 'info')}${sourceLabel}</span>` : ''}
             ${letter.reviewed ? html`<span class="badge badge-done">${icon('check')}Angaben geprüft</span>` : ''}
           </div>
@@ -282,41 +407,74 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         <div class="row"><button class="btn btn-small" type="button" data-action="edit-facts">${icon('edit')}Angaben selbst eintragen</button>
         <button class="btn btn-small btn-secondary" type="button" data-action="add-task">${icon('plus')}Aufgabe anlegen</button></div></div></div>` : ''}
       ${letter.injectionWarning ? html`<div class="note note-danger" role="alert">${icon('shield')}<div><strong>Vorsicht bei diesem Schreiben</strong><p>Der Brief enthält Text, der sich wie eine Anweisung an eine KI oder ein Programm liest. BriefPilot hat diesen Text nicht befolgt und nichts automatisch erledigt.</p></div></div>` : ''}
+      ${duplicateNote()}
       ${!letter.reviewed && letter.analysisStatus === 'fertig' ? html`<div class="note note-warn">${icon('eye')}<p><strong>Bitte prüfen Sie die Angaben mit dem Original.</strong> ${letter.analysisSource === 'ki' ? 'Die KI kann sich irren.' : 'Die automatische Erkennung kann sich irren.'}</p></div>` : ''}
+      ${analyzing ? '' : assignmentPanel()}
 
       <div class="tabs" role="tablist" aria-label="Ansicht">
         <button class="tab" role="tab" type="button" data-tab="erklaerung" aria-selected="${tab === 'erklaerung'}">Erklärung</button>
+        <button class="tab" role="tab" type="button" data-tab="antworten" aria-selected="${tab === 'antworten'}">Antwort${drafts ? html` <span class="tab-count">${drafts}</span>` : ''}</button>
         <button class="tab tab-original" role="tab" type="button" data-tab="original" aria-selected="${tab === 'original'}">Original</button>
-        <button class="tab" role="tab" type="button" data-tab="text" aria-selected="${tab === 'text'}">Brieftext</button>
+        <button class="tab" role="tab" type="button" data-tab="text" aria-selected="${tab === 'text'}">Text</button>
       </div>
 
       <div class="detail-grid">
         <div class="stack-l">
-          <div data-panel="erklaerung" ${tab === 'erklaerung' ? '' : html`hidden`}>
+          <div data-panel="erklaerung" class="stack-l" ${tab === 'erklaerung' ? '' : html`hidden`}>
             ${analyzing ? html`<p class="muted">Die Erklärung erscheint hier, sobald der Brief gelesen ist.</p>` : explanation(data, settings, today, correcting)}
+            ${analyzing ? '' : chatPanel(data, state)}
           </div>
-          <div data-panel="original" ${tab === 'original' ? '' : html`hidden`}>${originalView(files)}</div>
+          <div data-panel="antworten" ${tab === 'antworten' ? '' : html`hidden`}>${tab === 'antworten' ? repliesPanel(data, state) : ''}</div>
+          <div data-panel="original" ${tab === 'original' ? '' : html`hidden`}>${originalView(files, { split, editable })}</div>
           <div data-panel="text" ${tab === 'text' ? '' : html`hidden`}>
             ${letter.fullText ? html`<p class="small muted">So hat BriefPilot den Text erkannt. Markiert sind die Stellen, aus denen Aufgaben und Fristen stammen.</p>
               <div class="fulltext">${highlightedText(letter.fullText, tasks)}</div>`
               : html`<p class="muted">Für diesen Brief liegt kein erkannter Text vor.</p>`}
           </div>
-          ${tab === 'erklaerung' && !analyzing ? factsPanel(letter) : ''}
+          ${tab === 'erklaerung' && !analyzing ? factsPanel(letter, persons) : ''}
           ${tab === 'erklaerung' && !analyzing ? html`<section class="panel stack">
             <h2>Weitere Möglichkeiten</h2>
             <div class="row">
+              <button class="btn btn-small btn-secondary" type="button" data-tab="antworten">${icon('reply')}Antwort schreiben</button>
+              <button class="btn btn-small btn-secondary" type="button" data-action="pdf">${icon('download')}Als PDF herunterladen</button>
               ${letter.isDemoContent ? '' : html`<button class="btn btn-small btn-secondary" type="button" data-action="reanalyze">${icon('refresh')}Erneut auswerten</button>`}
               <button class="btn btn-small btn-danger" type="button" data-action="delete">${icon('trash')}Brief löschen</button>
             </div>
-            <div class="note">${icon('star')}<div><strong>Antwort entwerfen – Pro-Vorschau</strong><p class="small">Später kann BriefPilot hier einen Antwortbrief vorschlagen, den Sie bearbeiten und als PDF herunterladen. Diese Funktion ist noch nicht verfügbar. <a href="#/pro">Mehr zur Pro-Vorschau</a></p></div></div>
+            <details class="history"><summary>${icon('history')} Verlauf (${data.events.length})</summary>${historyList(data.events)}</details>
           </section>` : ''}
         </div>
         <aside class="detail-original" aria-label="Originalbrief">
           <h2 class="visually-hidden">Original</h2>
-          ${originalView(files)}
+          ${originalView(files, { split, editable })}
         </aside>
       </div>
     </div>`);
+
+    // Entscheidung über die Akte einbauen (Kandidaten mit Nachweisen, Nummern merken …)
+    const decisionBox = root.querySelector('[data-decision]');
+    if (decisionBox) {
+      const a = letter.assignment || {};
+      const current = assignEditing ? links.map((l) => l.objectId) : [];
+      const fromLinks = links.map((l) => ({ objectId: l.objectId, name: l.name, type: l.type, caseTitle: l.caseTitle, evidence: l.evidence.filter((e) => e.type !== 'nutzer'), preselected: true }));
+      const candidates = [...fromLinks, ...(a.candidates || []).filter((c) => !links.some((l) => l.objectId === c.objectId))];
+      mountDecision(decisionBox, {
+        letter,
+        assignment: { ...a, identifiers: a.identifiers?.length ? a.identifiers : letter.identifiers, candidates },
+        current,
+        onDone: async () => {
+          assignEditing = false;
+          forgetObjects();
+          refreshCounts();
+          await load();
+          root.querySelector('#assign-h')?.scrollIntoView({ block: 'nearest' });
+        },
+        onCancel: assignEditing ? () => {
+          assignEditing = false;
+          draw();
+        } : undefined,
+      });
+    }
+    if (tab === 'antworten') assistant.fillTemplates();
 
     // Relative Frist: rechnerisches Ende vorschlagen, sobald ein Zugangsdatum eingegeben ist
     root.querySelectorAll('[data-received]').forEach((input) => {
@@ -348,10 +506,32 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     });
   }
 
+  function refreshCounts() {
+    api.get('/api/overview').then((o) => {
+      setReviewCount(o.counts.tasksToReview);
+      setInboxCount(o.counts.inbox);
+    }).catch(() => {});
+  }
+
   async function reload() {
     await load();
-    api.get('/api/overview').then((o) => setReviewCount(o.counts.tasksToReview)).catch(() => {});
+    refreshCounts();
   }
+
+  // Antworten und Fragen (eigene Ereignisse über Ereignis-Delegation)
+  const assistant = bindAssistant(root, { letterId: id, getData: () => data, reload: load, state, showTab });
+
+  // Seiten trennen: Auswahl merken, ohne die Seite neu aufzubauen
+  root.addEventListener('change', (e) => {
+    const pick = e.target.closest('[data-split-page]');
+    if (!pick || !split) return;
+    if (pick.checked) split.add(pick.dataset.splitPage);
+    else split.delete(pick.dataset.splitPage);
+    const y = window.scrollY;
+    draw();
+    window.scrollTo(0, y);
+    root.querySelector(`[data-split-page="${pick.dataset.splitPage}"]`)?.focus({ preventScroll: true });
+  });
 
   root.addEventListener('submit', async (e) => {
     const form = e.target.closest('[data-confirm]');
@@ -388,7 +568,9 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     if (tabBtn) {
       tab = tabBtn.dataset.tab;
       draw();
-      root.querySelector(`[data-tab="${tab}"]`)?.focus();
+      const tabEl = root.querySelector(`.tabs [data-tab="${tab}"]`);
+      tabEl?.focus();
+      if (!tabBtn.classList.contains('tab')) tabEl?.scrollIntoView({ block: 'start' });
       return;
     }
     const el = e.target.closest('[data-action]');
@@ -448,6 +630,42 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         editFacts();
       } else if (action === 'add-task') {
         addTask();
+      } else if (action === 'assign-change') {
+        assignEditing = true;
+        draw();
+        root.querySelector('#assign-h')?.scrollIntoView({ block: 'nearest' });
+        root.querySelector('[data-decision] [data-choice], [data-decision] [data-load-objects]')?.focus({ preventScroll: true });
+      } else if (action === 'not-duplicate') {
+        await api.post(`/api/letters/${id}/duplicate`, { decision: 'kein_duplikat' });
+        toast('Gespeichert: kein Duplikat.');
+        await load();
+      } else if (action === 'pdf') {
+        await download(`/api/letters/${id}/pdf`, 'brief.pdf');
+        toast('PDF heruntergeladen.');
+      } else if (action === 'split-start') {
+        split = new Set();
+        tab = window.matchMedia('(min-width: 1180px)').matches ? tab : 'original';
+        draw();
+        root.querySelector('[data-split-page]')?.focus();
+      } else if (action === 'split-cancel') {
+        split = null;
+        draw();
+      } else if (action === 'split-do') {
+        const fileIds = [...(split || [])];
+        if (!fileIds.length) return;
+        if (await confirmDialog({
+          title: fileIds.length === 1 ? 'Seite als eigenen Brief speichern?' : `${fileIds.length} Seiten als eigenen Brief speichern?`,
+          body: 'Die ausgewählten Seiten werden ein neuer Brief. Beide Briefe werden danach neu ausgewertet. Es wird nichts gelöscht.',
+          confirmLabel: 'Neuen Brief anlegen',
+        })) {
+          const res = await api.post(`/api/letters/${id}/split`, { fileIds });
+          split = null;
+          toast('Neuer Brief angelegt. Beide werden jetzt neu gelesen.');
+          await load();
+          if (res.newId && await confirmDialog({ title: 'Neuen Brief öffnen?', body: 'Der abgetrennte Teil ist jetzt ein eigener Brief.', confirmLabel: 'Öffnen', cancelLabel: 'Hier bleiben' })) navigate(`/briefe/${res.newId}`);
+        }
+      } else if (action === 'merge') {
+        await mergeDialog();
       }
     } catch (err) {
       toast(err.message, { error: true });
@@ -466,9 +684,17 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       </div>
       <div class="field"><label for="f-cat">Kategorie</label><select class="input" id="f-cat" name="category">
         ${CATEGORIES.map((c) => html`<option value="${c.id}" ${c.id === l.category ? 'selected' : ''}>${c.label}</option>`)}</select></div>
-      <div class="field"><label for="f-refs">Aktenzeichen und Nummern</label>
-        <textarea class="input" id="f-refs" name="references" rows="3">${(l.references || []).map((r) => `${r.label}: ${r.value}`).join('\n')}</textarea>
-        <p class="hint">Eine Angabe pro Zeile, zum Beispiel „Kundennummer: 12345“.</p></div>
+      <div class="field"><label for="f-refs">Nummern im Brief</label>
+        <textarea class="input" id="f-refs" name="references" rows="4">${(l.identifiers?.length
+          ? l.identifiers.map((i) => `${identifierKindLabel(i.kind)}: ${i.value}`)
+          : (l.references || []).map((r) => `${r.label}: ${r.value}`)).join('\n')}</textarea>
+        <p class="hint">Eine Angabe pro Zeile, zum Beispiel „Kundennummer: 12345“ oder „Kfz-Kennzeichen: SB-AB 123“. Nach dem Speichern prüft BriefPilot die Akte neu (Ihre eigene Zuordnung bleibt).</p></div>
+      ${persons.length ? html`<div class="field"><label for="f-person">Betrifft</label><select class="input" id="f-person" name="personId">
+        <option value="">–</option>${persons.map((p) => html`<option value="${p.id}" ${p.id === l.personId ? 'selected' : ''}>${p.name}</option>`)}</select></div>` : ''}
+      <div class="field"><label for="f-saddr">Anschrift des Absenders <span class="muted">(für Antworten)</span></label>
+        <textarea class="input" id="f-saddr" name="senderAddress" rows="2" maxlength="300">${l.senderAddress || ''}</textarea></div>
+      <div class="field"><label for="f-smail">E-Mail des Absenders <span class="muted">(freiwillig)</span></label>
+        <input class="input" type="email" id="f-smail" name="senderEmail" value="${l.senderEmail || ''}" maxlength="254"></div>
       <div class="row"><button class="btn" type="submit">Speichern</button><button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
     </form>`, (dialog, close) => {
       const form = dialog.querySelector('form');
@@ -482,12 +708,57 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         });
         await busy(form.querySelector('[type=submit]'), async () => {
           try {
-            await api.patch(`/api/letters/${id}`, {
+            const body = {
               sender: v.sender, subject: v.subject, letterDate: v.letterDate || null, receivedDate: v.receivedDate || null,
-              category: v.category, references,
-            });
+              category: v.category, senderAddress: v.senderAddress || null, senderEmail: v.senderEmail || null,
+            };
+            // Nummern nur senden, wenn sie geändert wurden (sonst bleibt die automatische Erkennung aktiv)
+            if (v.references.trim() !== form.querySelector('#f-refs').defaultValue.trim()) body.references = references;
+            if (persons.length) body.personId = v.personId || null;
+            await api.patch(`/api/letters/${id}`, body);
             close();
             toast('Angaben gespeichert.');
+            await reload();
+          } catch (err) {
+            showError(form, err);
+          }
+        });
+      });
+    });
+  }
+
+  /** Seiten eines anderen Briefes anhängen (z. B. Seite 2 wurde als eigener Brief gescannt). */
+  async function mergeDialog() {
+    const { letters } = await api.get('/api/letters?sort=upload&limit=60');
+    const others = letters.filter((l) => l.id !== id && !l.isDemoContent && !['wartet', 'laeuft'].includes(l.analysisStatus));
+    if (!others.length) {
+      toast('Es gibt keinen anderen Brief, dessen Seiten angehängt werden könnten.');
+      return;
+    }
+    openDialog(html`<form class="dialog-body stack" novalidate>
+      <h2>Seiten eines anderen Briefes anhängen</h2>
+      <p class="muted">Gehört ein anderer gespeicherter Brief eigentlich hierher (z. B. eine einzeln gescannte Seite 2)? Seine Seiten werden hinten angehängt, danach wird der Brief neu ausgewertet. Bestätigte Aufgaben und Antworten wandern mit.</p>
+      <fieldset class="field"><legend class="field-label">Welcher Brief?</legend>
+        <div class="pick-list">${others.map((l) => html`<label class="check"><input type="radio" name="sourceId" value="${l.id}">
+          <span><strong>${l.subject || 'Brief ohne Betreff'}</strong><span class="row-sub">${l.sender || 'Absender unbekannt'} · ${l.letterDate ? formatDate(l.letterDate) : `hochgeladen ${formatUploaded(l.uploadedAt)}`}${l.pageCount ? ` · ${l.pageCount === 1 ? '1 Seite' : `${l.pageCount} Seiten`}` : ''}</span></span></label>`)}</div>
+      </fieldset>
+      <div class="row"><button class="btn" type="submit">${icon('merge')}Anhängen</button><button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
+    </form>`, (dialog, close) => {
+      const form = dialog.querySelector('form');
+      dialog.querySelector('[data-close]').addEventListener('click', () => close());
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        clearErrors(form);
+        const sourceId = new FormData(form).get('sourceId');
+        if (!sourceId) {
+          showError(form, new Error('Bitte einen Brief auswählen.'));
+          return;
+        }
+        await busy(form.querySelector('[type=submit]'), async () => {
+          try {
+            await api.post(`/api/letters/${id}/merge`, { sourceId });
+            close();
+            toast('Seiten angehängt. Der Brief wird neu gelesen.');
             await reload();
           } catch (err) {
             showError(form, err);

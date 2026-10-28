@@ -46,13 +46,17 @@ export const api = {
   del: (path) => request('DELETE', path),
   raw: (method, path, body) => request(method, path, body, { raw: true }),
 
-  /** Lädt eine Datei hoch und meldet den Fortschritt (0–1). */
-  upload(blob, onProgress) {
+  /**
+   * Lädt eine Datei hoch und meldet den Fortschritt (0–1).
+   * headers: z. B. { 'X-File-Role': 'original' } für eine zusätzlich aufbewahrte Originalaufnahme
+   */
+  upload(blob, onProgress, headers = {}) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/files');
       xhr.setRequestHeader('X-BriefPilot', '1');
       xhr.setRequestHeader('Content-Type', blob.type || 'application/octet-stream');
+      for (const [key, value] of Object.entries(headers)) if (value) xhr.setRequestHeader(key, value);
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
       };

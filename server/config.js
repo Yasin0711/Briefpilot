@@ -14,6 +14,71 @@ function int(value, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** Welcher KI-Anbieter? Ausdrücklich über AI_PROVIDER, sonst nach vorhandenem Schlüssel. */
+export function resolveAiProvider(env) {
+  const explicit = String(env.AI_PROVIDER || '').trim().toLowerCase();
+  if (['aus', 'off', 'none', 'keine', 'nein'].includes(explicit)) return 'aus';
+  if (['gemini', 'google'].includes(explicit)) return 'gemini';
+  if (['anthropic', 'claude'].includes(explicit)) return 'anthropic';
+  if (['openai', 'openai-kompatibel', 'ollama', 'lmstudio', 'groq', 'openrouter', 'mistral', 'lokal'].includes(explicit)) return 'openai';
+  if (env.GEMINI_API_KEY) return 'gemini';
+  if (env.ANTHROPIC_API_KEY) return 'anthropic';
+  if (env.OPENAI_COMPAT_BASE_URL) return 'openai';
+  return 'gemini';
+}
+
+function aiConfig(env) {
+  const provider = resolveAiProvider(env);
+  const common = {
+    provider,
+    dailyLimit: int(env.AI_DAILY_LIMIT, 30),
+    demoDailyLimit: int(env.DEMO_AI_DAILY_LIMIT, 5),
+    timeoutMs: int(env.AI_TIMEOUT_SECONDS, 180) * 1000,
+    retryDelayMs: int(env.AI_RETRY_DELAY_MS, 4000),
+    fallbackModel: null,
+    local: false,
+    freeTier: false,
+  };
+  if (provider === 'gemini') {
+    const apiKey = env.GEMINI_API_KEY || '';
+    return {
+      ...common,
+      apiKey,
+      model: env.GEMINI_MODEL || 'gemini-3.8-flash',
+      fallbackModel: env.GEMINI_FALLBACK_MODEL === undefined ? 'gemini-3.5-flash-lite' : env.GEMINI_FALLBACK_MODEL,
+      baseUrl: (env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, ''),
+      providerLabel: env.AI_PROVIDER_LABEL || 'Google Gemini',
+      freeTier: env.GEMINI_PAID !== 'true',
+      enabled: apiKey.length > 10,
+    };
+  }
+  if (provider === 'anthropic') {
+    const apiKey = env.ANTHROPIC_API_KEY || '';
+    return {
+      ...common,
+      apiKey,
+      model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
+      baseUrl: (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, ''),
+      providerLabel: env.AI_PROVIDER_LABEL || 'Anthropic (Claude-API)',
+      enabled: apiKey.length > 10,
+    };
+  }
+  if (provider === 'openai') {
+    const baseUrl = (env.OPENAI_COMPAT_BASE_URL || '').replace(/\/+$/, '');
+    const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(baseUrl);
+    return {
+      ...common,
+      apiKey: env.OPENAI_COMPAT_API_KEY || '',
+      model: env.OPENAI_COMPAT_MODEL || '',
+      baseUrl,
+      local,
+      providerLabel: env.AI_PROVIDER_LABEL || (local ? 'Lokales KI-Modell auf diesem Computer' : 'OpenAI-kompatibler KI-Dienst'),
+      enabled: Boolean(baseUrl && env.OPENAI_COMPAT_MODEL),
+    };
+  }
+  return { ...common, apiKey: '', model: '', baseUrl: '', providerLabel: 'keine KI', enabled: false };
+}
+
 export function loadConfig(env = process.env) {
   const isProduction = env.NODE_ENV === 'production';
   const port = int(env.PORT, 3000);
@@ -32,21 +97,7 @@ export function loadConfig(env = process.env) {
     filesDir: path.join(dataDir, 'files'),
     publicDir: path.join(ROOT_DIR, 'public'),
     fileEncryptionKey: env.FILE_ENCRYPTION_KEY || '',
-    ai: {
-      provider: (env.AI_PROVIDER || 'anthropic').trim().toLowerCase(),
-      apiKey: env.ANTHROPIC_API_KEY || '',
-      model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
-      baseUrl: (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/+$/, ''),
-      providerLabel: env.AI_PROVIDER_LABEL || 'Anthropic (Claude-API)',
-      // Mistral (nur für Machbarkeitstests, AI_PROVIDER=mistral)
-      mistralApiKey: (env.MISTRAL_API_KEY || '').trim(),
-      mistralModel: env.MISTRAL_MODEL || 'mistral-small-latest',
-      mistralOcrModel: env.MISTRAL_OCR_MODEL || 'mistral-ocr-latest',
-      mistralBaseUrl: (env.MISTRAL_BASE_URL || 'https://api.mistral.ai').replace(/\/+$/, ''),
-      dailyLimit: int(env.AI_DAILY_LIMIT, 30),
-      demoDailyLimit: int(env.DEMO_AI_DAILY_LIMIT, 5),
-      timeoutMs: int(env.AI_TIMEOUT_SECONDS, 180) * 1000,
-    },
+    ai: aiConfig(env),
     smtp: {
       host: env.SMTP_HOST || '',
       port: int(env.SMTP_PORT, 587),
@@ -74,13 +125,6 @@ export function loadConfig(env = process.env) {
     privacyContact: env.PRIVACY_CONTACT || '',
   };
 
-  if (config.ai.provider === 'mistral') {
-    config.ai.enabled = config.ai.mistralApiKey.length > 10;
-    config.ai.model = config.ai.mistralModel;
-    if (!env.AI_PROVIDER_LABEL) config.ai.providerLabel = 'Mistral AI (Testbetrieb)';
-  } else {
-    config.ai.enabled = config.ai.provider === 'anthropic' && config.ai.apiKey.length > 10;
-  }
   config.smtp.enabled = Boolean(config.smtp.host && config.smtp.from);
   config.push.enabled = Boolean(config.push.publicKey && config.push.privateKey);
   return config;
@@ -100,11 +144,10 @@ export function validateConfig(config) {
     if (config.demo.enabled) warnings.push('Der Demomodus ist im Produktivbetrieb eingeschaltet (DEMO_ENABLED).');
   }
   if (!config.ai.enabled) {
-    warnings.push(config.ai.provider === 'mistral'
-      ? 'AI_PROVIDER=mistral, aber kein MISTRAL_API_KEY gesetzt: KI-Auswertung ist ausgeschaltet.'
-      : 'Kein ANTHROPIC_API_KEY gesetzt: KI-Auswertung und Texterkennung für Fotos sind ausgeschaltet.');
-  } else if (config.ai.provider === 'mistral') {
-    warnings.push('KI läuft über Mistral (Testbetrieb). Im kostenlosen Tarif können Anfragen zum Training genutzt werden – bitte nur Demo- oder unkritische Briefe verwenden.');
+    if (config.ai.provider === 'openai') warnings.push('OpenAI-kompatible KI gewählt, aber OPENAI_COMPAT_BASE_URL oder OPENAI_COMPAT_MODEL fehlt: KI ist ausgeschaltet.');
+    else if (config.ai.provider !== 'aus') warnings.push('Keine KI eingerichtet: Fotos werden nicht gelesen. Kostenlos testen: Schlüssel bei https://aistudio.google.com erstellen und in .env als GEMINI_API_KEY eintragen (siehe README).');
+  } else if (config.ai.provider === 'gemini' && config.ai.freeTier) {
+    warnings.push('KI über das kostenlose Gemini-Kontingent: begrenzte Zahl an Auswertungen pro Tag. Ohne Rechnungskonto bei Google entstehen keine Kosten.');
   }
   if (!config.push.enabled) warnings.push('Keine VAPID-Schlüssel gesetzt: Push-Benachrichtigungen sind ausgeschaltet.');
   return { errors, warnings };
@@ -118,11 +161,22 @@ export function featureStatus(config) {
       detail: 'Briefe werden verschlüsselt auf dem Server abgelegt, Angaben in einer SQLite-Datenbank gespeichert.',
     },
     config.ai.enabled
-      ? { id: 'ki', label: 'KI-Auswertung und Texterkennung', state: 'echt', detail: `Echt: Modell ${config.ai.model} über ${config.ai.providerLabel}.` }
+      ? {
+        id: 'ki', label: 'KI-Auswertung, Rückfragen und Antwortentwürfe', state: 'echt',
+        detail: `Echt: Modell ${config.ai.model}${config.ai.fallbackModel ? ` (Ersatz: ${config.ai.fallbackModel})` : ''} über ${config.ai.providerLabel}.${config.ai.freeTier ? ' Kostenloses Kontingent – begrenzte Anzahl pro Tag.' : ''}${config.ai.local ? ' Läuft auf diesem Computer, Briefe verlassen ihn nicht.' : ''}`,
+      }
       : {
-        id: 'ki', label: 'KI-Auswertung und Texterkennung', state: 'aus',
-        detail: 'Nicht eingerichtet (kein API-Schlüssel). PDFs mit Textebene werden mit einfacher Regel-Erkennung ohne KI gelesen. Fotos werden gespeichert, aber nicht automatisch gelesen.',
+        id: 'ki', label: 'KI-Auswertung, Rückfragen und Antwortentwürfe', state: 'aus',
+        detail: 'Nicht eingerichtet (kein API-Schlüssel). PDFs mit Textebene werden mit einfacher Regel-Erkennung ohne KI gelesen. Fotos werden gespeichert, aber nicht automatisch gelesen. Antwortbriefe gibt es als Vorlagen.',
       },
+    {
+      id: 'scanner', label: 'Scanner mit Kantenerkennung', state: 'echt',
+      detail: 'Echt: Blattränder erkennen, Perspektive korrigieren, Bild verbessern – direkt auf dem Gerät. Live-Kamera braucht https oder localhost; sonst öffnet sich die Kamera-App des Handys.',
+    },
+    {
+      id: 'akten', label: 'Objektakten und automatische Zuordnung', state: 'echt',
+      detail: 'Echt: Briefe werden anhand eindeutiger Nummern (Kennzeichen, Vertrags-, Zählernummer …) Akten zugeordnet. Unklare Fälle landen zur Prüfung im Eingang.',
+    },
     config.smtp.enabled
       ? { id: 'email', label: 'E-Mail-Versand', state: 'echt', detail: 'Echt: Versand über den eingerichteten SMTP-Server.' }
       : {
@@ -138,6 +192,9 @@ export function featureStatus(config) {
       id: 'erinnerungen', label: 'Erinnerungen', state: 'echt',
       detail: 'Echt: Erinnerungen werden zum geplanten Zeitpunkt ausgelöst und in der App angezeigt. Zustellung per Push oder E-Mail nur, wenn eingerichtet.',
     },
-    { id: 'pro', label: 'Pro-Funktionen', state: 'vorschau', detail: 'Nur Vorschau – noch nicht umgesetzt.' },
+    config.smtp.enabled
+      ? { id: 'antwort-mail', label: 'Antworten per E-Mail senden', state: 'echt', detail: 'Echt: über den eingerichteten Mailserver, nur nach ausdrücklicher Freigabe.' }
+      : { id: 'antwort-mail', label: 'Antworten per E-Mail senden', state: 'aus', detail: 'Nicht eingerichtet (kein Mailserver). Antworten lassen sich im eigenen E-Mail-Programm öffnen, kopieren oder als PDF drucken.' },
+    { id: 'pro', label: 'Pro-Funktionen', state: 'vorschau', detail: 'Nur Vorschau – Kalender-Abgleich, E-Mail-Import, Familienfreigaben und Abo sind noch nicht umgesetzt.' },
   ];
 }

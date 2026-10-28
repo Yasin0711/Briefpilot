@@ -2,6 +2,7 @@
 // oder freigegeben ist. Liefert dasselbe Format wie die KI, aber ohne Erklärung in
 // einfacher Sprache. Alles wird anschließend genauso geprüft wie KI-Ergebnisse.
 import { parseGermanDates, parseTimes, parseRelativeDeadline, formatDate } from '../../public/js/shared/dates.js';
+import { extractIdentifiers } from '../../public/js/shared/identifiers.js';
 
 const CATEGORY_KEYWORDS = {
   behoerden: /(finanzamt|bürgeramt|stadtverwaltung|landratsamt|gemeinde|jobcenter|agentur für arbeit|familienkasse|rentenversicherung|ausländerbehörde|bescheid|behörde|amtsgericht|bundesamt|zulassungsstelle|standesamt|rundfunkbeitrag)/gi,
@@ -88,15 +89,25 @@ export function analyzeWithRules(fullText) {
   }
   REFERENCE_PATTERN.lastIndex = 0;
 
-  // Aktenzeichen, Kundennummern …
-  const references = [];
-  for (const line of lines) {
-    for (const m of line.matchAll(REFERENCE_PATTERN)) {
-      const value = m[2].split(/\s{2,}/)[0].replace(/[ .]+$/, '').trim();
-      if (value.length >= 3 && /\d/.test(value) && !references.some((r) => r.value === value)) {
-        references.push({ label: m[1].replace(/[:.]$/, ''), value, quote: line });
-      }
+  // Aktenzeichen, Kunden-, Vertrags-, Zählernummern, Kennzeichen … (mit Art der Kennung)
+  const references = extractIdentifiers(text).map((i) => ({ label: i.label, value: i.value, quote: i.quote, kind: i.kind, status: i.status }));
+
+  // Absenderanschrift („Firma · Straße 1 · 12345 Ort“), E-Mail, Empfänger
+  let senderAddress = null;
+  for (const line of lines.slice(0, 8)) {
+    const parts = line.split(/\s[·|•]\s/).map((p) => p.trim()).filter(Boolean);
+    if (parts.length >= 3 && parts.some((p) => /\b\d{5}\b/.test(p))) {
+      senderAddress = parts.slice(1).join('\n');
+      break;
     }
+  }
+  const email = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.exec(text);
+  let recipient = null;
+  for (let i = 0; i < Math.min(lines.length, 25); i++) {
+    const m = /^(Frau|Herrn?|Familie|Eheleute)\b\s*(.*)$/.exec(lines[i]);
+    if (!m) continue;
+    recipient = (m[2] || lines[i + 1] || '').trim().slice(0, 120) || null;
+    break;
   }
 
   // Beträge
@@ -162,7 +173,7 @@ export function analyzeWithRules(fullText) {
     letter_date_quote: letterDateQuote,
     subject,
     category: pickCategory(text),
-    references: references.slice(0, 10),
+    references: references.slice(0, 20),
     amounts: amounts.slice(0, 10),
     summary_what: summary,
     actions,
@@ -172,5 +183,8 @@ export function analyzeWithRules(fullText) {
     contains_instructions_to_ai: false,
     language: 'de',
     full_text: text,
+    recipient,
+    sender_address: senderAddress,
+    sender_email: email ? email[0] : null,
   };
 }

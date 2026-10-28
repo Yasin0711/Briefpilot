@@ -4,9 +4,15 @@ import { HttpError, badRequest, notFound, readBody, readJson } from '../lib/http
 import { newId } from '../lib/security.js';
 import { detectFileType } from '../lib/storage.js';
 import { inspectPdf } from '../pdf/extract.js';
+import { buildScanPdf } from '../pdf/write.js';
 import {
   serializeLetter, serializeLetterSummary, serializeTask, buildSearchText, compact,
 } from '../domain/letters.js';
+import { letterEvents, logLetterEvent } from '../domain/events.js';
+import { serializeReply } from '../domain/replies.js';
+import { serializeMessage } from './assistant.js';
+import { assignLetter } from '../domain/assignment.js';
+import { normalizeIdentifier, kindFromLabel, identifierKindLabel } from '../../public/js/shared/identifiers.js';
 import { CATEGORY_IDS } from '../../public/js/shared/constants.js';
 import { isValidIsoDate, parseGermanDates, todayIn, daysBetween } from '../../public/js/shared/dates.js';
 
@@ -15,8 +21,16 @@ const LIST_SELECT = `
     (SELECT COUNT(*) FROM tasks t WHERE t.letter_id = l.id AND t.status = 'offen') AS open_tasks,
     (SELECT COUNT(*) FROM tasks t WHERE t.letter_id = l.id AND t.status = 'zu_pruefen') AS review_tasks,
     (SELECT MIN(t.due_date) FROM tasks t WHERE t.letter_id = l.id AND t.status = 'offen' AND t.due_date IS NOT NULL) AS next_due,
-    (SELECT COALESCE(SUM(f.page_count), 0) FROM files f WHERE f.letter_id = l.id) AS page_count
+    (SELECT COALESCE(SUM(f.page_count), 0) FROM files f WHERE f.letter_id = l.id AND f.role = 'seite') AS page_count
   FROM letters l`;
+
+const parseJson = (value, fallback) => {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 function escapeLike(value) {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -59,19 +73,21 @@ export function registerLetterRoutes(router, ctx) {
       throw new HttpError(413, 'Ihr Speicherplatz ist voll. Bitte löschen Sie ältere Briefe oder exportieren Sie Ihre Daten.');
     }
     const sha256 = crypto.createHash('sha256').update(data).digest('hex');
-    const duplicate = db.get(
+    const role = req.headers['x-file-role'] === 'original' ? 'original' : 'seite';
+    // Exakt dieselbe Datei schon in einem Brief? (z. B. dasselbe PDF zweimal hochgeladen)
+    const duplicate = role === 'seite' ? db.get(
       `SELECT l.id, l.subject, l.uploaded_at FROM files f JOIN letters l ON l.id = f.letter_id
-        WHERE f.user_id = ? AND f.sha256 = ? LIMIT 1`, user.id, sha256
-    );
+        WHERE f.user_id = ? AND f.sha256 = ? AND f.role = 'seite' LIMIT 1`, user.id, sha256
+    ) : null;
     const storageKey = await storage.put(user.id, data);
     const id = newId();
     db.run(
-      `INSERT INTO files (id, user_id, kind, mime, size, page_count, sha256, storage_key, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id, user.id, type.kind, type.mime, data.length, pageCount, sha256, storageKey, new Date().toISOString()
+      `INSERT INTO files (id, user_id, kind, mime, size, page_count, sha256, storage_key, role, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, user.id, type.kind, type.mime, data.length, pageCount, sha256, storageKey, role, new Date().toISOString()
     );
     return {
-      id, kind: type.kind, size: data.length, pageCount,
+      id, kind: type.kind, size: data.length, pageCount, role,
       duplicateOf: duplicate ? { letterId: duplicate.id, subject: duplicate.subject, uploadedAt: duplicate.uploaded_at } : null,
     };
   });
@@ -110,8 +126,13 @@ export function registerLetterRoutes(router, ctx) {
     if (new Set(ids).size !== ids.length) throw badRequest('Eine Seite wurde doppelt ausgewählt.');
     const files = ids.map((id) => db.get('SELECT * FROM files WHERE id = ? AND user_id = ? AND letter_id IS NULL', id, user.id));
     if (files.some((f) => !f)) throw badRequest('Mindestens eine Seite wurde nicht gefunden oder gehört bereits zu einem Brief. Bitte erneut hochladen.');
+    if (files.some((f) => f.role !== 'seite')) throw badRequest('Originalaufnahmen gehören in „originalIds“, nicht zu den Seiten.');
     const totalPages = files.reduce((n, f) => n + f.page_count, 0);
     if (totalPages > 50) throw badRequest('Der Brief hat zu viele Seiten (höchstens 50).');
+    // Auf Wunsch aufbewahrte Originalaufnahmen (vor Zuschnitt und Bildverbesserung)
+    const originalIds = Array.isArray(body.originalIds) ? body.originalIds.map(String).slice(0, config.limits.maxFilesPerLetter) : [];
+    const originals = originalIds.map((id) => db.get("SELECT * FROM files WHERE id = ? AND user_id = ? AND letter_id IS NULL AND role = 'original'", id, user.id));
+    if (originals.some((f) => !f)) throw badRequest('Mindestens eine Originalaufnahme wurde nicht gefunden. Bitte erneut hochladen.');
     const now = new Date().toISOString();
     const letterId = newId();
     db.tx(() => {
@@ -121,7 +142,9 @@ export function registerLetterRoutes(router, ctx) {
         letterId, user.id, now, now, now
       );
       files.forEach((f, i) => db.run('UPDATE files SET letter_id = ?, position = ? WHERE id = ?', letterId, i, f.id));
+      originals.forEach((f, i) => db.run('UPDATE files SET letter_id = ?, position = ? WHERE id = ?', letterId, 1000 + i, f.id));
     });
+    logLetterEvent(db, user.id, letterId, 'hochgeladen', { seiten: totalPages, originale: originals.length || undefined });
     analyzer.enqueue(letterId);
     return { id: letterId };
   });
@@ -146,6 +169,16 @@ export function registerLetterRoutes(router, ctx) {
           alternatives.push('l.search_text LIKE ? ESCAPE \'\\\'');
           params.push(`%${escapeLike(compact(word))}%`);
         }
+        // Name der Akte oder eine ihrer Nummern (z. B. Kennzeichen), auch wenn sie im Brief selbst nicht steht
+        alternatives.push(`l.id IN (SELECT ll.letter_id FROM letter_links ll JOIN objects o ON o.id = ll.object_id
+                                     WHERE o.user_id = ? AND lower(o.name) LIKE ? ESCAPE '\\')`);
+        params.push(user.id, `%${escapeLike(word)}%`);
+        const norm = normalizeIdentifier('sonstiges', word);
+        if (norm.length >= 4 && /\d/.test(norm)) {
+          alternatives.push(`l.id IN (SELECT ll.letter_id FROM letter_links ll JOIN identifiers i ON i.object_id = ll.object_id
+                                       WHERE i.user_id = ? AND i.normalized LIKE ?)`);
+          params.push(user.id, `%${escapeLike(norm)}%`);
+        }
         where.push(`(${alternatives.join(' OR ')})`);
       }
     }
@@ -157,6 +190,19 @@ export function registerLetterRoutes(router, ctx) {
     const filter = query.get('filter');
     if (filter === 'datum_pruefen') where.push("l.letter_date_status IN ('fehlt', 'unsicher') AND l.analysis_status IN ('fertig', 'nicht_moeglich', 'fehler')");
     if (filter === 'ungeprueft') where.push("l.reviewed_at IS NULL AND l.analysis_status = 'fertig'");
+    if (filter === 'zuordnung') where.push("l.assignment_status IN ('pruefen', 'vorschlag')");
+    if (filter === 'ohne_akte') where.push('NOT EXISTS (SELECT 1 FROM letter_links ll WHERE ll.letter_id = l.id)');
+    if (filter === 'doppelt') where.push("l.duplicate_status = 'verdacht'");
+    const objectId = query.get('object');
+    if (objectId) {
+      where.push('l.id IN (SELECT letter_id FROM letter_links WHERE object_id = ? AND user_id = ?)');
+      params.push(objectId, user.id);
+    }
+    const personId = query.get('person');
+    if (personId) {
+      where.push('l.person_id = ?');
+      params.push(personId);
+    }
     const from = query.get('from');
     if (from && isValidIsoDate(from)) {
       where.push('l.letter_date >= ?');
@@ -173,25 +219,58 @@ export function registerLetterRoutes(router, ctx) {
     const limit = Math.min(Math.max(parseInt(query.get('limit') || '200', 10) || 200, 1), 500);
     const rows = db.all(`${LIST_SELECT} WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ${limit}`, ...params);
     const total = db.get('SELECT COUNT(*) AS n FROM letters WHERE user_id = ?', user.id).n;
-    return { letters: rows.map(serializeLetterSummary), total };
+    const links = linkedObjects(user.id);
+    return { letters: rows.map((r) => ({ ...serializeLetterSummary(r), objects: links.get(r.id) || [] })), total };
   });
+
+  /** Akten je Brief (für Listen) */
+  function linkedObjects(userId) {
+    const map = new Map();
+    for (const l of db.all(
+      `SELECT ll.letter_id, o.id, o.name, o.type, ll.origin FROM letter_links ll JOIN objects o ON o.id = ll.object_id
+        WHERE ll.user_id = ? ORDER BY o.name`, userId
+    )) {
+      if (!map.has(l.letter_id)) map.set(l.letter_id, []);
+      map.get(l.letter_id).push({ id: l.id, name: l.name, type: l.type, origin: l.origin });
+    }
+    return map;
+  }
 
   router.get('/api/letters/:id', (req, res, { user, params }) => {
     ownLetter(user, params.id);
     const letter = db.get(`${LIST_SELECT} WHERE l.id = ?`, params.id);
-    const files = db.all('SELECT id, kind, mime, size, page_count, position FROM files WHERE letter_id = ? ORDER BY position', params.id);
+    const files = db.all('SELECT id, kind, mime, size, page_count, position, role FROM files WHERE letter_id = ? ORDER BY position', params.id);
     const tasks = db.all('SELECT * FROM tasks WHERE letter_id = ? AND user_id = ? ORDER BY position, created_at', params.id, user.id);
     const reminders = db.all(
       "SELECT id, task_id, remind_at, label, status FROM reminders WHERE user_id = ? AND task_id IN (SELECT id FROM tasks WHERE letter_id = ?) AND status IN ('geplant', 'gesendet') ORDER BY remind_at",
       user.id, params.id
     );
+    const links = db.all(
+      `SELECT ll.*, o.name, o.type, o.provider, c.title AS case_title FROM letter_links ll
+         JOIN objects o ON o.id = ll.object_id LEFT JOIN cases c ON c.id = ll.case_id
+        WHERE ll.letter_id = ? ORDER BY o.name`, params.id
+    );
+    const duplicate = letter.duplicate_of ? db.get('SELECT id, subject, sender, letter_date, uploaded_at FROM letters WHERE id = ? AND user_id = ?', letter.duplicate_of, user.id) : null;
+    const assignment = parseJson(letter.assignment_json, null);
+    if (assignment?.candidates) {
+      const names = new Map(db.all('SELECT id, name, type FROM objects WHERE user_id = ?', user.id).map((o) => [o.id, o]));
+      assignment.candidates = assignment.candidates.filter((c) => names.has(c.objectId)).map((c) => ({ ...c, name: names.get(c.objectId).name, type: names.get(c.objectId).type }));
+    }
     return {
-      letter: serializeLetter(letter),
-      files: files.map((f) => ({ id: f.id, kind: f.kind, mime: f.mime, size: f.size, pageCount: f.page_count, position: f.position })),
+      letter: { ...serializeLetter(letter), assignment },
+      files: files.map((f) => ({ id: f.id, kind: f.kind, mime: f.mime, size: f.size, pageCount: f.page_count, position: f.position, role: f.role })),
       tasks: tasks.map((t) => ({
         ...serializeTask(t),
         reminders: reminders.filter((r) => r.task_id === t.id).map((r) => ({ id: r.id, remindAt: r.remind_at, label: r.label, status: r.status })),
       })),
+      links: links.map((l) => ({
+        objectId: l.object_id, name: l.name, type: l.type, provider: l.provider, caseId: l.case_id, caseTitle: l.case_title,
+        origin: l.origin, score: l.score, evidence: parseJson(l.evidence_json, []),
+      })),
+      duplicate: duplicate ? { id: duplicate.id, subject: duplicate.subject, sender: duplicate.sender, letterDate: duplicate.letter_date, uploadedAt: duplicate.uploaded_at } : null,
+      replies: db.all('SELECT * FROM replies WHERE letter_id = ? ORDER BY created_at DESC', params.id).map(serializeReply),
+      messages: db.all('SELECT * FROM letter_messages WHERE letter_id = ? ORDER BY created_at', params.id).map(serializeMessage),
+      events: letterEvents(db, params.id),
     };
   });
 
@@ -238,7 +317,23 @@ export function registerLetterRoutes(router, ctx) {
         .map((r) => ({ label: String(r?.label || '').trim().slice(0, 80), value: String(r?.value || '').trim().slice(0, 120), quote: null }))
         .filter((r) => r.value);
       updates.refs_json = JSON.stringify(refs);
+      // Die korrigierte Liste gilt: Anzeige und Zuordnung verwenden nur noch diese Nummern
+      updates.identifiers_json = JSON.stringify(refs.map((r) => {
+        const kind = kindFromLabel(r.label);
+        return { kind, label: r.label || identifierKindLabel(kind), value: r.value, normalized: normalizeIdentifier(kind, r.value), quote: null, page: null, status: null, source: 'nutzer' };
+      }).filter((i) => i.normalized.length >= 3));
       edited.add('references');
+    }
+    if (body.senderAddress !== undefined) { updates.sender_address = text(body.senderAddress, 300); edited.add('sender_address'); }
+    if (body.senderEmail !== undefined) {
+      const email = text(body.senderEmail, 254);
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw badRequest('Bitte eine gültige E-Mail-Adresse angeben.', { field: 'senderEmail' });
+      updates.sender_email = email;
+      edited.add('sender_email');
+    }
+    if (body.personId !== undefined) {
+      if (body.personId && !db.get('SELECT id FROM persons WHERE id = ? AND user_id = ?', body.personId, user.id)) throw badRequest('Diese Person wurde nicht gefunden.', { field: 'personId' });
+      updates.person_id = body.personId || null;
     }
     if (body.letterDateConfirmed === true && letter.letter_date && updates.letter_date === undefined) {
       updates.letter_date_status = 'bestaetigt';
@@ -250,6 +345,10 @@ export function registerLetterRoutes(router, ctx) {
     db.run(`UPDATE letters SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`, ...keys.map((k) => updates[k]), letter.id);
     const fresh = db.get('SELECT * FROM letters WHERE id = ?', letter.id);
     db.run('UPDATE letters SET search_text = ? WHERE id = ?', buildSearchText(fresh), letter.id);
+    const changed = Object.keys(updates).filter((k) => !['user_edited', 'updated_at'].includes(k));
+    logLetterEvent(db, user.id, letter.id, 'korrigiert', { felder: changed });
+    // Geänderte Nummern oder Absender können die Zuordnung ändern (Entscheidungen des Nutzers bleiben)
+    if (updates.refs_json !== undefined || updates.sender !== undefined) assignLetter(db, letter.id);
     return { letter: serializeLetter(db.get('SELECT * FROM letters WHERE id = ?', letter.id)) };
   });
 
@@ -261,6 +360,7 @@ export function registerLetterRoutes(router, ctx) {
               updated_at = ? WHERE id = ?`,
       now, now, letter.id
     );
+    logLetterEvent(db, user.id, letter.id, 'geprueft');
     return { ok: true };
   });
 
@@ -279,6 +379,108 @@ export function registerLetterRoutes(router, ctx) {
     const files = db.all('SELECT storage_key FROM files WHERE letter_id = ?', letter.id);
     db.run('DELETE FROM letters WHERE id = ?', letter.id); // Seiten, Aufgaben, Erinnerungen werden mitgelöscht
     for (const f of files) await storage.remove(f.storage_key);
+    return { ok: true };
+  });
+
+  // ---------- Scan als PDF ----------
+  router.get('/api/letters/:id/pdf', async (req, res, { user, params }) => {
+    const letter = ownLetter(user, params.id);
+    const files = db.all("SELECT * FROM files WHERE letter_id = ? AND role = 'seite' ORDER BY position", letter.id);
+    if (!files.length) throw notFound('Dieser Brief hat keine Seiten.');
+    let pdf;
+    if (files.length === 1 && files[0].kind === 'pdf') {
+      pdf = await storage.get(files[0].storage_key);
+    } else {
+      const jpegs = [];
+      for (const f of files) if (f.mime === 'image/jpeg') jpegs.push(await storage.get(f.storage_key));
+      if (!jpegs.length) throw badRequest('Für diesen Brief kann keine PDF-Datei erstellt werden (keine Fotos im JPEG-Format). Bitte die Originaldateien verwenden.');
+      pdf = buildScanPdf(jpegs, { title: letter.subject || 'Brief' });
+    }
+    const name = `${letter.letter_date || letter.uploaded_at.slice(0, 10)}_${String(letter.sender || 'brief').replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40)}.pdf`;
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${name.replace(/"/g, '')}"`,
+      'Content-Length': pdf.length,
+      'Cache-Control': 'private, no-store',
+    });
+    res.end(pdf);
+  });
+
+  // ---------- Zusammenführen und Trennen ----------
+  function checkEditable(letter) {
+    if (letter.is_demo_content) throw badRequest('Beispielbriefe haben eine vorbereitete Auswertung und können nicht zusammengeführt oder getrennt werden.');
+    if (letter.analysis_status === 'wartet' || letter.analysis_status === 'laeuft') throw badRequest('Der Brief wird gerade ausgewertet. Bitte kurz warten.');
+  }
+
+  /** Hängt die Seiten eines anderen Briefes an (z. B. Seite 2, die als eigener Brief gescannt wurde). */
+  router.post('/api/letters/:id/merge', async (req, res, { user, params }) => {
+    const target = ownLetter(user, params.id);
+    const body = await readJson(req);
+    const source = ownLetter(user, String(body.sourceId || ''));
+    if (source.id === target.id) throw badRequest('Bitte einen anderen Brief wählen.');
+    checkEditable(target);
+    checkEditable(source);
+    const now = new Date().toISOString();
+    db.tx(() => {
+      const maxPos = db.get("SELECT COALESCE(MAX(position), -1) AS p FROM files WHERE letter_id = ? AND role = 'seite'", target.id).p;
+      const pages = db.all("SELECT id FROM files WHERE letter_id = ? AND role = 'seite' ORDER BY position", source.id);
+      pages.forEach((f, i) => db.run('UPDATE files SET letter_id = ?, position = ? WHERE id = ?', target.id, maxPos + 1 + i, f.id));
+      const maxOrig = db.get("SELECT COALESCE(MAX(position), 999) AS p FROM files WHERE letter_id = ? AND role = 'original'", target.id).p;
+      db.all("SELECT id FROM files WHERE letter_id = ? AND role = 'original' ORDER BY position", source.id)
+        .forEach((f, i) => db.run('UPDATE files SET letter_id = ?, position = ? WHERE id = ?', target.id, maxOrig + 1 + i, f.id));
+      // Bestätigte und erledigte Aufgaben, Antworten und Fragen wandern mit
+      db.run("UPDATE tasks SET letter_id = ? WHERE letter_id = ? AND status != 'zu_pruefen'", target.id, source.id);
+      db.run('UPDATE replies SET letter_id = ? WHERE letter_id = ?', target.id, source.id);
+      db.run('UPDATE letter_messages SET letter_id = ? WHERE letter_id = ?', target.id, source.id);
+      for (const link of db.all("SELECT * FROM letter_links WHERE letter_id = ? AND origin = 'nutzer'", source.id)) {
+        if (!db.get('SELECT id FROM letter_links WHERE letter_id = ? AND object_id = ?', target.id, link.object_id)) {
+          db.run('UPDATE letter_links SET letter_id = ? WHERE id = ?', target.id, link.id);
+        }
+      }
+      db.run('UPDATE letters SET duplicate_of = NULL, duplicate_status = NULL WHERE duplicate_of = ?', source.id);
+      db.run('DELETE FROM letters WHERE id = ?', source.id); // nur der Datensatz – die Seiten gehören jetzt zum Ziel
+      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", now, target.id);
+    });
+    logLetterEvent(db, user.id, target.id, 'zusammengefuehrt', { mit: source.subject || source.sender || 'Brief' });
+    analyzer.enqueue(target.id);
+    return { ok: true, id: target.id };
+  });
+
+  /** Verschiebt ausgewählte Seiten in einen neuen Brief. */
+  router.post('/api/letters/:id/split', async (req, res, { user, params }) => {
+    const letter = ownLetter(user, params.id);
+    checkEditable(letter);
+    const body = await readJson(req);
+    const ids = Array.isArray(body.fileIds) ? [...new Set(body.fileIds.map(String))] : [];
+    const pages = db.all("SELECT id, position FROM files WHERE letter_id = ? AND role = 'seite' ORDER BY position", letter.id);
+    const moving = pages.filter((p) => ids.includes(p.id));
+    if (!moving.length || moving.length !== ids.length) throw badRequest('Bitte die Seiten auswählen, die ein eigener Brief werden sollen.');
+    if (moving.length === pages.length) throw badRequest('Mindestens eine Seite muss im bisherigen Brief bleiben.');
+    const now = new Date().toISOString();
+    const newLetterId = newId();
+    db.tx(() => {
+      db.run(
+        `INSERT INTO letters (id, user_id, uploaded_at, analysis_status, is_demo_content, created_at, updated_at) VALUES (?, ?, ?, 'wartet', 0, ?, ?)`,
+        newLetterId, user.id, letter.uploaded_at, now, now
+      );
+      moving.forEach((p, i) => db.run('UPDATE files SET letter_id = ?, position = ? WHERE id = ?', newLetterId, i, p.id));
+      pages.filter((p) => !ids.includes(p.id)).forEach((p, i) => db.run('UPDATE files SET position = ? WHERE id = ?', i, p.id));
+      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", now, letter.id);
+    });
+    logLetterEvent(db, user.id, letter.id, 'getrennt', { seiten: moving.length });
+    logLetterEvent(db, user.id, newLetterId, 'hochgeladen', { seiten: moving.length, ausBrief: letter.subject || 'Brief' });
+    analyzer.enqueue(letter.id);
+    analyzer.enqueue(newLetterId);
+    return { ok: true, id: letter.id, newId: newLetterId };
+  });
+
+  // ---------- Duplikate ----------
+  router.post('/api/letters/:id/duplicate', async (req, res, { user, params }) => {
+    const letter = ownLetter(user, params.id);
+    const body = await readJson(req);
+    if (body.decision !== 'kein_duplikat') throw badRequest('Unbekannte Entscheidung.');
+    db.run("UPDATE letters SET duplicate_status = 'kein_duplikat', duplicate_of = NULL WHERE id = ?", letter.id);
+    logLetterEvent(db, user.id, letter.id, 'duplikat_verworfen');
     return { ok: true };
   });
 
@@ -305,10 +507,16 @@ export function registerLetterRoutes(router, ctx) {
         analyzing: count("SELECT COUNT(*) AS n FROM letters WHERE user_id = ? AND analysis_status IN ('wartet', 'laeuft')"),
         open: count("SELECT COUNT(*) AS n FROM tasks WHERE user_id = ? AND status = 'offen'"),
         overdue: count("SELECT COUNT(*) AS n FROM tasks WHERE user_id = ? AND status = 'offen' AND due_date < ?", today),
+        inbox: count("SELECT COUNT(*) AS n FROM letters WHERE user_id = ? AND assignment_status IN ('pruefen', 'vorschlag')"),
+        objects: count('SELECT COUNT(*) AS n FROM objects WHERE user_id = ?'),
+        duplicates: count("SELECT COUNT(*) AS n FROM letters WHERE user_id = ? AND duplicate_status = 'verdacht'"),
       },
       upcoming: upcoming.map(serializeTask),
       openWithoutDate: openWithoutDate.map(serializeTask),
-      recentLetters: recent.map(serializeLetterSummary),
+      recentLetters: (() => {
+        const links = linkedObjects(user.id);
+        return recent.map((r) => ({ ...serializeLetterSummary(r), objects: links.get(r.id) || [] }));
+      })(),
       reminders: fired.map((r) => ({
         id: r.id, label: r.label, sentAt: r.sent_at, taskId: r.task_id, title: r.title, kind: r.kind,
         dueDate: r.due_date, dueTime: r.due_time, letterId: r.letter_id,

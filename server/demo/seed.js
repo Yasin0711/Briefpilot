@@ -7,7 +7,12 @@ import { normalizeAnalysis } from '../analysis/validate.js';
 import { saveAnalysis } from '../domain/letters.js';
 import { scheduleReminders } from '../domain/reminders.js';
 import { newId } from '../lib/security.js';
-import { buildDemoLetters, RECIPIENT } from './letters.js';
+import { buildDemoLetters, demoHousehold, RECIPIENT } from './letters.js';
+import { assignLetter, loadAssignmentContext, detectPerson } from '../domain/assignment.js';
+import { checkDuplicate } from '../domain/duplicates.js';
+import { logLetterEvent } from '../domain/events.js';
+import { normalizeIdentifier, orgKey, identifierKind } from '../../public/js/shared/identifiers.js';
+import { objectType } from '../../public/js/shared/constants.js';
 import { formatDate, todayIn } from '../../public/js/shared/dates.js';
 
 const LEFT = 70;
@@ -94,6 +99,8 @@ export async function createDemoAccount({ db, storage, config }) {
     userId, `demo-${userId}@demo.invalid`, 'Lena (Demo)', timezone, nowIso, nowIso, nowIso
   );
   const user = db.get('SELECT * FROM users WHERE id = ?', userId);
+  seedHousehold(db, userId, today, nowIso);
+  const letterIds = [];
 
   for (const letter of buildDemoLetters(today)) {
     const pdf = renderLetterPdf(letter);
@@ -116,6 +123,9 @@ export async function createDemoAccount({ db, storage, config }) {
     const fullText = extractPdfText(pdf).text;
     const analysis = normalizeAnalysis(letter.raw, { fullText, today, source: 'beispiel' });
     saveAnalysis(db, letterId, analysis, { source: 'beispiel', model: null });
+    letterIds.push(letterId);
+    logLetterEvent(db, userId, letterId, 'hochgeladen', { seiten: 1 });
+    logLetterEvent(db, userId, letterId, 'ausgewertet', { quelle: 'beispiel' });
     if (letter.reviewed) {
       db.run("UPDATE letters SET reviewed_at = ?, letter_date_status = CASE WHEN letter_date IS NOT NULL THEN 'bestaetigt' ELSE letter_date_status END WHERE id = ?", uploadedAt, letterId);
     }
@@ -138,8 +148,52 @@ export async function createDemoAccount({ db, storage, config }) {
       }
     });
   }
+  // Zuordnung zu den Akten – mit derselben Logik wie bei echten Briefen
+  const ctx = loadAssignmentContext(db, userId);
+  for (const letterId of letterIds) {
+    const row = db.get('SELECT * FROM letters WHERE id = ?', letterId);
+    const personId = detectPerson(db, row);
+    if (personId) db.run('UPDATE letters SET person_id = ? WHERE id = ?', personId, letterId);
+    assignLetter(db, letterId, { ctx });
+    checkDuplicate(db, letterId);
+  }
   void config;
   return user;
+}
+
+function seedHousehold(db, userId, today, nowIso) {
+  const household = demoHousehold(today);
+  const persons = {};
+  const addresses = {};
+  for (const p of household.persons) {
+    persons[p.key] = newId();
+    db.run('INSERT INTO persons (id, user_id, name, relation, aliases, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', persons[p.key], userId, p.name, p.relation, '[]', nowIso, nowIso);
+  }
+  for (const a of household.addresses) {
+    addresses[a.key] = newId();
+    db.run(
+      `INSERT INTO addresses (id, user_id, label, kind, street, zip, city, is_primary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      addresses[a.key], userId, a.label, a.kind, a.street, a.zip, a.city, a.primary ? 1 : 0, nowIso, nowIso
+    );
+  }
+  for (const o of household.objects) {
+    const objectId = newId();
+    const providerKey = o.provider ? orgKey(o.provider) : null;
+    db.run(
+      `INSERT INTO objects (id, user_id, type, name, provider, provider_key, category, person_id, address_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      objectId, userId, o.type, o.name, o.provider || null, providerKey, objectType(o.type).category,
+      persons[o.person] || null, addresses[o.address] || null, nowIso, nowIso
+    );
+    for (const i of o.identifiers) {
+      db.run(
+        `INSERT INTO identifiers (id, user_id, object_id, kind, value, normalized, issuer_key, status, valid_from, valid_to, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'nutzer', ?)`,
+        newId(), userId, objectId, i.kind, i.value, normalizeIdentifier(i.kind, i.value),
+        identifierKind(i.kind).scope === 'issuer' ? providerKey : null, i.status || 'aktuell', i.validFrom || null, i.validTo || null, nowIso
+      );
+    }
+  }
 }
 
 /** Entfernt abgelaufene Demo-Konten samt Dateien. */

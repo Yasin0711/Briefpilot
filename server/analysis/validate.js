@@ -4,6 +4,9 @@
 // erkannten Brieftext gesucht.
 import { CATEGORY_IDS, TASK_KIND_IDS } from '../../public/js/shared/constants.js';
 import {
+  IDENTIFIER_KIND_IDS, kindFromLabel, normalizeIdentifier, extractIdentifiers, identifierKindLabel, compactAddressText,
+} from '../../public/js/shared/identifiers.js';
+import {
   isValidIsoDate, isValidTime, parseGermanDates, parseRelativeDeadline, isWeekend, daysBetween,
 } from '../../public/js/shared/dates.js';
 
@@ -107,8 +110,15 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
   const references = cleanList(r.references, (ref) => {
     const label = str(ref?.label, 80);
     const value = str(ref?.value, 120);
-    return label && value ? { label, value, quote: strOrNull(ref?.quote, 300) } : null;
+    if (!label || !value) return null;
+    const kind = IDENTIFIER_KIND_IDS.includes(ref?.kind) && ref.kind !== 'sonstiges' ? ref.kind : kindFromLabel(label);
+    const status = ['alt', 'neu'].includes(ref?.status) ? ref.status : null;
+    return { label, value, quote: strOrNull(ref?.quote, 300), kind, status };
   });
+  const { identifiers, missing } = buildIdentifiers(references, fullText, source);
+  for (const m of missing.slice(0, 3)) {
+    toCheck.push(`Die Nummer „${m.value}“ (${m.label}) wurde im erkannten Brieftext nicht gefunden. Sie wird für die Zuordnung nicht verwendet.`);
+  }
   const amounts = cleanList(r.amounts, (a) => {
     const label = str(a?.label, 80);
     const amount = str(a?.amount, 40);
@@ -231,5 +241,49 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
     actions,
     fullText,
     injection,
+    identifiers,
+    recipient: strOrNull(r.recipient, 200),
+    senderAddress: strOrNull(r.sender_address, 300),
+    senderEmail: validEmail(r.sender_email),
   };
+}
+
+function validEmail(value) {
+  const v = str(value, 254);
+  return /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[a-z]{2,}$/i.test(v) ? v : null;
+}
+
+/**
+ * Kennungen für die Zuordnung: Angaben der KI bzw. Regel-Erkennung plus eigene Suche im
+ * Brieftext. Eine Nummer zählt nur, wenn sie im erkannten Text tatsächlich vorkommt –
+ * so kann eine erfundene Nummer keinen Brief einer falschen Akte zuordnen.
+ */
+export function buildIdentifiers(references, fullText, refSource = 'ki') {
+  const compactText = normalizeIdentifier('sonstiges', fullText);
+  const addressText = compactAddressText(fullText);
+  const inText = (kind, normalized) => (kind === 'objektadresse' ? addressText : compactText).includes(normalized);
+  const out = [];
+  const missing = [];
+  const add = (item, source) => {
+    const normalized = normalizeIdentifier(item.kind, item.value);
+    if (normalized.length < 3) return;
+    if (fullText && fullText.length >= 20 && !inText(item.kind, normalized)) {
+      if (source !== 'regeln' && !missing.some((m) => m.value === item.value)) missing.push(item);
+      return;
+    }
+    const existing = out.find((o) => o.normalized === normalized);
+    if (existing) {
+      if (existing.kind === 'sonstiges' && item.kind !== 'sonstiges') existing.kind = item.kind;
+      if (!existing.status && item.status) existing.status = item.status;
+      if (!existing.quote && item.quote) existing.quote = item.quote;
+      return;
+    }
+    out.push({
+      kind: item.kind, label: item.label || identifierKindLabel(item.kind), value: item.value, normalized,
+      quote: item.quote || null, page: Number.isInteger(item.page) ? item.page : null, status: item.status || null, source,
+    });
+  };
+  for (const ref of references) add(ref, refSource);
+  for (const found of extractIdentifiers(fullText)) add(found, 'regeln');
+  return { identifiers: out.slice(0, 40), missing };
 }

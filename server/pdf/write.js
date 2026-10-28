@@ -50,13 +50,38 @@ function pdfString(text) {
   return out + ')';
 }
 
+/** Liest Breite, Höhe und Farbkanäle aus einer JPEG-Datei (SOF-Marker). */
+export function jpegInfo(buf) {
+  if (!Buffer.isBuffer(buf) || buf[0] !== 0xff || buf[1] !== 0xd8) throw new Error('Keine JPEG-Datei');
+  let pos = 2;
+  while (pos + 9 < buf.length) {
+    if (buf[pos] !== 0xff) {
+      pos++;
+      continue;
+    }
+    const marker = buf[pos + 1];
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      pos += 2;
+      continue;
+    }
+    const length = buf.readUInt16BE(pos + 2);
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      return { height: buf.readUInt16BE(pos + 5), width: buf.readUInt16BE(pos + 7), components: buf[pos + 9] };
+    }
+    pos += 2 + length;
+  }
+  throw new Error('JPEG-Größe nicht gefunden');
+}
+
 /**
- * pages: Array von Seiten; jede Seite ist ein Array von Elementen:
+ * pages: Array von Seiten. Eine Seite ist entweder ein Array von Elementen (A4 hoch)
+ * oder { width, height, items }. Elemente:
  *   { type: 'text', x, y, text, size = 11, bold = false, gray = 0 }
- *   { type: 'line', x1, y1, x2, y2, gray = 0.6 }
+ *   { type: 'line', x1, y1, x2, y2, gray = 0.6, width = 0.6 }
+ *   { type: 'image', x, y, w, h, jpeg: Buffer }   (JPEG wird unverändert eingebettet)
  * Koordinaten in Punkt, Ursprung unten links (A4 = 595 × 842).
  */
-export function buildPdf(pages, { title = 'Dokument' } = {}) {
+export function buildPdf(pages, { title = 'Dokument', producer = 'BriefPilot' } = {}) {
   const objects = [];
   const add = (body) => {
     objects.push(body);
@@ -68,11 +93,25 @@ export function buildPdf(pages, { title = 'Dokument' } = {}) {
   const fontBold = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
   const pageIds = [];
 
-  for (const items of pages) {
+  for (const page of pages) {
+    const items = Array.isArray(page) ? page : page.items;
+    const width = Array.isArray(page) ? 595 : page.width || 595;
+    const height = Array.isArray(page) ? 842 : page.height || 842;
     let content = '';
+    const images = [];
     for (const item of items) {
       if (item.type === 'line') {
-        content += `${item.gray ?? 0.6} G 0.6 w ${item.x1} ${item.y1} m ${item.x2} ${item.y2} l S\n`;
+        content += `${item.gray ?? 0.6} G ${item.width ?? 0.6} w ${item.x1} ${item.y1} m ${item.x2} ${item.y2} l S\n`;
+      } else if (item.type === 'image') {
+        const info = jpegInfo(item.jpeg);
+        const colorSpace = info.components === 1 ? '/DeviceGray' : info.components === 4 ? '/DeviceCMYK /Decode [1 0 1 0 1 0 1 0]' : '/DeviceRGB';
+        const imageId = add({
+          dict: `<< /Type /XObject /Subtype /Image /Width ${info.width} /Height ${info.height} /ColorSpace ${colorSpace} /BitsPerComponent 8 /Filter /DCTDecode /Length ${item.jpeg.length} >>`,
+          stream: item.jpeg,
+        });
+        const name = `Im${images.length + 1}`;
+        images.push(`/${name} ${imageId} 0 R`);
+        content += `q ${item.w.toFixed(2)} 0 0 ${item.h.toFixed(2)} ${item.x.toFixed(2)} ${item.y.toFixed(2)} cm /${name} Do Q\n`;
       } else {
         const size = item.size || 11;
         content += `BT /${item.bold ? 'F2' : 'F1'} ${size} Tf ${item.gray ?? 0} g ${item.x.toFixed(2)} ${item.y.toFixed(2)} Td ${pdfString(item.text)} Tj ET\n`;
@@ -80,14 +119,15 @@ export function buildPdf(pages, { title = 'Dokument' } = {}) {
     }
     const compressed = zlib.deflateSync(Buffer.from(content, 'latin1'));
     const contentId = add({ dict: `<< /Length ${compressed.length} /Filter /FlateDecode >>`, stream: compressed });
+    const xobjects = images.length ? ` /XObject << ${images.join(' ')} >>` : '';
     const pageId = add(
-      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontRegular} 0 R /F2 ${fontBold} 0 R >> >> /Contents ${contentId} 0 R >>`
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /Font << /F1 ${fontRegular} 0 R /F2 ${fontBold} 0 R >>${xobjects} >> /Contents ${contentId} 0 R >>`
     );
     pageIds.push(pageId);
   }
   objects[catalogId - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
   objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`;
-  const infoId = add(`<< /Title ${pdfString(title)} /Producer (BriefPilot Demo) >>`);
+  const infoId = add(`<< /Title ${pdfString(title)} /Producer ${pdfString(producer)} >>`);
 
   const chunks = [Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n', 'latin1')];
   let offset = chunks[0].length;
@@ -112,4 +152,19 @@ export function buildPdf(pages, { title = 'Dokument' } = {}) {
   xref += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R /Info ${infoId} 0 R >>\nstartxref\n${offset}\n%%EOF\n`;
   chunks.push(Buffer.from(xref, 'latin1'));
   return Buffer.concat(chunks);
+}
+
+/** Erzeugt aus gescannten Seiten (JPEG) eine PDF-Datei: je Bild eine A4-Seite, hoch oder quer. */
+export function buildScanPdf(jpegs, { title = 'Scan' } = {}) {
+  const pages = jpegs.map((jpeg) => {
+    const info = jpegInfo(jpeg);
+    const landscape = info.width > info.height;
+    const width = landscape ? 842 : 595;
+    const height = landscape ? 595 : 842;
+    const scale = Math.min(width / info.width, height / info.height);
+    const w = info.width * scale;
+    const h = info.height * scale;
+    return { width, height, items: [{ type: 'image', jpeg, x: (width - w) / 2, y: (height - h) / 2, w, h }] };
+  });
+  return buildPdf(pages, { title });
 }

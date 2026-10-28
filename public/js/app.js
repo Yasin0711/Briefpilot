@@ -10,13 +10,18 @@ import * as scan from './views/scan.js';
 import * as tasks from './views/tasks.js';
 import * as settings from './views/settings.js';
 import * as info from './views/info.js';
+import * as inbox from './views/inbox.js';
+import * as objects from './views/objects.js';
 
-export const state = { me: null, status: null, counts: { tasksToReview: 0 } };
+export const state = { me: null, status: null, counts: { tasksToReview: 0, inbox: 0 } };
 
 const ROUTES = [
   { path: /^\/$/, view: overview.render, nav: 'uebersicht', title: 'Übersicht' },
   { path: /^\/briefe$/, view: letters.render, nav: 'briefe', title: 'Briefe' },
   { path: /^\/briefe\/([\w-]+)$/, view: letter.render, nav: 'briefe', title: 'Brief', keys: ['id'], wide: true },
+  { path: /^\/zuordnen$/, view: inbox.render, nav: 'briefe', title: 'Briefe zuordnen' },
+  { path: /^\/akten$/, view: objects.renderList, nav: 'briefe', title: 'Akten' },
+  { path: /^\/akten\/([\w-]+)$/, view: objects.renderDetail, nav: 'briefe', title: 'Akte', keys: ['id'] },
   { path: /^\/scannen$/, view: scan.render, nav: 'scannen', title: 'Brief scannen' },
   { path: /^\/aufgaben$/, view: tasks.render, nav: 'aufgaben', title: 'Aufgaben und Termine' },
   { path: /^\/einstellungen$/, view: settings.render, nav: 'einstellungen', title: 'Einstellungen' },
@@ -31,9 +36,9 @@ const ROUTES = [
 
 const NAV = [
   { id: 'uebersicht', href: '#/', label: 'Übersicht', icon: 'home' },
-  { id: 'briefe', href: '#/briefe', label: 'Briefe', icon: 'mail' },
+  { id: 'briefe', href: '#/briefe', label: 'Briefe', icon: 'mail', badge: 'inbox', badgeLabel: 'Briefe zuordnen' },
   { id: 'scannen', href: '#/scannen', label: 'Scannen', icon: 'camera', scan: true },
-  { id: 'aufgaben', href: '#/aufgaben', label: 'Aufgaben', icon: 'tasks', badge: true },
+  { id: 'aufgaben', href: '#/aufgaben', label: 'Aufgaben', icon: 'tasks', badge: 'tasksToReview', badgeLabel: 'zu prüfen' },
   { id: 'einstellungen', href: '#/einstellungen', label: 'Einstellungen', icon: 'settings' },
 ];
 
@@ -55,13 +60,23 @@ export async function refreshMe() {
   return state.me;
 }
 
-export function setReviewCount(n) {
-  state.counts.tasksToReview = n;
-  const badge = document.querySelector('.nav-badge');
+function setCount(key, n) {
+  state.counts[key] = n || 0;
+  const badge = document.querySelector(`.nav-badge[data-count="${key}"]`);
   if (badge) {
-    badge.textContent = n;
+    badge.textContent = n || 0;
     badge.hidden = !n;
   }
+}
+
+/** Anzahl der zu prüfenden Angaben (Aufgaben) im Menü. */
+export function setReviewCount(n) {
+  setCount('tasksToReview', n);
+}
+
+/** Anzahl der Briefe, die auf eine Zuordnung warten (Briefe → Zuordnen). */
+export function setInboxCount(n) {
+  setCount('inbox', n);
 }
 
 function renderNav(active) {
@@ -75,7 +90,7 @@ function renderNav(active) {
         <a class="nav-item ${item.scan ? 'nav-scan' : ''}" href="${item.href}" ${active === item.id ? html`aria-current="page"` : ''}>
           ${item.scan ? html`<span class="nav-scan-disc">${icon(item.icon)}</span>` : icon(item.icon)}
           <span>${item.scan ? html`<span class="nav-scan-label">${item.label}</span>` : item.label}</span>
-          ${item.badge ? html`<span class="nav-badge" ${state.counts.tasksToReview ? '' : html`hidden`} aria-label="zu prüfen">${state.counts.tasksToReview}</span>` : ''}
+          ${item.badge ? html`<span class="nav-badge" data-count="${item.badge}" ${state.counts[item.badge] ? '' : html`hidden`} aria-label="${item.badgeLabel}">${state.counts[item.badge]}</span>` : ''}
         </a></li>`)}
     </ul>`);
 }
@@ -160,8 +175,32 @@ function applyTextSize() {
   document.documentElement.classList.toggle('ts-sehr-gross', size === 'sehr-gross');
 }
 
+/** Hell, Dunkel oder automatisch (Systemeinstellung) – gilt für dieses Gerät. */
+export function themeChoice() {
+  try {
+    const v = localStorage.getItem('bp-theme');
+    return v === 'hell' || v === 'dunkel' ? v : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+const darkQuery = window.matchMedia?.('(prefers-color-scheme: dark)');
+
+function applyTheme() {
+  const choice = themeChoice();
+  const root = document.documentElement;
+  if (choice === 'hell') root.dataset.theme = 'light';
+  else if (choice === 'dunkel') root.dataset.theme = 'dark';
+  else delete root.dataset.theme;
+  const dark = choice === 'dunkel' || (choice === 'auto' && darkQuery?.matches);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0b1726' : '#eaf3ff');
+}
+darkQuery?.addEventListener?.('change', applyTheme);
+
 async function start() {
   applyTextSize();
+  applyTheme();
   setUnauthorizedHandler(() => {
     state.me = null;
     navigate('/anmelden');
@@ -173,7 +212,10 @@ async function start() {
   }
   await refreshMe();
   if (state.me) {
-    api.get('/api/overview').then((o) => setReviewCount(o.counts.tasksToReview)).catch(() => {});
+    api.get('/api/overview').then((o) => {
+      setReviewCount(o.counts.tasksToReview);
+      setInboxCount(o.counts.inbox);
+    }).catch(() => {});
   }
   window.addEventListener('hashchange', route);
   route();
@@ -182,5 +224,5 @@ async function start() {
   }
 }
 
-export { applyTextSize };
+export { applyTextSize, applyTheme };
 start();

@@ -1,24 +1,10 @@
-// Startseite: Erinnerungen, offene Aufgaben, anstehende Fristen, zuletzt hinzugefügte Briefe.
+// Startseite: Erinnerungen, Briefe zum Zuordnen, offene Aufgaben, anstehende Fristen, zuletzt hinzugefügte Briefe.
 import { html, mount } from '../html.js';
 import { api } from '../api.js';
-import { icon, dateTile, whenLabel, categoryTile, greeting, taskKindLabel, toast, statusBadge } from '../ui.js';
+import { icon, dateTile, whenLabel, greeting, taskKindLabel, toast, statusBadge } from '../ui.js';
 import { formatDate } from '../shared/dates.js';
-import { setReviewCount } from '../app.js';
-
-function letterRow(l) {
-  const dateText = l.letterDate ? `Brief vom ${formatDate(l.letterDate)}` : 'Briefdatum unbekannt';
-  let badge = '';
-  if (l.analysisStatus === 'wartet' || l.analysisStatus === 'laeuft') badge = html`<span class="badge badge-open">Wird gelesen …</span>`;
-  else if (l.analysisStatus === 'fehler') badge = html`<span class="badge badge-danger">Auswertung fehlgeschlagen</span>`;
-  else if (l.tasksToReview) badge = html`<span class="badge badge-review">${icon('alert')}${l.tasksToReview} zu prüfen</span>`;
-  else if (!l.reviewed && l.analysisStatus === 'fertig') badge = html`<span class="badge badge-review">Angaben prüfen</span>`;
-  return html`<li><a class="list-row" href="#/briefe/${l.id}">
-    ${categoryTile(l.category)}
-    <span class="grow"><span class="row-title">${l.subject || 'Brief ohne Betreff'}</span>
-      <span class="row-sub">${l.sender || 'Absender unbekannt'}</span><span class="row-sub">${dateText}</span>
-      ${badge ? html`<span class="row-meta">${badge}</span>` : ''}</span>
-    ${icon('chevronRight', 'chev')}</a></li>`;
-}
+import { setReviewCount, setInboxCount } from '../app.js';
+import { letterRow } from './parts.js';
 
 export function taskRow(t, today) {
   const href = t.letterId ? `#/briefe/${t.letterId}?aufgabe=${t.id}` : '#/aufgaben';
@@ -61,6 +47,7 @@ export async function render({ root, state, isCurrent }) {
 
 function draw(root, state, data) {
   setReviewCount(data.counts.tasksToReview);
+  setInboxCount(data.counts.inbox);
   const { counts, today } = data;
   const isEmpty = counts.letters === 0;
   const aiOff = !state.status?.ai?.enabled;
@@ -87,6 +74,12 @@ function draw(root, state, data) {
         </div></div>`)}
     </section>` : ''}
 
+    ${counts.inbox ? html`<a class="inbox-alert" href="#/zuordnen">
+      <span class="alert-disc">${icon('inbox')}</span>
+      <span class="grow"><span class="row-title">${counts.inbox === 1 ? '1 Brief wartet' : `${counts.inbox} Briefe warten`} auf Ihre Entscheidung</span>
+        <span class="row-sub">BriefPilot hat mehrere mögliche Akten gefunden. Bitte wählen Sie die richtige aus.</span></span>
+      ${icon('chevronRight', 'chev')}</a>` : ''}
+
     ${aiOff ? html`<div class="note">${icon('info')}<div><strong>KI-Auswertung ist auf diesem Server nicht eingerichtet.</strong>
       <p>PDFs mit Text werden mit einer einfachen Erkennung gelesen, Fotos nur gespeichert. <a href="#/status">Mehr dazu</a></p></div></div>` : ''}
 
@@ -103,6 +96,10 @@ function draw(root, state, data) {
       <a class="stat ${counts.tasksToReview ? 'is-review' : ''}" href="#/aufgaben?status=zu_pruefen">
         <strong>${counts.tasksToReview}</strong><span>${counts.tasksToReview === 1 ? 'Angabe' : 'Angaben'} zu prüfen</span></a>
       <a class="stat" href="#/aufgaben?status=offen"><strong>${counts.open}</strong><span>offene Aufgaben${counts.overdue ? html`, <span class="when is-overdue">${counts.overdue} überfällig</span>` : ''}</span></a>
+      <a class="stat" href="#/akten"><strong>${counts.objects}</strong><span>${counts.objects === 1 ? 'Akte' : 'Akten'}${counts.inbox ? html`, <span class="when is-soon">${counts.inbox} zuzuordnen</span>` : ''}</span></a>
+      ${counts.duplicates
+        ? html`<a class="stat is-review" href="#/briefe?filter=doppelt"><strong>${counts.duplicates}</strong><span>${counts.duplicates === 1 ? 'Brief' : 'Briefe'} vielleicht doppelt</span></a>`
+        : html`<a class="stat" href="#/briefe"><strong>${counts.letters}</strong><span>${counts.letters === 1 ? 'Brief' : 'Briefe'} gespeichert</span></a>`}
     </div>`}
 
     ${counts.analyzing ? html`<div class="note">${html`<span class="spinner" aria-hidden="true"></span>`}<p>${counts.analyzing === 1 ? 'Ein Brief wird' : `${counts.analyzing} Briefe werden`} gerade gelesen. Das dauert meist unter einer Minute.</p></div>` : ''}
@@ -123,7 +120,7 @@ function draw(root, state, data) {
 
     ${data.recentLetters.length ? html`<section>
       <div class="section-title"><h2>Zuletzt hinzugefügt</h2><a href="#/briefe">Alle Briefe</a></div>
-      <div class="panel panel-plain"><ul class="list">${data.recentLetters.map(letterRow)}</ul></div>
+      <div class="panel panel-plain"><ul class="list">${data.recentLetters.map((l) => letterRow(l))}</ul></div>
     </section>` : ''}
   </div>`);
 

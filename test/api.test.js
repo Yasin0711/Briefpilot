@@ -359,8 +359,25 @@ test('Demomodus: eigenes Konto mit gekennzeichneten Beispielbriefen', async () =
     assert.equal(r.status, 200);
     assert.equal(r.data.user.isDemo, true);
     const letters = (await c.get('/api/letters')).data.letters;
-    assert.equal(letters.length, 8);
+    assert.equal(letters.length, 13, '8 Beispielbriefe der ersten Version + 5 zur Zuordnung');
     assert.ok(letters.every((l) => l.isDemoContent && l.analysisSource === 'beispiel'));
+    // Akten und Zuordnung im Demomodus
+    const objects = (await c.get('/api/objects')).data;
+    assert.equal(objects.objects.length, 12);
+    const byKey = (subjectPart) => letters.find((l) => (l.subject || '').includes(subjectPart));
+    assert.deepEqual(byKey('Kfz-Beitrag').objects.map((o) => o.name), ['Fahrzeug 3 · SB-EF 789']);
+    assert.deepEqual(byKey('Schaden').objects.map((o) => o.name), ['Fahrzeug 5 · SB-JK 567']);
+    assert.deepEqual(byKey('Abschlagsplan').objects.map((o) => o.name), ['Strom vermietete Wohnung']);
+    assert.deepEqual(byKey('Jahresabrechnung Strom').objects.map((o) => o.name), ['Strom Zuhause']);
+    assert.deepEqual(byKey('Beitragsanpassung').objects.map((o) => o.name), ['Hausratversicherung']);
+    assert.deepEqual(byKey('Einkommensteuer').objects.map((o) => o.name), ['Einkommensteuer']);
+    assert.deepEqual(byKey('Ablesung').objects.map((o) => o.name), ['Wohnung Lindenweg 12']);
+    const inbox = (await c.get('/api/inbox')).data.letters;
+    assert.equal(inbox.length, 2, 'zwei unklare Briefe warten auf Prüfung');
+    const unclear = inbox.find((l) => l.subject.includes('Jahresinformation'));
+    assert.match(unclear.assignment.message, /zwei mögliche Verträge gefunden\. Bitte wählen Sie den richtigen aus/);
+    const shared = inbox.find((l) => l.subject.includes('Versicherungsbedingungen'));
+    assert.match(shared.assignment.message, /sieben mögliche Akten gefunden/);
     const c2 = server.client();
     await c2.post('/api/auth/demo');
     const other = (await c2.get('/api/letters')).data.letters;

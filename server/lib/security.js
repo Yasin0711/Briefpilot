@@ -8,6 +8,10 @@ const scrypt = promisify(crypto.scrypt);
 
 export const SESSION_COOKIE = 'bp_session';
 export const SESSION_DAYS = 30;
+// Gastzugang („Ohne Konto fortfahren“): Sitzung hält ein Jahr und verlängert sich bei jeder Nutzung
+export const GUEST_DAYS = 365;
+export const GUEST_EMAIL_DOMAIN = '@gast.invalid';
+export const isGuest = (user) => Boolean(user && !user.is_demo && String(user.email || '').endsWith(GUEST_EMAIL_DOMAIN));
 
 export const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
 export const randomToken = (bytes = 32) => crypto.randomBytes(bytes).toString('base64url');
@@ -64,15 +68,15 @@ export function isValidEmail(email) {
 
 // ---------- Sitzungen ----------
 
-export function createSession(db, userId, device) {
+export function createSession(db, userId, device, days = SESSION_DAYS) {
   const token = randomToken(32);
   const now = new Date();
-  const expires = new Date(now.getTime() + SESSION_DAYS * 86400000);
+  const expires = new Date(now.getTime() + days * 86400000);
   db.run(
     'INSERT INTO sessions (id, user_id, device, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
     sha256(token), userId, device, now.toISOString(), now.toISOString(), expires.toISOString()
   );
-  return { token, maxAge: SESSION_DAYS * 86400 };
+  return { token, maxAge: days * 86400 };
 }
 
 export function loadSession(db, token) {
@@ -94,7 +98,7 @@ export function loadSession(db, token) {
   if (now - Date.parse(row.last_seen_at) > 10 * 60 * 1000) {
     db.run(
       'UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?',
-      new Date(now).toISOString(), new Date(now + SESSION_DAYS * 86400000).toISOString(), id
+      new Date(now).toISOString(), new Date(now + (isGuest(row) ? GUEST_DAYS : SESSION_DAYS) * 86400000).toISOString(), id
     );
   }
   return row;

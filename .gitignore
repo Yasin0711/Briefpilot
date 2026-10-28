@@ -3,3 +3,6 @@ data/
 .env
 *.log
 .DS_Store
+test/browser/shots/
+test/browser/media/
+_sicherung*/

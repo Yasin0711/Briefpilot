@@ -1,7 +1,10 @@
 // Einrichtung: erzeugt die Datei .env mit neuen, zufälligen Schlüsseln.
+// Fragt (nur im Terminal) optional nach einem kostenlosen Gemini-Schlüssel für die KI-Auswertung.
+// Ohne Rückfragen: „npm run setup -- --ohne-fragen“ oder GEMINI_API_KEY als Umgebungsvariable mitgeben.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { generateVapidKeys } from '../server/lib/push.js';
 
@@ -22,6 +25,24 @@ if (fs.existsSync(envPath)) {
   process.exit(0);
 }
 
+/** Fragt im Terminal nach dem Gemini-Schlüssel (Enter = später). */
+async function askGeminiKey() {
+  if (process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY.trim();
+  if (!process.stdin.isTTY || process.argv.includes('--ohne-fragen')) return '';
+  console.log('');
+  console.log('KI-Auswertung – kostenlos mit Google Gemini (für Fotos von Briefen nötig):');
+  console.log('  1. https://aistudio.google.com/apikey öffnen und mit einem Google-Konto anmelden');
+  console.log('  2. „API-Schlüssel erstellen“ (Create API key) wählen und den Schlüssel kopieren');
+  console.log('  Kosten: keine, solange kein Rechnungskonto verknüpft ist. Nutzung ab 18 Jahren.');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question('  Schlüssel einfügen und Enter drücken (nur Enter = später in .env eintragen): ');
+    return answer.trim();
+  } finally {
+    rl.close();
+  }
+}
+
 let content = fs.readFileSync(examplePath, 'utf8');
 const vapid = generateVapidKeys();
 const set = (key, value) => {
@@ -30,11 +51,24 @@ const set = (key, value) => {
 set('FILE_ENCRYPTION_KEY', crypto.randomBytes(32).toString('base64'));
 set('VAPID_PUBLIC_KEY', vapid.publicKey);
 set('VAPID_PRIVATE_KEY', vapid.privateKey);
+
+const geminiKey = await askGeminiKey();
+if (geminiKey) {
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(geminiKey)) {
+    console.log('  Hinweis: Der Schlüssel sieht ungewöhnlich aus (erwartet: Buchstaben, Ziffern, - und _). Er wird trotzdem eingetragen – bitte prüfen.');
+  }
+  set('GEMINI_API_KEY', geminiKey);
+  set('AI_PROVIDER', 'gemini');
+}
 fs.writeFileSync(envPath, content, { mode: 0o600 });
 
+console.log('');
 console.log('✓ Datei .env wurde angelegt (mit neuem Verschlüsselungsschlüssel und Push-Schlüsseln).');
+console.log(geminiKey ? '✓ Gemini-Schlüssel eingetragen – die KI-Auswertung ist eingeschaltet.' : '• Ohne KI-Schlüssel: PDFs mit Text werden einfach erkannt, Fotos nur gespeichert.');
+console.log('');
+console.log('WICHTIG: Den Wert FILE_ENCRYPTION_KEY in .env sicher aufbewahren. Ohne ihn sind gespeicherte Briefe nicht lesbar.');
 console.log('');
 console.log('Nächste Schritte:');
-console.log('  1. Optional: In .env Ihren ANTHROPIC_API_KEY eintragen (für KI-Auswertung und Fotos).');
-console.log('  2. „npm start“ ausführen.');
-console.log('  3. Im Browser http://localhost:3000 öffnen.');
+if (!geminiKey) console.log('  • Optional: In .env bei GEMINI_API_KEY= Ihren kostenlosen Schlüssel eintragen (siehe README).');
+console.log('  • „npm start“ ausführen (unter Windows: BriefPilot-starten.cmd doppelklicken).');
+console.log('  • Im Browser http://localhost:3000 öffnen.');

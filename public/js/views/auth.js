@@ -29,6 +29,9 @@ export async function renderLogin({ root, state, navigate, refreshMe }) {
       <p class="row"><a href="#/passwort-vergessen">Passwort vergessen?</a></p>
     </form>
     <div class="stack">
+      <div class="divider">oder</div>
+      <button class="btn btn-block" type="button" data-guest>${icon('check')}Ohne Konto fortfahren</button>
+      <p class="small muted">Ihre Briefe bleiben dann nur auf diesem Gerät erreichbar. Kein Passwort nötig.</p>
       <a class="btn btn-secondary btn-block" href="#/registrieren">${icon('plus')}Neues Konto erstellen</a>
       ${state.status?.demoEnabled ? html`
         <div class="divider">oder</div>
@@ -50,6 +53,17 @@ export async function renderLogin({ root, state, navigate, refreshMe }) {
         navigate('/');
       } catch (err) {
         showError(form, err);
+      }
+    });
+  });
+  root.querySelector('[data-guest]')?.addEventListener('click', async (e) => {
+    await busy(e.currentTarget, async () => {
+      try {
+        await api.post('/api/auth/guest');
+        await refreshMe();
+        navigate('/');
+      } catch (err) {
+        toast(err.message || 'Das hat nicht geklappt. Bitte erneut versuchen.', { error: true });
       }
     });
   });

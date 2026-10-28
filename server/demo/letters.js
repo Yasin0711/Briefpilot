@@ -17,6 +17,73 @@ function nextYearFirst(today) {
 
 export const RECIPIENT = ['Frau', 'Lena Beispiel', 'Lindenweg 12', '12345 Musterstadt'];
 
+/**
+ * Erfundener Haushalt für die Demo: fünf Fahrzeuge bei derselben Versicherung (gemeinsame
+ * Kundennummer!), zwei Verträge mit fast gleicher Nummer, drei Stromzähler bei denselben
+ * Stadtwerken (einer mit Zählerwechsel), ein Steuerkonto und eine Mietwohnung.
+ */
+export function demoHousehold(today) {
+  const plates = ['SB-AB 123', 'SB-CD 456', 'SB-EF 789', 'SB-GH 234', 'SB-JK 567'];
+  const insurer = 'Muster Versicherung AG';
+  const utility = 'Stadtwerke Musterstadt GmbH';
+  return {
+    persons: [
+      { key: 'ich', name: 'Lena Beispiel', relation: 'ich' },
+      { key: 'partner', name: 'Max Beispiel', relation: 'partner' },
+    ],
+    addresses: [
+      { key: 'home', label: 'Zuhause', kind: 'haushalt', street: 'Lindenweg 12', zip: '12345', city: 'Musterstadt', primary: true },
+      { key: 'rent', label: 'Vermietete Wohnung', kind: 'mietobjekt', street: 'Ahornstraße 5', zip: '12345', city: 'Musterstadt' },
+      { key: 'holiday', label: 'Ferienwohnung', kind: 'ferienwohnung', street: 'Seeblick 7', zip: '23999', city: 'Beispielhafen' },
+    ],
+    objects: [
+      ...plates.map((plate, i) => ({
+        type: 'fahrzeug', name: `Fahrzeug ${i + 1} · ${plate}`, provider: insurer, person: i === 1 ? 'partner' : 'ich',
+        identifiers: [
+          { kind: 'kennzeichen', value: plate },
+          { kind: 'versicherungsnummer', value: `KFZ-00${i + 1}` },
+          { kind: 'kundennummer', value: '778-112' },
+        ],
+      })),
+      {
+        type: 'versicherung', name: 'Hausratversicherung', provider: insurer, address: 'home',
+        identifiers: [{ kind: 'versicherungsnummer', value: 'HR-2024-778812' }, { kind: 'kundennummer', value: '778-112' }],
+      },
+      {
+        type: 'versicherung', name: 'Privathaftpflicht', provider: insurer,
+        identifiers: [{ kind: 'versicherungsnummer', value: 'HR-2024-778813' }, { kind: 'kundennummer', value: '778-112' }],
+      },
+      {
+        type: 'strom', name: 'Strom Zuhause', provider: utility, address: 'home',
+        identifiers: [
+          { kind: 'zaehlernummer', value: '1ESY 1160 4421' }, { kind: 'vertragskonto', value: '2006 5512 3' },
+          { kind: 'malo_id', value: '51238696781' }, { kind: 'kundennummer', value: '4711-0815-23' },
+        ],
+      },
+      {
+        type: 'strom', name: 'Strom vermietete Wohnung', provider: utility, address: 'rent',
+        identifiers: [
+          { kind: 'zaehlernummer', value: '1ESY 1160 4422' }, { kind: 'vertragskonto', value: '2006 5512 4' },
+          { kind: 'objektadresse', value: 'Ahornstraße 5' }, { kind: 'kundennummer', value: '4711-0815-23' },
+        ],
+      },
+      {
+        type: 'strom', name: 'Strom Ferienwohnung', provider: utility, address: 'holiday',
+        identifiers: [
+          { kind: 'zaehlernummer', value: '7KSY 0001 1234', status: 'alt', validTo: addDays(today, -120) },
+          { kind: 'zaehlernummer', value: '7KSY 0009 9876', validFrom: addDays(today, -119) },
+          { kind: 'kundennummer', value: '4711-0815-23' },
+        ],
+      },
+      { type: 'behoerde', name: 'Einkommensteuer', provider: 'Finanzamt Musterstadt', identifiers: [{ kind: 'steuernummer', value: '123/456/78901' }] },
+      {
+        type: 'wohnen', name: 'Wohnung Lindenweg 12', provider: 'Hausverwaltung Sonnig & Partner GmbH', address: 'home',
+        identifiers: [{ kind: 'objektadresse', value: 'Lindenweg 12, Whg. 3' }],
+      },
+    ],
+  };
+}
+
 export function buildDemoLetters(today) {
   const d = (n) => addDays(today, n);
   const letters = [];
@@ -479,6 +546,198 @@ export function buildDemoLetters(today) {
         language: 'de',
       },
       taskStates: [{ status: 'erledigt' }],
+    });
+  }
+
+  // 9) Kfz-Beitragsrechnung: eindeutig über Kennzeichen und Versicherungsschein → Fahrzeug 3
+  {
+    const letterDate = d(-3);
+    const due = d(25);
+    const pay = `Bitte überweisen Sie den Jahresbeitrag von 412,80 € bis zum ${fmt(due)}.`;
+    letters.push({
+      key: 'kfz-beitrag',
+      senderName: 'Muster Versicherung AG',
+      senderLine: 'Muster Versicherung AG · Policenallee 10 · 54321 Beispielstadt',
+      place: 'Beispielstadt',
+      letterDate,
+      uploadedDaysAgo: 1,
+      refs: [['Versicherungsschein-Nr.', 'KFZ-003'], ['Kundennummer', '778-112'], ['amtl. Kennzeichen', 'SB-EF 789']],
+      subject: 'Beitragsrechnung zu Ihrer Kfz-Versicherung',
+      salutation: 'Sehr geehrte Frau Beispiel,',
+      paragraphs: [
+        'für Ihr Fahrzeug mit dem amtlichen Kennzeichen SB-EF 789 wird der Jahresbeitrag zum 1. Januar fällig.',
+        pay,
+        'Wenn Sie uns ein SEPA-Lastschriftmandat erteilt haben, buchen wir den Betrag automatisch ab.',
+      ],
+      signer: 'Ihre Muster Versicherung AG',
+      footer: 'Muster Versicherung AG · Vorstand: Max Muster · Registergericht Beispielstadt (erfunden)',
+      reviewed: false,
+      raw: {
+        document_type: 'Beitragsrechnung', sender: 'Muster Versicherung AG', sender_quote: 'Muster Versicherung AG',
+        letter_date: letterDate, letter_date_quote: `Beispielstadt, ${fmt(letterDate)}`,
+        subject: 'Kfz-Beitrag SB-EF 789', category: 'versicherungen',
+        references: [
+          { label: 'Versicherungsschein-Nr.', value: 'KFZ-003', quote: 'Versicherungsschein-Nr.: KFZ-003', kind: 'versicherungsnummer', status: null },
+          { label: 'Kundennummer', value: '778-112', quote: 'Kundennummer: 778-112', kind: 'kundennummer', status: null },
+          { label: 'amtl. Kennzeichen', value: 'SB-EF 789', quote: 'amtl. Kennzeichen: SB-EF 789', kind: 'kennzeichen', status: null },
+        ],
+        amounts: [{ label: 'Jahresbeitrag', amount: '412,80', currency: 'EUR', quote: 'Jahresbeitrag von 412,80 €' }],
+        summary_what: 'Ihre Kfz-Versicherung für das Auto mit dem Kennzeichen SB-EF 789 kostet im nächsten Jahr 412,80 €. Wenn Sie keine Lastschrift erlaubt haben, müssen Sie den Betrag überweisen.',
+        actions: [{
+          title: '412,80 € Kfz-Beitrag überweisen (nur ohne Lastschrift)', description: 'Versicherungsschein-Nr. KFZ-003 als Verwendungszweck angeben.',
+          kind: 'zahlung', date: due, time: null, is_relative: false, relative_text: null, quote: pay, page: 1,
+        }],
+        nothing_to_do: false, to_check: ['Prüfen Sie, ob die Versicherung per Lastschrift abbucht – dann nicht doppelt zahlen.'],
+        legal_note: null, contains_instructions_to_ai: false, language: 'de',
+      },
+      taskStates: [{ status: 'zu_pruefen' }],
+    });
+  }
+
+  // 10) Schadenmeldung zu Fahrzeug 5 – mit Schadennummer (eigener Vorgang) und relativer Frist
+  {
+    const letterDate = d(-2);
+    const p1 = 'vielen Dank für Ihre Schadenmeldung. Wir haben den Schaden an Ihrem Fahrzeug SB-JK 567 unter der Schaden-Nr. S-2026-0815 aufgenommen.';
+    const p2 = 'Bitte senden Sie uns innerhalb von 14 Tagen nach Zugang dieses Schreibens Fotos des Schadens und den Kostenvoranschlag Ihrer Werkstatt.';
+    letters.push({
+      key: 'kfz-schaden',
+      senderName: 'Muster Versicherung AG',
+      senderLine: 'Muster Versicherung AG · Schadenservice · Policenallee 10 · 54321 Beispielstadt',
+      place: 'Beispielstadt',
+      letterDate,
+      uploadedDaysAgo: 1,
+      refs: [['Schaden-Nr.', 'S-2026-0815'], ['Versicherungsschein-Nr.', 'KFZ-005'], ['amtl. Kennzeichen', 'SB-JK 567']],
+      subject: 'Ihre Schadenmeldung – Eingangsbestätigung',
+      salutation: 'Sehr geehrte Frau Beispiel,',
+      paragraphs: [p1, p2, 'Ein Gutachter meldet sich bei Bedarf bei Ihnen. Bitte geben Sie bei allen Rückfragen die Schaden-Nr. an.'],
+      signer: 'Ihr Schadenservice der Muster Versicherung AG',
+      footer: 'Muster Versicherung AG · Vorstand: Max Muster · Registergericht Beispielstadt (erfunden)',
+      reviewed: false,
+      raw: {
+        document_type: 'Eingangsbestätigung Schaden', sender: 'Muster Versicherung AG', sender_quote: 'Muster Versicherung AG',
+        letter_date: letterDate, letter_date_quote: `Beispielstadt, ${fmt(letterDate)}`,
+        subject: 'Schaden S-2026-0815 (SB-JK 567)', category: 'versicherungen',
+        references: [
+          { label: 'Schaden-Nr.', value: 'S-2026-0815', quote: 'Schaden-Nr.: S-2026-0815', kind: 'schadennummer', status: null },
+          { label: 'Versicherungsschein-Nr.', value: 'KFZ-005', quote: 'Versicherungsschein-Nr.: KFZ-005', kind: 'versicherungsnummer', status: null },
+          { label: 'amtl. Kennzeichen', value: 'SB-JK 567', quote: 'amtl. Kennzeichen: SB-JK 567', kind: 'kennzeichen', status: null },
+        ],
+        amounts: [],
+        summary_what: 'Die Versicherung hat Ihren Schaden am Auto SB-JK 567 aufgenommen. Damit es weitergeht, sollen Sie Fotos und einen Kostenvoranschlag der Werkstatt schicken.',
+        actions: [{
+          title: 'Fotos und Kostenvoranschlag einsenden', description: 'Schaden-Nr. S-2026-0815 angeben.',
+          kind: 'frist', date: null, time: null, is_relative: true, relative_text: 'innerhalb von 14 Tagen nach Zugang dieses Schreibens', quote: p2, page: 1,
+        }],
+        nothing_to_do: false, to_check: ['Wann haben Sie den Brief erhalten? Davon hängt die Frist ab.'],
+        legal_note: null, contains_instructions_to_ai: false, language: 'de',
+      },
+      taskStates: [{ status: 'zu_pruefen' }],
+    });
+  }
+
+  // 11) Nur die gemeinsame Kundennummer → nicht eindeutig, landet im Eingang „Zur Prüfung“
+  {
+    const letterDate = d(-1);
+    letters.push({
+      key: 'versicherung-bedingungen',
+      senderName: 'Muster Versicherung AG',
+      senderLine: 'Muster Versicherung AG · Policenallee 10 · 54321 Beispielstadt',
+      place: 'Beispielstadt',
+      letterDate,
+      uploadedDaysAgo: 0,
+      refs: [['Kundennummer', '778-112']],
+      subject: 'Änderung unserer Versicherungsbedingungen',
+      salutation: 'Sehr geehrte Frau Beispiel,',
+      paragraphs: [
+        'zum 1. Januar passen wir unsere Allgemeinen Versicherungsbedingungen an. Die wichtigsten Änderungen finden Sie in der beigefügten Übersicht.',
+        'Sie müssen nichts tun. Ihr Versicherungsschutz bleibt in vollem Umfang bestehen.',
+      ],
+      signer: 'Ihre Muster Versicherung AG',
+      footer: 'Muster Versicherung AG · Vorstand: Max Muster · Registergericht Beispielstadt (erfunden)',
+      reviewed: false,
+      raw: {
+        document_type: 'Information', sender: 'Muster Versicherung AG', sender_quote: 'Muster Versicherung AG',
+        letter_date: letterDate, letter_date_quote: `Beispielstadt, ${fmt(letterDate)}`,
+        subject: 'Neue Versicherungsbedingungen', category: 'versicherungen',
+        references: [{ label: 'Kundennummer', value: '778-112', quote: 'Kundennummer: 778-112', kind: 'kundennummer', status: null }],
+        amounts: [],
+        summary_what: 'Ihre Versicherung ändert ab Januar ihre Vertragsbedingungen. Sie müssen nichts tun, Ihr Schutz bleibt bestehen.',
+        actions: [], nothing_to_do: true, to_check: [], legal_note: null, contains_instructions_to_ai: false, language: 'de',
+      },
+      taskStates: [],
+    });
+  }
+
+  // 12) Unvollständig lesbare Nummer (letzte Ziffer fehlt) → „Wir haben zwei mögliche Verträge gefunden“
+  {
+    const letterDate = d(-4);
+    letters.push({
+      key: 'versicherung-unklar',
+      senderName: 'Muster Versicherung AG',
+      senderLine: 'Muster Versicherung AG · Policenallee 10 · 54321 Beispielstadt',
+      place: 'Beispielstadt',
+      letterDate,
+      uploadedDaysAgo: 0,
+      refs: [['Versicherungsschein-Nr.', 'HR-2024-77881']],
+      subject: 'Jahresinformation zu Ihrem Vertrag',
+      salutation: 'Sehr geehrte Frau Beispiel,',
+      paragraphs: [
+        'anbei erhalten Sie die jährliche Information zu Ihrem Vertrag. Ihr Beitrag für das kommende Jahr bleibt unverändert.',
+        'Bitte prüfen Sie, ob die versicherten Werte noch zu Ihrer aktuellen Situation passen.',
+      ],
+      signer: 'Ihre Muster Versicherung AG',
+      footer: 'Muster Versicherung AG · Vorstand: Max Muster · Registergericht Beispielstadt (erfunden)',
+      reviewed: false,
+      raw: {
+        document_type: 'Jahresinformation', sender: 'Muster Versicherung AG', sender_quote: 'Muster Versicherung AG',
+        letter_date: letterDate, letter_date_quote: `Beispielstadt, ${fmt(letterDate)}`,
+        subject: 'Jahresinformation Versicherungsvertrag', category: 'versicherungen',
+        references: [{ label: 'Versicherungsschein-Nr.', value: 'HR-2024-77881', quote: 'Versicherungsschein-Nr.: HR-2024-77881', kind: 'versicherungsnummer', status: null }],
+        amounts: [],
+        summary_what: 'Ihre Versicherung schickt die jährliche Übersicht. Der Beitrag bleibt gleich. Sie sollen prüfen, ob die versicherten Werte noch stimmen.',
+        actions: [], nothing_to_do: true,
+        to_check: ['Die Versicherungsschein-Nummer ist auf dem Brief nicht vollständig lesbar.'],
+        legal_note: null, contains_instructions_to_ai: false, language: 'de',
+      },
+      taskStates: [],
+    });
+  }
+
+  // 13) Abschlagsplan für die vermietete Wohnung – Zählernummer und Lieferstelle → Stromzähler 2
+  {
+    const letterDate = d(-5);
+    const start = nextMonthFirst(today);
+    letters.push({
+      key: 'stadtwerke-abschlag',
+      senderName: 'Stadtwerke Musterstadt GmbH',
+      senderLine: 'Stadtwerke Musterstadt GmbH · Energieweg 3 · 12345 Musterstadt',
+      place: 'Musterstadt',
+      letterDate,
+      uploadedDaysAgo: 2,
+      refs: [['Kundennummer', '4711-0815-23'], ['Zählernummer', '1ESY 1160 4422'], ['Lieferstelle', 'Ahornstraße 5, 12345 Musterstadt']],
+      subject: 'Ihr neuer Abschlagsplan',
+      salutation: 'Sehr geehrte Frau Beispiel,',
+      paragraphs: [
+        `für die Lieferstelle Ahornstraße 5 gilt ab dem ${fmt(start)} ein monatlicher Abschlag von 54,00 €.`,
+        'Der Betrag wird wie bisher per Lastschrift von Ihrem Konto eingezogen. Sie müssen nichts tun.',
+      ],
+      signer: 'Ihr Kundenservice der Stadtwerke Musterstadt',
+      footer: 'Bankverbindung: Musterbank · IBAN DE00 1234 5678 0000 0000 00 (Beispiel)',
+      reviewed: false,
+      raw: {
+        document_type: 'Abschlagsplan', sender: 'Stadtwerke Musterstadt GmbH', sender_quote: 'Stadtwerke Musterstadt GmbH',
+        letter_date: letterDate, letter_date_quote: `Musterstadt, ${fmt(letterDate)}`,
+        subject: 'Abschlagsplan Ahornstraße 5', category: 'rechnungen',
+        references: [
+          { label: 'Kundennummer', value: '4711-0815-23', quote: 'Kundennummer: 4711-0815-23', kind: 'kundennummer', status: null },
+          { label: 'Zählernummer', value: '1ESY 1160 4422', quote: 'Zählernummer: 1ESY 1160 4422', kind: 'zaehlernummer', status: null },
+          { label: 'Lieferstelle', value: 'Ahornstraße 5, 12345 Musterstadt', quote: 'Lieferstelle: Ahornstraße 5, 12345 Musterstadt', kind: 'objektadresse', status: null },
+        ],
+        amounts: [{ label: 'Monatlicher Abschlag', amount: '54,00', currency: 'EUR', quote: 'monatlicher Abschlag von 54,00 €' }],
+        summary_what: 'Für den Strom in der vermieteten Wohnung in der Ahornstraße 5 zahlen Sie ab nächstem Monat 54,00 € pro Monat. Das Geld wird automatisch abgebucht.',
+        actions: [], nothing_to_do: true, to_check: [], legal_note: null, contains_instructions_to_ai: false, language: 'de',
+      },
+      taskStates: [],
     });
   }
 

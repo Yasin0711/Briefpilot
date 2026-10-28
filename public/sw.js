@@ -1,12 +1,17 @@
 // Service Worker: macht BriefPilot installierbar, hält die App-Oberfläche offline bereit
 // und zeigt Push-Benachrichtigungen. Briefe und persönliche Daten werden bewusst NICHT
 // zwischengespeichert – sie liegen nur auf dem Server.
-const VERSION = 'briefpilot-v1';
+const VERSION = 'briefpilot-v4';
 const SHELL = [
   '/', '/index.html', '/css/app.css', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png',
-  '/js/app.js', '/js/api.js', '/js/html.js', '/js/ui.js', '/js/shared/dates.js', '/js/shared/constants.js',
+  '/js/app.js', '/js/api.js', '/js/html.js', '/js/ui.js',
+  '/js/shared/dates.js', '/js/shared/constants.js', '/js/shared/identifiers.js',
   '/js/views/auth.js', '/js/views/overview.js', '/js/views/letters.js', '/js/views/letter.js',
   '/js/views/scan.js', '/js/views/tasks.js', '/js/views/settings.js', '/js/views/info.js',
+  '/js/views/parts.js', '/js/views/assign.js', '/js/views/inbox.js', '/js/views/objects.js',
+  '/js/views/objectDialog.js', '/js/views/replies.js',
+  '/js/scanner/imageproc.js', '/js/scanner/processing.js', '/js/scanner/worker.js',
+  '/js/scanner/camera.js', '/js/scanner/editor.js', '/js/scanner/overlay.js',
 ];
 
 self.addEventListener('install', (event) => {

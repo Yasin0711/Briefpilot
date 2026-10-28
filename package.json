@@ -4,11 +4,14 @@
   "private": true,
   "description": "BriefPilot – intelligenter Briefassistent (erste Version)",
   "type": "module",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "setup": "node scripts/setup.js",
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server/index.js",
     "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch server/index.js",
-    "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"test/*.test.js\""
+    "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"test/*.test.js\"",
+    "ki-test": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/ki-test.js"
   }
 }

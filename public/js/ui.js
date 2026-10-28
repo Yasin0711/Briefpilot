@@ -53,6 +53,42 @@ const PATHS = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   send: '<path d="M21 3 10 14"/><path d="m21 3-7 18-4-7-7-4z"/>',
   list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
+  // Scanner
+  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  maximize: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
+  rotateLeft: '<path d="M3 4v6h6"/><path d="M5.5 15a8 8 0 1 0 1.9-8.3L3 10"/>',
+  rotateRight: '<path d="M21 4v6h-6"/><path d="M18.5 15a8 8 0 1 1-1.9-8.3L21 10"/>',
+  crop: '<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M2 6h14a2 2 0 0 1 2 2v14"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
+  // Akten und Arten
+  car: '<path d="M5 17H3v-5l2-5h14l2 5v5h-2"/><path d="M3 12h18"/><circle cx="7.5" cy="17" r="2"/><circle cx="16.5" cy="17" r="2"/><path d="M9.5 17h5"/>',
+  flame: '<path d="M12 21c-4 0-7-2.8-7-6.5 0-3.2 2.3-5.3 3.5-7 .4 1.6 1.4 2.8 2.5 3.3C11 7.5 12.5 5 15 3c.5 3 4 5.6 4 10.5 0 4.2-3 7.5-7 7.5z"/>',
+  drop: '<path d="M12 3s-6 6.6-6 11a6 6 0 0 0 12 0c0-4.4-6-11-6-11z"/>',
+  wifi: '<path d="M2 9a15 15 0 0 1 20 0"/><path d="M5.5 12.5a10 10 0 0 1 13 0"/><path d="M9 16a5 5 0 0 1 6 0"/><path d="M12 19.5v.5"/>',
+  box: '<path d="m12 3 9 4.5v9L12 21l-9-4.5v-9z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/>',
+  tag: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/>',
+  hash: '<path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/>',
+  folderOpen: '<path d="M3 18V6a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v2"/><path d="M3 18 6 11h16l-3 7z"/>',
+  moveTo: '<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 13h7M13 10l3 3-3 3"/>',
+  inbox: '<path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>',
+  mapPin: '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+  // Antworten, Fragen, Verlauf
+  chat: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>',
+  reply: '<path d="m9 7-5 5 5 5"/><path d="M4 12h10a6 6 0 0 1 6 6v1"/>',
+  history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+  printer: '<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/>',
+  merge: '<path d="M6 3v4a6 6 0 0 0 6 6v8"/><path d="M18 3v4a6 6 0 0 1-6 6"/><path d="m9 18 3 3 3-3"/>',
+  split: '<path d="M12 21v-8a6 6 0 0 0-6-6V3"/><path d="M12 13a6 6 0 0 1 6-6V3"/><path d="m3 6 3-3 3 3M15 6l3-3 3 3"/>',
+  external: '<path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17v.5"/>',
+  minus: '<path d="M5 12h14"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
+  // Darstellung
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
 };
 
 const CATEGORY_ICON = { building: 'building', shield: 'shieldCat', heart: 'heart', house: 'house', briefcase: 'briefcase', pen: 'pen', receipt: 'receipt', bank: 'bank', folder: 'folder' };
@@ -61,12 +97,12 @@ const KIND_ICON = { zahlung: 'euro', frist: 'hourglass', termin: 'calendar', auf
 export function icon(name, className = '') {
   const paths = PATHS[name] || PATHS.circle;
   return trusted(
-    `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`
+    `<svg class="ic${className ? ` ${className}` : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`
   );
 }
 
 export const LOGO = trusted(
-  '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#15324B"/><rect x="11" y="18" width="40" height="28" rx="4" fill="#fff"/><path d="M12.5 20.5 31 34l18.5-13.5" fill="none" stroke="#15324B" stroke-width="3" stroke-linejoin="round"/><circle cx="47" cy="44" r="10" fill="#F4C430" stroke="#15324B" stroke-width="3"/><path d="m42.5 44 3 3 5.5-6" fill="none" stroke="#15324B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#1463D9"/><rect x="11" y="18" width="40" height="28" rx="4" fill="#fff"/><path d="M12.5 20.5 31 34l18.5-13.5" fill="none" stroke="#1463D9" stroke-width="3" stroke-linejoin="round"/><circle cx="47" cy="44" r="10" fill="#FFCC00" stroke="#10233A" stroke-width="3"/><path d="m42.5 44 3 3 5.5-6" fill="none" stroke="#10233A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 );
 
 export function categoryTile(categoryId) {

@@ -1,14 +1,9 @@
 // Anbindung an die Claude-API von Anthropic (Texterkennung + Auswertung in einem Schritt).
 // Der API-Schlüssel bleibt ausschließlich auf dem Server.
 import { SYSTEM_PROMPT, RESPONSE_SCHEMA, userInstruction } from './prompt.js';
+import { AiError, MESSAGES, postJson, parseJsonText, assertRequestSize, sleep } from './ai.js';
 
-export class AiError extends Error {
-  constructor(message, { retryable = false, code = 'ki_fehler' } = {}) {
-    super(message);
-    this.retryable = retryable;
-    this.code = code;
-  }
-}
+export { AiError };
 
 const MAX_REQUEST_BYTES = 30 * 1024 * 1024;
 
@@ -32,46 +27,38 @@ export function buildRequest({ files, model, today }) {
   };
 }
 
-async function callOnce(url, apiKey, body, timeoutMs) {
-  let res;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
-    const timeout = err?.name === 'TimeoutError';
-    throw new AiError(timeout ? 'Die KI hat nicht rechtzeitig geantwortet.' : 'Die KI ist gerade nicht erreichbar.', { retryable: true, code: timeout ? 'timeout' : 'netzwerk' });
+function classify(res) {
+  // Fehlertexte der API werden nicht ungeprüft weitergegeben, nur der Typ.
+  const type = res.data?.error?.type || '';
+  if (res.status === 401 || res.status === 403) return new AiError(MESSAGES.key, { code: 'schluessel' });
+  if (res.status === 404) return new AiError(MESSAGES.model, { code: 'modell' });
+  if (res.status === 413) return new AiError(MESSAGES.tooBig, { code: 'zu_gross' });
+  if (res.status === 429 || res.status === 529 || res.status >= 500) {
+    return new AiError(MESSAGES.overloaded, { retryable: true, code: `status_${res.status}` });
   }
-  const text = await res.text();
-  if (!res.ok) {
-    // Fehlertexte der API werden nicht ungeprüft weitergegeben, nur der Typ.
-    let type = '';
+  return new AiError(`Die KI-Anfrage wurde abgelehnt (${res.status}${type ? `, ${type}` : ''}).`, { code: `status_${res.status}` });
+}
+
+async function call(config, body, fetchImpl) {
+  const payload = JSON.stringify(body);
+  assertRequestSize(payload, MAX_REQUEST_BYTES);
+  const url = `${config.ai.baseUrl}/v1/messages`;
+  for (let attempt = 1; ; attempt++) {
     try {
-      type = JSON.parse(text)?.error?.type || '';
-    } catch {
-      type = '';
+      const res = await postJson(fetchImpl, url, { 'x-api-key': config.ai.apiKey, 'anthropic-version': '2023-06-01' }, payload, config.ai.timeoutMs);
+      if (!res.ok) throw classify(res);
+      if (!res.data) throw new AiError(MESSAGES.unreadable, { retryable: true, code: 'antwort' });
+      const data = res.data;
+      if (data.stop_reason === 'refusal') throw new AiError(MESSAGES.refused, { code: 'abgelehnt' });
+      if (data.stop_reason === 'max_tokens') throw new AiError(MESSAGES.tooLong, { code: 'zu_lang' });
+      const block = (data.content || []).find((c) => c.type === 'text');
+      if (!block) throw new AiError(MESSAGES.empty, { retryable: true, code: 'leer' });
+      return { result: parseJsonText(block.text), model: data.model || config.ai.model };
+    } catch (err) {
+      if (!(err instanceof AiError) || !err.retryable || attempt >= 3) throw err;
+      await sleep(attempt * config.ai.retryDelayMs);
     }
-    if (res.status === 401 || res.status === 403) throw new AiError('Der KI-Schlüssel ist ungültig oder nicht berechtigt.', { code: 'schluessel' });
-    if (res.status === 413) throw new AiError('Der Brief ist zu groß für die KI-Auswertung.', { code: 'zu_gross' });
-    if (res.status === 429 || res.status === 529 || res.status >= 500) {
-      throw new AiError('Die KI ist gerade überlastet. Bitte später erneut versuchen.', { retryable: true, code: `status_${res.status}` });
-    }
-    throw new AiError(`Die KI-Anfrage wurde abgelehnt (${res.status}${type ? `, ${type}` : ''}).`, { code: `status_${res.status}` });
   }
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new AiError('Die Antwort der KI war unlesbar.', { retryable: true, code: 'antwort' });
-  }
-  return data;
 }
 
 /**
@@ -79,31 +66,17 @@ async function callOnce(url, apiKey, body, timeoutMs) {
  * files: [{ kind: 'pdf'|'image', mime, data: Buffer }]
  * Ergebnis: { result: <Rohdaten gemäß Schema>, model }
  */
-export async function analyzeWithClaude({ files, config, today }) {
-  const requestBody = JSON.stringify(buildRequest({ files, model: config.ai.model, today }));
-  if (Buffer.byteLength(requestBody) > MAX_REQUEST_BYTES) {
-    throw new AiError('Der Brief ist zu groß für die KI-Auswertung (zu viele oder zu große Seiten).', { code: 'zu_gross' });
-  }
-  const url = `${config.ai.baseUrl}/v1/messages`;
-  let data;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      data = await callOnce(url, config.ai.apiKey, requestBody, config.ai.timeoutMs);
-      break;
-    } catch (err) {
-      if (!(err instanceof AiError) || !err.retryable || attempt >= 3) throw err;
-      await new Promise((r) => setTimeout(r, attempt * 4000));
-    }
-  }
-  if (data.stop_reason === 'refusal') throw new AiError('Die KI hat die Auswertung dieses Dokuments abgelehnt.', { code: 'abgelehnt' });
-  if (data.stop_reason === 'max_tokens') throw new AiError('Der Brief ist zu lang für eine vollständige Auswertung.', { code: 'zu_lang' });
-  const block = (data.content || []).find((c) => c.type === 'text');
-  if (!block) throw new AiError('Die KI hat keine Auswertung geliefert.', { retryable: true, code: 'leer' });
-  let result;
-  try {
-    result = JSON.parse(block.text);
-  } catch {
-    throw new AiError('Die Auswertung der KI war unvollständig.', { retryable: true, code: 'json' });
-  }
-  return { result, model: data.model || config.ai.model };
+export async function analyzeWithClaude({ files, config, today, fetchImpl = fetch }) {
+  return call(config, buildRequest({ files, model: config.ai.model, today }), fetchImpl);
+}
+
+/** Text-Anfrage mit JSON-Antwort (Rückfragen, Antwortentwürfe). */
+export async function completeWithClaude({ system, prompt, schema, config, fetchImpl = fetch, maxTokens = 8192 }) {
+  return call(config, {
+    model: config.ai.model,
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: 'user', content: prompt }],
+    output_config: { format: { type: 'json_schema', schema } },
+  }, fetchImpl);
 }

@@ -8,17 +8,19 @@ import { createStorage } from './lib/storage.js';
 import { createMailer } from './lib/mail.js';
 import { createPushService } from './lib/push.js';
 import { createAnalyzer } from './analysis/index.js';
+import { createAiClient } from './analysis/client.js';
 import { createApp } from './app.js';
 import { deliverDueReminders } from './domain/reminders.js';
 import { cleanupDemoAccounts } from './demo/seed.js';
 
-export function createServer(config, { log = console, mailer: mailerOverride, push: pushOverride } = {}) {
+export function createServer(config, { log = console, mailer: mailerOverride, push: pushOverride, fetchImpl } = {}) {
   fs.mkdirSync(config.filesDir, { recursive: true, mode: 0o700 });
   const db = openDatabase(config.dbPath);
   const storage = createStorage({ dir: config.filesDir, keyBase64: config.fileEncryptionKey });
   const mailer = mailerOverride || createMailer(config);
   const push = pushOverride || createPushService(config);
-  const ctx = { db, config, storage, mailer, push, log };
+  const ai = createAiClient(config, fetchImpl ? { fetchImpl } : {});
+  const ctx = { db, config, storage, mailer, push, log, ai };
   ctx.analyzer = createAnalyzer(ctx);
   const handler = createApp(ctx);
   const server = http.createServer(handler);

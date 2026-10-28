@@ -1,17 +1,20 @@
 // Warteschlange für die Auswertung hochgeladener Briefe.
 // Ablauf: Dateien entschlüsseln → KI (falls eingerichtet und erlaubt) oder
-// Regel-Erkennung → Ergebnis prüfen (validate.js) → speichern.
-import { analyzeWithClaude, AiError } from './claude.js';
-import { analyzeWithMistral } from './mistral.js';
+// Regel-Erkennung → Ergebnis prüfen (validate.js) → speichern → Akte zuordnen,
+// Duplikate prüfen, Verlauf schreiben.
+import { AiError } from './ai.js';
 import { analyzeWithRules } from './rules.js';
 import { normalizeAnalysis } from './validate.js';
 import { extractPdfText } from '../pdf/extract.js';
 import { saveAnalysis, markAnalysis } from '../domain/letters.js';
+import { assignLetter, detectPerson } from '../domain/assignment.js';
+import { checkDuplicate } from '../domain/duplicates.js';
+import { logLetterEvent } from '../domain/events.js';
 import { todayIn } from '../../public/js/shared/dates.js';
 
 const CONCURRENCY = 2;
 
-export function createAnalyzer({ db, storage, config, log = console }) {
+export function createAnalyzer({ db, storage, config, ai, log = console }) {
   const queue = [];
   let running = 0;
   const idleWaiters = [];
@@ -50,9 +53,10 @@ export function createAnalyzer({ db, storage, config, log = console }) {
   }
 
   function aiAllowed(user) {
-    return config.ai.enabled && user.ai_consent === 'ja';
+    return Boolean(ai?.enabled) && user.ai_consent === 'ja';
   }
 
+  /** Zählt eine KI-Anfrage gegen das Tageslimit des Nutzers (Kostenschutz). */
   function takeAiQuota(user) {
     const day = todayIn(user.timezone);
     const limit = user.is_demo ? config.ai.demoDailyLimit : config.ai.dailyLimit;
@@ -65,6 +69,23 @@ export function createAnalyzer({ db, storage, config, log = console }) {
     return true;
   }
 
+  /** Nach jeder Auswertung: betroffene Person, Akte, Duplikate, Verlauf. */
+  function afterAnalysis(letterId, { source, model }) {
+    const letter = db.get('SELECT * FROM letters WHERE id = ?', letterId);
+    if (!letter) return;
+    try {
+      if (!letter.person_id) {
+        const personId = detectPerson(db, letter);
+        if (personId) db.run('UPDATE letters SET person_id = ? WHERE id = ?', personId, letterId);
+      }
+      assignLetter(db, letterId);
+      checkDuplicate(db, letterId);
+    } catch (err) {
+      log.error(`[Auswertung] Zuordnung fehlgeschlagen (${err.name})`);
+    }
+    logLetterEvent(db, letter.user_id, letterId, 'ausgewertet', { quelle: source, modell: model || null });
+  }
+
   async function process(letterId) {
     const letter = db.get('SELECT * FROM letters WHERE id = ?', letterId);
     if (!letter) return;
@@ -72,7 +93,8 @@ export function createAnalyzer({ db, storage, config, log = console }) {
     if (!user) return;
     markAnalysis(db, letterId, 'laeuft');
     const started = Date.now();
-    const fileRows = db.all('SELECT * FROM files WHERE letter_id = ? ORDER BY position', letterId);
+    // Nur die Seiten des Briefes – nicht zusätzlich aufbewahrte Originalaufnahmen
+    const fileRows = db.all("SELECT * FROM files WHERE letter_id = ? AND role = 'seite' ORDER BY position", letterId);
     const files = [];
     for (const f of fileRows) files.push({ kind: f.kind, mime: f.mime, data: await storage.get(f.storage_key) });
     const today = todayIn(user.timezone);
@@ -86,17 +108,24 @@ export function createAnalyzer({ db, storage, config, log = console }) {
 
     if (useAi) {
       try {
-        const analyze = config.ai.provider === 'mistral' ? analyzeWithMistral : analyzeWithClaude;
-        const { result, model } = await analyze({ files, config, today });
+        const { result, model } = await ai.analyzeLetter({ files, today });
         const analysis = normalizeAnalysis(result, { fullText: result.full_text, today, source: 'ki' });
         saveAnalysis(db, letterId, analysis, { source: 'ki', model });
+        afterAnalysis(letterId, { source: 'ki', model });
         log.info(`[Auswertung] Brief ausgewertet · Quelle=ki · Dateien=${files.length} · Aufgaben=${analysis.actions.length} · ${Date.now() - started} ms`);
+        return;
       } catch (err) {
         const message = err instanceof AiError ? err.message : 'Die KI-Auswertung ist fehlgeschlagen.';
         log.warn(`[Auswertung] KI-Fehler · Code=${err.code || err.name}`);
-        markAnalysis(db, letterId, 'fehler', message);
+        if (err instanceof AiError && err.code === 'kontingent') {
+          // Kostenloses Kontingent erschöpft: ehrlich melden und mit der einfachen Erkennung weitermachen
+          quotaNote = `${message} Dieser Brief wurde deshalb nur mit der einfachen Erkennung gelesen. Sie können ihn später erneut auswerten lassen.`;
+        } else {
+          markAnalysis(db, letterId, 'fehler', message);
+          logLetterEvent(db, letter.user_id, letterId, 'auswertung_fehler', { code: err.code || 'unbekannt' });
+          return;
+        }
       }
-      return;
     }
 
     // Ohne KI: Text aus PDFs lesen und mit Regeln auswerten
@@ -116,12 +145,20 @@ export function createAnalyzer({ db, storage, config, log = console }) {
     if (fullText.replace(/\s|-|Seite \d+/g, '').length < 40) {
       let reason;
       if (encrypted) reason = 'Dieses PDF ist verschlüsselt. Der Text kann nicht gelesen werden.';
+      else if (quotaNote) reason = photos
+        ? `${quotaNote.split(' Dieser Brief')[0]} Fotos können ohne KI nicht gelesen werden. Der Brief ist gespeichert – Sie können ihn später erneut auswerten lassen oder die Angaben selbst eintragen.`
+        : quotaNote;
       else if (!config.ai.enabled) reason = photos
         ? 'Fotos können nur mit KI-Texterkennung gelesen werden. Diese ist auf diesem Server nicht eingerichtet. Der Brief ist gespeichert – Sie können Absender, Datum und Aufgaben selbst eintragen.'
         : 'Dieses PDF enthält keinen lesbaren Text (vermutlich ein Scan). Dafür wird die KI-Texterkennung benötigt, die auf diesem Server nicht eingerichtet ist. Sie können die Angaben selbst eintragen.';
       else if (user.ai_consent !== 'ja') reason = 'Sie haben die KI-Auswertung nicht freigegeben. Ohne KI können Fotos und gescannte PDFs nicht gelesen werden. Sie können die KI in den Einstellungen freigeben oder die Angaben selbst eintragen.';
-      else reason = quotaNote || 'Der Brief konnte nicht gelesen werden.';
+      else reason = 'Der Brief konnte nicht gelesen werden.';
       markAnalysis(db, letterId, 'nicht_moeglich', reason);
+      try {
+        checkDuplicate(db, letterId);
+      } catch {
+        /* Duplikatprüfung ist nur ein Hinweis */
+      }
       log.info(`[Auswertung] Keine Texterkennung möglich · Dateien=${files.length}`);
       return;
     }
@@ -133,12 +170,15 @@ export function createAnalyzer({ db, storage, config, log = console }) {
     }
     const analysis = normalizeAnalysis(raw, { fullText, today, source: 'regeln' });
     saveAnalysis(db, letterId, analysis, { source: 'regeln', model: null });
+    afterAnalysis(letterId, { source: 'regeln', model: null });
     log.info(`[Auswertung] Brief ausgewertet · Quelle=regeln · Dateien=${files.length} · Aufgaben=${analysis.actions.length} · ${Date.now() - started} ms`);
   }
 
   return {
     enqueue,
     resumePending,
+    takeAiQuota,
+    aiAllowed,
     /** Für Tests: wartet, bis die Warteschlange leer ist. */
     idle: () => new Promise((resolve) => {
       idleWaiters.push(resolve);

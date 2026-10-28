@@ -165,7 +165,171 @@ const MIGRATIONS = [
     created_at  TEXT NOT NULL
   );
   `,
+
+  // ---------- Version 2: Objektakten, Zuordnung, Antworten, Rückfragen, Verlauf ----------
+  // Nur neue Tabellen und neue Spalten – vorhandene Briefe, Dateien und Konten bleiben unverändert.
+  `
+  -- Personen im Haushalt (für Empfänger-Erkennung und Absender von Antwortbriefen)
+  CREATE TABLE persons (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    relation    TEXT NOT NULL DEFAULT 'ich',      -- ich | partner | kind | angehoerige | sonstige
+    aliases     TEXT NOT NULL DEFAULT '[]',       -- weitere Schreibweisen (JSON)
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  );
+  CREATE INDEX idx_persons_user ON persons(user_id);
+
+  -- Adressen: Haushalt, Mietobjekt, Gewerbe, Ferienwohnung … (mit Gültigkeit für Umzüge)
+  CREATE TABLE addresses (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    label       TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'haushalt', -- haushalt | mietobjekt | gewerbe | ferienwohnung | sonstige
+    street      TEXT,
+    zip         TEXT,
+    city        TEXT,
+    valid_from  TEXT,
+    valid_to    TEXT,
+    is_primary  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  );
+  CREATE INDEX idx_addresses_user ON addresses(user_id);
+
+  -- Objektakten: Fahrzeug, Zähler, Vertrag, Wohnung … mit dauerhafter Identität
+  CREATE TABLE objects (
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type          TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    provider      TEXT,                           -- Vertragspartner, z. B. „Muster Versicherung AG“
+    provider_key  TEXT,                           -- normalisiert, für den Vergleich mit dem Absender
+    category      TEXT NOT NULL DEFAULT 'sonstiges',
+    person_id     TEXT REFERENCES persons(id) ON DELETE SET NULL,
+    address_id    TEXT REFERENCES addresses(id) ON DELETE SET NULL,
+    status        TEXT NOT NULL DEFAULT 'aktiv',  -- aktiv | beendet
+    ended_at      TEXT,
+    successor_id  TEXT REFERENCES objects(id) ON DELETE SET NULL,
+    notes         TEXT,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+  );
+  CREATE INDEX idx_objects_user ON objects(user_id);
+
+  -- Vorgänge innerhalb einer Akte (eine Rechnung, ein Schadenfall, ein Antrag …)
+  CREATE TABLE cases (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    object_id   TEXT NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+    title       TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'allgemein',
+    status      TEXT NOT NULL DEFAULT 'offen',    -- offen | abgeschlossen
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  );
+  CREATE INDEX idx_cases_object ON cases(object_id);
+
+  -- Kennungen einer Akte oder eines Vorgangs (Kennzeichen, Vertrags-, Zählernummer …)
+  -- status/valid_*: alte und neue Nummern, Fahrzeug- und Zählerwechsel, Vertragsverlängerung
+  CREATE TABLE identifiers (
+    id                TEXT PRIMARY KEY,
+    user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    object_id         TEXT NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+    case_id           TEXT REFERENCES cases(id) ON DELETE CASCADE,
+    kind              TEXT NOT NULL,
+    value             TEXT NOT NULL,              -- wie geschrieben
+    normalized        TEXT NOT NULL,              -- Vergleichsform
+    issuer_key        TEXT,                       -- zu welchem Absender gehört die Nummer (Kontext)
+    status            TEXT NOT NULL DEFAULT 'aktuell', -- aktuell | alt
+    valid_from        TEXT,
+    valid_to          TEXT,
+    source            TEXT NOT NULL DEFAULT 'nutzer',  -- nutzer | brief
+    source_letter_id  TEXT REFERENCES letters(id) ON DELETE SET NULL,
+    created_at        TEXT NOT NULL
+  );
+  CREATE INDEX idx_identifiers_lookup ON identifiers(user_id, normalized);
+  CREATE INDEX idx_identifiers_object ON identifiers(object_id);
+
+  -- Verknüpfung Brief ↔ Akte (ein Brief kann mehrere Akten betreffen) mit Nachweis
+  CREATE TABLE letter_links (
+    id             TEXT PRIMARY KEY,
+    user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    letter_id      TEXT NOT NULL REFERENCES letters(id) ON DELETE CASCADE,
+    object_id      TEXT NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+    case_id        TEXT REFERENCES cases(id) ON DELETE SET NULL,
+    origin         TEXT NOT NULL,                 -- auto | nutzer
+    score          INTEGER,
+    evidence_json  TEXT NOT NULL DEFAULT '[]',    -- ausschlaggebende Angaben aus dem Brief
+    created_at     TEXT NOT NULL,
+    UNIQUE (letter_id, object_id)
+  );
+  CREATE INDEX idx_links_object ON letter_links(object_id);
+  CREATE INDEX idx_links_letter ON letter_links(letter_id);
+
+  ALTER TABLE letters ADD COLUMN assignment_status TEXT NOT NULL DEFAULT 'offen'; -- offen | zugeordnet | pruefen | vorschlag | keine | ohne
+  ALTER TABLE letters ADD COLUMN assignment_json TEXT;                              -- Kandidaten mit Begründung
+  ALTER TABLE letters ADD COLUMN identifiers_json TEXT NOT NULL DEFAULT '[]';     -- im Brief erkannte Kennungen
+  ALTER TABLE letters ADD COLUMN recipient TEXT;
+  ALTER TABLE letters ADD COLUMN sender_address TEXT;
+  ALTER TABLE letters ADD COLUMN sender_email TEXT;
+  ALTER TABLE letters ADD COLUMN person_id TEXT REFERENCES persons(id) ON DELETE SET NULL;
+  ALTER TABLE letters ADD COLUMN duplicate_of TEXT REFERENCES letters(id) ON DELETE SET NULL;
+  ALTER TABLE letters ADD COLUMN duplicate_status TEXT;                             -- verdacht | kein_duplikat
+  CREATE INDEX idx_letters_assignment ON letters(user_id, assignment_status);
+
+  ALTER TABLE files ADD COLUMN role TEXT NOT NULL DEFAULT 'seite';               -- seite | original
+  ALTER TABLE files ADD COLUMN image_hash TEXT;                                    -- Bild-Fingerabdruck (Duplikate)
+
+  -- Antwortbriefe: Entwurf → gesendet (PDF, E-Mail, Kopie)
+  CREATE TABLE replies (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    letter_id       TEXT REFERENCES letters(id) ON DELETE CASCADE,
+    subject         TEXT NOT NULL DEFAULT '',
+    body            TEXT NOT NULL DEFAULT '',
+    recipient_json  TEXT NOT NULL DEFAULT '{}',   -- {name, address, email}
+    sender_json     TEXT NOT NULL DEFAULT '{}',   -- {name, address, email, phone}
+    place           TEXT,
+    reply_date      TEXT,
+    origin          TEXT NOT NULL DEFAULT 'vorlage', -- vorlage | ki | nutzer
+    template        TEXT,
+    status          TEXT NOT NULL DEFAULT 'entwurf', -- entwurf | gesendet
+    sent_via        TEXT,                         -- email | post | eigenes_programm
+    sent_to         TEXT,
+    sent_at         TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+  );
+  CREATE INDEX idx_replies_letter ON replies(letter_id);
+
+  -- Rückfragen an die KI zu einem Brief
+  CREATE TABLE letter_messages (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    letter_id   TEXT NOT NULL REFERENCES letters(id) ON DELETE CASCADE,
+    role        TEXT NOT NULL,                    -- frage | antwort
+    content     TEXT NOT NULL,
+    meta_json   TEXT,
+    created_at  TEXT NOT NULL
+  );
+  CREATE INDEX idx_messages_letter ON letter_messages(letter_id);
+
+  -- Verlauf eines Briefes (Original, Korrekturen, Zuordnung, Entwürfe, versendete Antworten)
+  CREATE TABLE letter_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    letter_id   TEXT NOT NULL REFERENCES letters(id) ON DELETE CASCADE,
+    type        TEXT NOT NULL,
+    detail_json TEXT,
+    created_at  TEXT NOT NULL
+  );
+  CREATE INDEX idx_events_letter ON letter_events(letter_id);
+  `,
 ];
+
+export const SCHEMA_VERSION = MIGRATIONS.length;
 
 function clean(params) {
   return params.map((p) => {
@@ -183,6 +347,15 @@ export function openDatabase(dbPath) {
   if (dbPath !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
 
   const version = db.prepare('PRAGMA user_version').get().user_version;
+  if (version > MIGRATIONS.length) {
+    db.close();
+    throw new Error('Die Datenbank stammt von einer neueren BriefPilot-Version. Bitte die neuere Version verwenden.');
+  }
+  // Vor einer Aktualisierung des Datenmodells eine vollständige Sicherungskopie anlegen
+  if (version > 0 && version < MIGRATIONS.length && dbPath !== ':memory:') {
+    const backup = `${dbPath}.vor-update-v${version}-${new Date().toISOString().slice(0, 10)}.bak`;
+    if (!fs.existsSync(backup)) db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+  }
   for (let i = version; i < MIGRATIONS.length; i++) {
     db.exec('BEGIN');
     try {

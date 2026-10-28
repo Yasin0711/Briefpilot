@@ -1,6 +1,6 @@
 // Konto: Einstellungen, Passwort, KI-Freigabe, Geräte, Export, Löschung, Push.
 import { HttpError, badRequest, readJson } from '../lib/http.js';
-import { hashPassword, verifyPassword, passwordProblem, newId, logSecurityEvent } from '../lib/security.js';
+import { hashPassword, verifyPassword, passwordProblem, newId, logSecurityEvent, isGuest } from '../lib/security.js';
 import { isAllowedPushEndpoint } from '../lib/push.js';
 import { createZip } from '../lib/zip.js';
 import { serializeUser, clearSessionCookie } from './auth.js';
@@ -64,6 +64,7 @@ export function registerAccountRoutes(router, ctx) {
     limiter.hit(`pwchange:${user.id}`, 10, 3600_000);
     const body = await readJson(req);
     if (user.is_demo) throw badRequest('Im Demomodus gibt es kein Passwort.');
+    if (isGuest(user)) throw badRequest('Ohne Konto gibt es kein Passwort.');
     if (!(await verifyPassword(String(body.currentPassword || ''), user.password_hash))) {
       throw badRequest('Das aktuelle Passwort ist falsch.', { field: 'currentPassword' });
     }
@@ -113,6 +114,8 @@ export function registerAccountRoutes(router, ctx) {
     const tasks = db.all('SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at', user.id);
     const reminders = db.all('SELECT id, task_id, remind_at, label, status, sent_at, delivery_json, seen_at FROM reminders WHERE user_id = ?', user.id);
     const files = db.all('SELECT * FROM files WHERE user_id = ? AND letter_id IS NOT NULL ORDER BY letter_id, position', user.id);
+    const rowsOf = (table, order = 'created_at') => db.all(`SELECT * FROM ${table} WHERE user_id = ? ORDER BY ${order}`, user.id);
+    const withoutUser = (rows) => rows.map(({ user_id: _u, ...rest }) => rest);
     const entries = [];
     const letterFolders = new Map();
     for (const l of letters) {
@@ -122,7 +125,10 @@ export function registerAccountRoutes(router, ctx) {
       const folder = letterFolders.get(f.letter_id);
       if (!folder) continue;
       const ext = f.kind === 'pdf' ? 'pdf' : f.mime.split('/')[1].replace('jpeg', 'jpg');
-      entries.push({ name: `${folder}/seite-${String(f.position + 1).padStart(2, '0')}.${ext}`, data: await storage.get(f.storage_key) });
+      const name = f.role === 'original'
+        ? `${folder}/originalaufnahme-${String(f.position - 999).padStart(2, '0')}.${ext}`
+        : `${folder}/seite-${String(f.position + 1).padStart(2, '0')}.${ext}`;
+      entries.push({ name, data: await storage.get(f.storage_key) });
     }
     const data = {
       exportiertAm: new Date().toISOString(),
@@ -131,13 +137,22 @@ export function registerAccountRoutes(router, ctx) {
       briefe: letters.map((l) => ({ ...serializeLetter(l), ordner: letterFolders.get(l.id) })),
       aufgaben: tasks.map(serializeTask),
       erinnerungen: reminders,
+      akten: withoutUser(rowsOf('objects')),
+      kennungen: withoutUser(rowsOf('identifiers')),
+      vorgaenge: withoutUser(rowsOf('cases')),
+      zuordnungen: withoutUser(rowsOf('letter_links')),
+      personen: withoutUser(rowsOf('persons')),
+      adressen: withoutUser(rowsOf('addresses')),
+      antworten: withoutUser(rowsOf('replies')),
+      fragen: withoutUser(rowsOf('letter_messages')),
+      verlauf: withoutUser(rowsOf('letter_events', 'id')),
       geraete: db.all('SELECT device, created_at, last_seen_at FROM sessions WHERE user_id = ?', user.id),
       sicherheitsereignisse: db.all('SELECT event, created_at FROM security_events WHERE user_id = ?', user.id),
     };
     entries.unshift({ name: 'daten.json', data: JSON.stringify(data, null, 2) });
     entries.unshift({
       name: 'LIESMICH.txt',
-      data: 'BriefPilot – Datenexport\n\ndaten.json enthält alle gespeicherten Angaben (Konto, Briefe, Erklärungen, Aufgaben, Erinnerungen).\nIm Ordner „briefe“ liegen Ihre Originaldokumente, je Brief ein Unterordner.\n',
+      data: 'BriefPilot – Datenexport\n\ndaten.json enthält alle gespeicherten Angaben (Konto, Briefe, Erklärungen, Aufgaben, Erinnerungen, Akten mit Nummern, Zuordnungen, Personen, Adressen, Antwortbriefe, Fragen an die KI und Verlauf).\nIm Ordner „briefe“ liegen Ihre Originaldokumente, je Brief ein Unterordner.\n',
     });
     const zip = createZip(entries);
     logSecurityEvent(db, user.id, 'daten_exportiert');
@@ -154,7 +169,7 @@ export function registerAccountRoutes(router, ctx) {
   router.post('/api/me/delete', async (req, res, { user }) => {
     const body = await readJson(req);
     if (body.confirm !== 'LÖSCHEN') throw badRequest('Bitte geben Sie zur Bestätigung LÖSCHEN ein.', { field: 'confirm' });
-    if (!user.is_demo && !(await verifyPassword(String(body.password || ''), user.password_hash))) {
+    if (!user.is_demo && !isGuest(user) && !(await verifyPassword(String(body.password || ''), user.password_hash))) {
       throw badRequest('Das Passwort ist falsch.', { field: 'password' });
     }
     await deleteUserCompletely(ctx, user.id);

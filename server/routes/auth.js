@@ -2,7 +2,7 @@
 import { HttpError, badRequest, readJson, serializeCookie, deviceLabel } from '../lib/http.js';
 import {
   hashPassword, verifyPassword, passwordProblem, normalizeEmail, isValidEmail, createSession,
-  SESSION_COOKIE, sha256, randomToken, newId, logSecurityEvent,
+  SESSION_COOKIE, sha256, randomToken, newId, logSecurityEvent, isGuest, GUEST_DAYS, GUEST_EMAIL_DOMAIN,
 } from '../lib/security.js';
 import { featureStatus } from '../config.js';
 import { userSettings } from '../domain/reminders.js';
@@ -12,12 +12,13 @@ import { todayIn } from '../../public/js/shared/dates.js';
 export function serializeUser(user) {
   return {
     id: user.id,
-    email: user.is_demo ? null : user.email,
+    email: user.is_demo || isGuest(user) ? null : user.email,
     name: user.name,
     timezone: user.timezone,
     settings: userSettings(user),
     aiConsent: user.ai_consent,
     isDemo: Boolean(user.is_demo),
+    isGuest: isGuest(user),
     createdAt: user.created_at,
   };
 }
@@ -38,7 +39,10 @@ export function registerAuthRoutes(router, ctx) {
   router.get('/api/status', () => ({
     features: featureStatus(config),
     demoEnabled: config.demo.enabled,
-    ai: { enabled: config.ai.enabled, provider: config.ai.providerLabel, model: config.ai.enabled ? config.ai.model : null },
+    ai: {
+      enabled: config.ai.enabled, provider: config.ai.providerLabel, model: config.ai.enabled ? config.ai.model : null,
+      kind: config.ai.enabled ? config.ai.provider : null, freeTier: Boolean(config.ai.enabled && config.ai.freeTier), local: Boolean(config.ai.enabled && config.ai.local),
+    },
     push: { enabled: config.push.enabled, publicKey: config.push.enabled ? config.push.publicKey : null },
     mail: { enabled: config.smtp.enabled, simulated: !config.smtp.enabled && !config.isProduction },
     limits: {
@@ -148,6 +152,22 @@ export function registerAuthRoutes(router, ctx) {
     });
     logSecurityEvent(db, row.user_id, 'passwort_zurueckgesetzt');
     return { ok: true };
+  }, { auth: false });
+
+  // „Ohne Konto fortfahren“: eigenes, dauerhaftes Gastkonto nur für dieses Gerät (Browser/App)
+  router.post('/api/auth/guest', async (req, res, { ip }) => {
+    limiter.hit(`guest:${ip}`, 20, 3600_000, 'Zu viele neue Zugänge von diesem Gerät. Bitte später erneut versuchen.');
+    const now = new Date().toISOString();
+    const id = newId();
+    db.run(
+      `INSERT INTO users (id, email, name, password_hash, privacy_accepted_at, created_at, updated_at)
+       VALUES (?, ?, ?, NULL, ?, ?, ?)`,
+      id, `gast-${id}${GUEST_EMAIL_DOMAIN}`, null, now, now, now
+    );
+    logSecurityEvent(db, id, 'gastzugang');
+    const session = createSession(db, id, deviceLabel(req.headers['user-agent']), GUEST_DAYS);
+    setSessionCookie(res, config, session.token, session.maxAge);
+    return { user: serializeUser(db.get('SELECT * FROM users WHERE id = ?', id)) };
   }, { auth: false });
 
   router.post('/api/auth/demo', async (req, res, { ip }) => {

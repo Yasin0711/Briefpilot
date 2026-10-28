@@ -304,8 +304,13 @@ export async function render({ root, params, query, state, navigate, isCurrent }
   const id = params.id;
   let data = null;
   // Ansicht: Erklärung, Antwort, Original – oder keine (null): dann folgt direkt der nächste Abschnitt
-  let tab = ['antworten', 'original'].includes(query.get('ansicht')) ? query.get('ansicht') : 'erklaerung';
+  let tab = ['erklaerung', 'antworten', 'original'].includes(query.get('ansicht')) ? query.get('ansicht') : null;
   const openSteps = new Set(); // aufgeklappte Punkte der Erklärung (bleiben beim Neuzeichnen offen)
+  // Link auf eine bestimmte Aufgabe (z. B. aus „Aufgaben“): Erklärung und „Bis wann?“ öffnen
+  if (query.get('aufgabe')) {
+    tab = 'erklaerung';
+    openSteps.add('3');
+  }
   let pollTimer = null;
   const correcting = new Set();
   const today = todayIn(state.me?.timezone || 'Europe/Berlin');
@@ -451,7 +456,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       </div>
 
       <div class="detail-grid">
-        <div class="stack-l">
+        <div class="stack-l ${tab ? '' : 'no-tab'}">
           <div data-panel="erklaerung" class="stack-l" ${tab === 'erklaerung' ? '' : html`hidden`}>
             ${analyzing ? html`<p class="muted">Die Erklärung erscheint hier, sobald der Brief gelesen ist.</p>` : explanation(data, settings, today, correcting, openSteps)}
             ${analyzing ? '' : chatPanel(data, state)}

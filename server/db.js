@@ -327,6 +327,10 @@ const MIGRATIONS = [
   );
   CREATE INDEX idx_events_letter ON letter_events(letter_id);
   `,
+  `
+  -- Schlagworte (Tags) je Brief/Dokument
+  ALTER TABLE letters ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

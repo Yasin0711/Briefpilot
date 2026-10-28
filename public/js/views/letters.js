@@ -50,6 +50,7 @@ export async function render({ root, query, state, isCurrent }) {
     filter: query.get('filter') || '',
     sort: query.get('sort') || 'brief',
     object: query.get('object') || '',
+    tag: query.get('tag') || '',
   };
   let objectInfo = null;
   if (filters.object) {
@@ -76,6 +77,7 @@ export async function render({ root, query, state, isCurrent }) {
       ${FILTERS.map((f) => html`<button type="button" class="chip" data-filter="${f.id}" aria-pressed="${filters.filter === f.id}">${icon(f.ic)}${f.label}</button>`)}
       ${CATEGORIES.map((c) => html`<button type="button" class="chip" data-cat="${c.id}" aria-pressed="${filters.category === c.id}">${c.label}</button>`)}
     </div>
+    <div class="chips chips-scroll tag-chips" role="group" aria-label="Schlagworte" data-tag-chips></div>
     <div class="row">
       <label for="sort" class="small muted">Sortieren nach</label>
       <select id="sort" class="input grow" data-sort>
@@ -97,13 +99,14 @@ export async function render({ root, query, state, isCurrent }) {
     if (filters.filter) params.set('filter', filters.filter);
     if (filters.sort === 'upload') params.set('sort', 'upload');
     if (filters.object) params.set('object', filters.object);
+    if (filters.tag) params.set('tag', filters.tag);
     const data = await api.get(`/api/letters?${params}`);
     if (id !== requestId || !isCurrent()) return;
     root.querySelector('[data-total]').textContent = data.total === 1 ? '1 Brief gespeichert' : `${data.total} Briefe gespeichert`;
     const hash = `#/briefe${params.toString() ? `?${params}` : ''}`;
     if (location.hash !== hash) history.replaceState(null, '', hash);
     if (!data.letters.length) {
-      const searching = filters.q || filters.category || filters.filter || filters.object;
+      const searching = filters.q || filters.category || filters.filter || filters.object || filters.tag;
       mount(results, html`<div class="empty">${icon(searching ? 'search' : 'mail')}
         <h2>${searching ? 'Nichts gefunden' : 'Noch keine Briefe'}</h2>
         <p>${searching ? 'Versuchen Sie einen anderen Suchbegriff, zum Beispiel einen Teil des Absenders oder ein Datum wie 12.10.2026.' : 'Fotografieren Sie Ihren ersten Brief oder laden Sie ein PDF hoch.'}</p>
@@ -139,7 +142,7 @@ export async function render({ root, query, state, isCurrent }) {
     root.querySelector('.filter-note')?.remove();
     load();
   });
-  root.querySelector('.chips').addEventListener('click', (e) => {
+  root.querySelector('.chips:not([data-tag-chips])').addEventListener('click', (e) => {
     const chip = e.target.closest('.chip');
     if (!chip) return;
     if (chip.dataset.filter !== undefined) {
@@ -155,6 +158,26 @@ export async function render({ root, query, state, isCurrent }) {
     });
     load();
   });
+  // Schlagworte: antippen filtert, nochmal antippen hebt den Filter auf
+  const tagBox = root.querySelector('[data-tag-chips]');
+  async function loadTags() {
+    try {
+      const { tags } = await api.get('/api/tags');
+      if (!isCurrent()) return;
+      if (!tags.length) { tagBox.hidden = true; return; }
+      mount(tagBox, tags.map((t) => html`<button type="button" class="chip chip-tag" data-tag="${t.tag}" aria-pressed="${filters.tag.toLowerCase() === t.tag.toLowerCase()}">#${t.tag}<span class="chip-count">${t.count}</span></button>`));
+    } catch {
+      tagBox.hidden = true;
+    }
+  }
+  tagBox.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-tag]');
+    if (!chip) return;
+    filters.tag = filters.tag.toLowerCase() === chip.dataset.tag.toLowerCase() ? '' : chip.dataset.tag;
+    tagBox.querySelectorAll('[data-tag]').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.tag.toLowerCase() === filters.tag.toLowerCase())));
+    load();
+  });
+  loadTags();
   await load();
   return () => clearTimeout(debounce);
 }

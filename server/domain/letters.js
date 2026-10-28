@@ -19,7 +19,7 @@ export function buildSearchText(letter) {
   const amounts = parseJson(letter.amounts_json, []);
   const summary = parseJson(letter.summary_json, {});
   const parts = [
-    letter.sender, letter.subject, letter.document_type, categoryLabel(letter.category),
+    letter.sender, letter.subject, letter.document_type, categoryLabel(letter.category), ...parseJson(letter.tags_json, []),
     letter.letter_date, letter.letter_date ? formatDate(letter.letter_date, { short: true }) : '',
     letter.letter_date ? formatDate(letter.letter_date) : '',
     ...refs.map((r) => `${r.label} ${r.value} ${compact(r.value)}`),
@@ -54,6 +54,7 @@ export function serializeLetterSummary(row) {
     assignmentStatus: row.assignment_status || 'offen',
     duplicateStatus: row.duplicate_status || null,
     personId: row.person_id || null,
+    tags: parseJson(row.tags_json, []),
   };
 }
 
@@ -135,18 +136,19 @@ export function saveAnalysis(db, letterId, analysis, { source, model }) {
       recipient: analysis.recipient ?? null,
       sender_address: keep('sender_address', analysis.senderAddress ?? null),
       sender_email: keep('sender_email', analysis.senderEmail ?? null),
+      tags_json: edited.has('tags') ? letter.tags_json : JSON.stringify(analysis.tags || []),
     };
     db.run(
       `UPDATE letters SET sender = ?, subject = ?, document_type = ?, category = ?, letter_date = ?, letter_date_status = ?,
               letter_date_quote = ?, refs_json = ?, amounts_json = ?, summary_json = ?, full_text = ?, search_text = ?,
               identifiers_json = ?, recipient = ?, sender_address = ?, sender_email = ?,
               analysis_status = 'fertig', analysis_source = ?, analysis_model = ?, analysis_error = NULL, analyzed_at = ?,
-              injection_warning = ?, updated_at = ?
+              injection_warning = ?, tags_json = ?, updated_at = ?
         WHERE id = ?`,
       updated.sender, updated.subject, updated.document_type, updated.category, updated.letter_date, updated.letter_date_status,
       updated.letter_date_quote, updated.refs_json, updated.amounts_json, updated.summary_json, updated.full_text,
       buildSearchText(updated), updated.identifiers_json, updated.recipient, updated.sender_address, updated.sender_email,
-      source, model || null, now, analysis.injection ? 1 : 0, now, letterId
+      source, model || null, now, analysis.injection ? 1 : 0, updated.tags_json, now, letterId
     );
     // Nur unbestätigte, automatisch erzeugte Vorschläge werden ersetzt
     db.run("DELETE FROM tasks WHERE letter_id = ? AND status = 'zu_pruefen' AND origin != 'nutzer'", letterId);

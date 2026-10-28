@@ -1,5 +1,6 @@
 // Hochladen, Briefe anlegen, anzeigen, suchen, bearbeiten, löschen; Übersicht.
 import crypto from 'node:crypto';
+import { normalizeTags } from '../../public/js/shared/tags.js';
 import { HttpError, badRequest, notFound, readBody, readJson } from '../lib/http.js';
 import { newId } from '../lib/security.js';
 import { detectFileType } from '../lib/storage.js';
@@ -271,6 +272,27 @@ export function registerLetterRoutes(router, ctx) {
   });
 
   // ---------- Liste und Suche ----------
+  // Alle Schlagworte des Nutzers mit Anzahl (für die Filter in der Briefliste)
+  router.get('/api/tags', (req, res, { user }) => ({
+    tags: db.all(
+      `SELECT jt.value AS tag, COUNT(*) AS n FROM letters l, json_each(l.tags_json) jt
+        WHERE l.user_id = ? GROUP BY lower(jt.value) ORDER BY n DESC, jt.value LIMIT 60`, user.id
+    ).map((r) => ({ tag: r.tag, count: r.n })),
+  }));
+
+  // Schlagworte eines Briefes selbst festlegen (gilt dann auch nach erneuter Auswertung)
+  router.put('/api/letters/:id/tags', async (req, res, { user, params }) => {
+    const letter = ownLetter(user, params.id);
+    const body = await readJson(req);
+    const tags = normalizeTags(body.tags);
+    const edited = new Set(JSON.parse(letter.user_edited || '[]'));
+    edited.add('tags');
+    const updated = { ...letter, tags_json: JSON.stringify(tags) };
+    db.run('UPDATE letters SET tags_json = ?, user_edited = ?, search_text = ?, updated_at = ? WHERE id = ?',
+      updated.tags_json, JSON.stringify([...edited]), buildSearchText(updated), new Date().toISOString(), letter.id);
+    return { tags };
+  });
+
   router.get('/api/letters', (req, res, { user, query }) => {
     const where = ['l.user_id = ?'];
     const params = [user.id];
@@ -314,6 +336,11 @@ export function registerLetterRoutes(router, ctx) {
     if (filter === 'zuordnung') where.push("l.assignment_status IN ('pruefen', 'vorschlag', 'neue_akte')");
     if (filter === 'ohne_akte') where.push('NOT EXISTS (SELECT 1 FROM letter_links ll WHERE ll.letter_id = l.id)');
     if (filter === 'doppelt') where.push("l.duplicate_status = 'verdacht'");
+    const tag = String(query.get('tag') || '').trim().slice(0, 40);
+    if (tag) {
+      where.push("EXISTS (SELECT 1 FROM json_each(l.tags_json) jt WHERE lower(jt.value) = lower(?))");
+      params.push(tag);
+    }
     const objectId = query.get('object');
     if (objectId) {
       where.push('l.id IN (SELECT letter_id FROM letter_links WHERE object_id = ? AND user_id = ?)');

@@ -31,6 +31,7 @@ EINFACHE SPRACHE
 - Schreibe immer auf Deutsch, auch wenn der Brief in einer anderen Sprache ist. language = Sprache des Briefes als ISO-Code (z. B. "de", "en", "tr").
 
 WEITERE FELDER
+- tags: 2 bis 5 kurze deutsche Schlagworte (je ein Wort oder sehr kurz), mit denen man den Brief später wiederfindet, z. B. „Steuer“, „Auto“, „Strom“, „Garantie“, „Kaufbeleg“, „Weiterbildung“, „Mahnung“. Allgemein und wiederverwendbar – keine Namen, Nummern oder Beträge.
 - category: genau eine von: ${CATEGORY_IDS.join(', ')}. Finanzamt, Jobcenter, Familienkasse, Rentenversicherung und Ämter → behoerden. Krankenkasse, Arzt, Klinik → gesundheit. Vermieter, Hausverwaltung, Nebenkosten → wohnen. Strom-, Telefon- oder Händlerrechnungen und Mahnungen → rechnungen.
 - references: ALLE Kennungen, mit denen sich Vertrag, Fahrzeug, Zähler, Konto oder Vorgang eindeutig bestimmen lässt – jede einzeln mit Bezeichnung (label, wie im Brief), Wert (value, Zeichen für Zeichen wie im Brief), wörtlicher Textstelle (quote) und Art (kind). Arten: ${IDENTIFIER_KINDS.map((k) => `${k.id} = ${k.label}`).join('; ')}.
   · Nennt der Brief mehrere Fahrzeuge, Zähler oder Verträge, erfasse jede Kennung einzeln (z. B. jedes Kennzeichen).
@@ -53,9 +54,10 @@ export const RESPONSE_SCHEMA = {
   required: [
     'document_type', 'sender', 'sender_quote', 'letter_date', 'letter_date_quote', 'subject', 'category',
     'references', 'amounts', 'summary_what', 'actions', 'nothing_to_do', 'to_check', 'legal_note',
-    'contains_instructions_to_ai', 'language', 'full_text', 'recipient', 'sender_address', 'sender_email',
+    'contains_instructions_to_ai', 'language', 'full_text', 'recipient', 'sender_address', 'sender_email', 'tags',
   ],
   properties: {
+    tags: { type: 'array', items: { type: 'string' } },
     document_type: nullableString,
     sender: nullableString,
     sender_quote: nullableString,

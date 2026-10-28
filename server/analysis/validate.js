@@ -3,6 +3,7 @@
 // relative Fristen bekommen nie ein festes Enddatum, und jede Textstelle wird im
 // erkannten Brieftext gesucht.
 import { CATEGORY_IDS, TASK_KIND_IDS } from '../../public/js/shared/constants.js';
+import { normalizeTags, deriveTags } from '../../public/js/shared/tags.js';
 import {
   IDENTIFIER_KIND_IDS, kindFromLabel, normalizeIdentifier, extractIdentifiers, identifierKindLabel, compactAddressText,
 } from '../../public/js/shared/identifiers.js';
@@ -224,6 +225,10 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
     sender,
     subject,
     documentType: strOrNull(r.document_type, 80),
+    tags: (() => {
+      const fromAi = normalizeTags(r.tags);
+      return fromAi.length ? fromAi : deriveTags({ category, documentType: r.document_type, subject, text: fullText });
+    })(),
     category,
     letterDate,
     letterDateStatus,

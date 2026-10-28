@@ -431,6 +431,8 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         <div class="grow">
           <h1>${letter.subject || (analyzing ? 'Neuer Brief' : 'Brief ohne Betreff')}</h1>
           <p class="letter-meta">${[letter.sender || 'Absender unbekannt', letter.letterDate ? formatDate(letter.letterDate, { short: true }) : null].filter(Boolean).join(' · ')}</p>
+          ${analyzing ? '' : html`<div class="tag-row">${(letter.tags || []).map((t) => html`<a class="tag" href="#/briefe?tag=${encodeURIComponent(t)}">#${t}</a>`)}
+            <button class="tag tag-edit" type="button" data-action="edit-tags" aria-label="Schlagworte bearbeiten">${icon(letter.tags?.length ? 'edit' : 'plus')}${letter.tags?.length ? '' : 'Schlagwort'}</button></div>`}
           <div class="row-meta">
             ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
             ${letter.analysisSource === 'beispiel' && sourceLabel ? html`<span class="badge badge-demo">${icon('info')}${sourceLabel}</span>` : ''}
@@ -652,6 +654,27 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         const akte = data.links.map((l) => l.name).join(', ');
         toast(akte ? `Abgelegt in ${akte}.` : 'Abgelegt.');
         navigate('/briefe');
+      } else if (action === 'edit-tags') {
+        openDialog(html`<form class="dialog-body stack" novalidate>
+          <h2>Schlagworte</h2>
+          <div class="field"><label for="tags-in">Mit Komma trennen</label>
+            <input class="input" id="tags-in" name="tags" value="${(data.letter.tags || []).join(', ')}" autocomplete="off" placeholder="z. B. Steuer, Auto, Garantie"></div>
+          <div class="row"><button class="btn" type="submit">${icon('check')}Speichern</button><button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
+        </form>`, (dialog, close) => {
+          const form = dialog.querySelector('form');
+          dialog.querySelector('[data-close]').addEventListener('click', () => close());
+          form.addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            try {
+              await api.put(`/api/letters/${id}/tags`, { tags: form.tags.value });
+              close();
+              await reload();
+            } catch (err) {
+              toast(err.message, { error: true });
+            }
+          });
+          form.tags.focus();
+        });
       } else if (action === 'review') {
         await api.post(`/api/letters/${id}/review`);
         toast('Danke! Die Angaben sind als geprüft markiert.');

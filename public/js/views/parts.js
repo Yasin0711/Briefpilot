@@ -49,7 +49,7 @@ export function letterRow(l, { note = null } = {}) {
     ${categoryTile(l.category)}
     <span class="grow"><span class="row-title">${l.subject || 'Brief ohne Betreff'}</span>
       <span class="row-sub">${l.sender || 'Absender unbekannt'}</span><span class="row-sub">${dateText}</span>
-      ${l.objects?.length || badges.length ? html`<span class="row-meta">${objectChips(l.objects)}${badges}</span>` : ''}
+      ${l.objects?.length || badges.length || l.tags?.length ? html`<span class="row-meta">${objectChips(l.objects)}${(l.tags || []).slice(0, 3).map((t) => html`<span class="tag">#${t}</span>`)}${badges}</span>` : ''}
       ${note ? html`<span class="row-sub">${note}</span>` : ''}</span>
     ${icon('chevronRight', 'chev')}</a></li>`;
 }

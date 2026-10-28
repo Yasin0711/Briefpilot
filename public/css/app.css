@@ -133,7 +133,10 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; background: var(--paper); }
+/* iPhone: kein „Gummiband“-Nachziehen am Seitenende – sonst löst sich die Menüleiste unten
+   (und die Ablegen-Leiste) beim Weiterscrollen vom Rand */
+html, body { overscroll-behavior-y: none; }
 body {
   margin: 0;
   background: var(--paper);
@@ -195,6 +198,7 @@ main.wide { max-width: 1240px; }
 
 .nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  transform: translateZ(0); /* bleibt beim schnellen Scrollen auf iOS fest am Rand */
   background: var(--surface);
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
@@ -907,6 +911,7 @@ dialog.is-wide { width: min(760px, calc(100vw - 24px)); }
 .file-bar-spacer { height: 132px; }
 .file-bar {
   position: fixed; left: 0; right: 0; z-index: 25;
+  transform: translateZ(0);
   bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
   background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 18px rgba(16, 35, 58, 0.10);
   padding: 10px 16px 12px; display: flex; flex-direction: column; gap: 8px;

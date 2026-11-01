@@ -178,7 +178,7 @@ export function analyzeWithRules(fullText) {
     summary_what: summary,
     actions,
     nothing_to_do: false,
-    to_check: ['Diese Auswertung beruht auf einfachen Suchregeln, nicht auf KI. Sie kann Angaben übersehen oder falsch zuordnen.'],
+    to_check: ['Ohne KI ausgewertet – Angaben können fehlen.'],
     legal_note: legal ? 'Der Brief enthält einen Hinweis auf Widerspruch, Einspruch oder Klage. Solche Fristen sind wichtig. Lassen Sie sich im Zweifel beraten.' : null,
     contains_instructions_to_ai: false,
     language: 'de',

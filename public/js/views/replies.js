@@ -98,7 +98,7 @@ export function repliesPanel(data, state) {
 
     <div class="stack" aria-labelledby="drafts-h">
       <h2 id="drafts-h">Ihre Antworten</h2>
-      ${replies.length ? replies.map((r) => replyCard(r)) : html`<p class="muted">Noch keine Antwort. Entwürfe werden hier gespeichert, bis Sie sie verschicken oder löschen.</p>`}
+      ${replies.length ? replies.map((r) => replyCard(r)) : html`<p class="muted">Noch keine Antwort.</p>`}
     </div>
   </section>`;
 }
@@ -197,7 +197,7 @@ export function bindAssistant(root, ctx) {
       <div class="field"><label for="r-subject">Betreff</label><input class="input" id="r-subject" name="subject" value="${r.subject || ''}" maxlength="300"></div>
       <div class="field"><label for="r-body">Text</label>
         <textarea class="input reply-text" id="r-body" name="body" rows="14" maxlength="12000">${r.body || ''}</textarea>
-        <p class="hint">Stellen in [eckigen Klammern] bitte durch Ihre Angaben ersetzen. Die Grußformel steht am Ende; Ihr Name wird darunter gesetzt.</p></div>
+        <p class="hint">[Klammern] bitte ersetzen.</p></div>
       <details class="stack">
         <summary>Empfänger, Absender, Ort und Datum</summary>
         <div class="field-pair">
@@ -247,7 +247,7 @@ export function bindAssistant(root, ctx) {
   function markSent(reply, preset = 'post') {
     openDialog(html`<form class="dialog-body stack" novalidate>
       <h2>Als versendet markieren</h2>
-      <p class="muted">So sehen Sie später, dass und wie Sie geantwortet haben. Der Entwurf kann danach nicht mehr geändert werden.</p>
+      <p class="muted">Danach nicht mehr änderbar.</p>
       <fieldset class="field"><legend class="field-label">Wie haben Sie die Antwort verschickt?</legend>
         ${[['post', 'Per Post (ausgedruckt)'], ['eigenes_programm', 'Mit meinem E-Mail-Programm'], ['kopiert', 'Text kopiert und anders verschickt']].map(([v, l]) => html`<label class="check"><input type="radio" name="via" value="${v}" ${v === preset ? 'checked' : ''}><span>${l}</span></label>`)}
       </fieldset>
@@ -282,16 +282,16 @@ export function bindAssistant(root, ctx) {
       ${blocked ? html`<div class="note note-warn">${icon('alert')}<p>Der Text enthält noch ${reply.placeholders === 1 ? 'eine Stelle' : `${reply.placeholders} Stellen`} in [eckigen Klammern]. Bitte zuerst ersetzen.</p></div>` : ''}
       ${smtp ? html`<form class="stack" data-send novalidate>
           <div class="field"><label for="m-to">An</label><input class="input" type="email" id="m-to" name="to" value="${to}" required maxlength="254" autocomplete="email">
-            ${!to ? html`<p class="hint">Im Brief wurde keine E-Mail-Adresse gefunden. Bitte die Adresse des Absenders eintragen.</p>` : ''}</div>
+            ${!to ? html`<p class="hint">Keine Adresse im Brief gefunden.</p>` : ''}</div>
           <label class="check"><input type="checkbox" name="attachPdf" checked><span>Antwort zusätzlich als PDF anhängen</span></label>
           <label class="check check-strong"><input type="checkbox" name="confirm" required><span>Ich habe die Antwort geprüft und möchte sie <strong>jetzt</strong> an diese Adresse senden.</span></label>
-          <p class="small muted">Gesendet wird über den Mailserver dieser BriefPilot-Installation, mit Ihrem Namen als Absender und Ihrer E-Mail-Adresse für Antworten.</p>
+          <p class="small muted">Antworten gehen an Ihre E-Mail-Adresse.</p>
           <div class="row"><button class="btn" type="submit" ${blocked ? 'disabled' : ''}>${icon('send')}Jetzt senden</button></div>
         </form>
         <div class="divider">oder</div>` : html`<p class="small na-row">Direkt aus BriefPilot senden${naStar(state.me?.isDemo ? 'Im Demomodus nicht verfügbar' : 'Zurzeit nicht verfügbar')}</p>`}
       <div class="stack">
         <a class="btn btn-secondary" href="${mailtoLink(to, reply)}" data-mailto>${icon('external')}Im E-Mail-Programm öffnen</a>
-        <p class="small muted">Sehr lange Texte werden dabei gekürzt – nutzen Sie dann „Text kopieren“. Das PDF hängen Sie im E-Mail-Programm selbst an.</p>
+        <p class="small muted">PDF bitte selbst anhängen.</p>
         <p data-after-mailto hidden><button class="btn btn-small" type="button" data-mark-mail>${icon('check')}Ich habe sie gesendet – als versendet markieren</button></p>
       </div>
       <div class="dialog-actions-inline"><button class="btn btn-ghost" type="button" data-close>Schließen</button></div>

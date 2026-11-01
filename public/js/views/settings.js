@@ -49,7 +49,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         ${PERSON_RELATIONS.map((r) => html`<option value="${r.id}" ${r.id === (person?.relation || 'sonstige') ? 'selected' : ''}>${r.label}</option>`)}</select></div>
       <div class="field"><label for="pe-alias">Weitere Schreibweisen <span class="muted">(freiwillig)</span></label>
         <input class="input" id="pe-alias" name="aliases" value="${(person?.aliases || []).join(', ')}" maxlength="400" placeholder="z. B. L. Beispiel, Lena Muster (Geburtsname)">
-        <p class="hint">Mit Komma trennen. So wird die Person auch erkannt, wenn der Name im Brief anders geschrieben ist.</p></div>
+        <p class="hint">Mit Komma trennen.</p></div>
       <div class="row"><button class="btn" type="submit">Speichern</button><button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
     </form>`, (dialog, close) => {
       const form = dialog.querySelector('form');
@@ -143,7 +143,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         <h2 id="s-konto">Konto</h2>
         ${me.isDemo ? html`<p class="muted">Sie nutzen ein Demo-Konto. Es wird nach 24 Stunden mit allen Daten gelöscht.</p>` : me.isGuest ? html`
         <div class="note note-warn">${icon('info')}<div class="stack"><p><strong>Sie nutzen BriefPilot ohne Konto.</strong> Ihre Briefe sind nur auf diesem Gerät in dieser App erreichbar.</p>
-          <p>Wenn Sie sich abmelden oder die Websitedaten löschen, kommen Sie nicht mehr an Ihre Briefe. Laden Sie Ihre Daten bei Bedarf vorher herunter.</p></div></div>` : html`
+          <p>Nach Abmelden sind die Briefe weg.</p></div></div>` : html`
         <form class="stack" data-form="profile" novalidate>
           <div class="field"><label for="p-name">Vorname</label><input class="input" id="p-name" name="name" value="${me.name || ''}" maxlength="80"></div>
           <div class="field"><span class="field-label">E-Mail-Adresse</span><p>${me.email}</p></div>
@@ -154,7 +154,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
 
       <section class="panel stack settings-section" aria-labelledby="s-haushalt">
         <h2 id="s-haushalt">Haushalt</h2>
-        <p class="muted">Personen und Adressen helfen beim Zuordnen: Briefe an „Max Beispiel“ landen bei Max, Strom- oder Gasbriefe für die Ferienwohnung bei deren Zähler.</p>
+        <p class="muted">Hilft beim Zuordnen.</p>
         <h3>Personen</h3>
         ${household.persons.length ? html`<ul class="id-list">${household.persons.map((x) => html`<li>
           <span class="cat-tile">${icon('user')}</span>
@@ -177,7 +177,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
 
       <section class="panel stack settings-section" aria-labelledby="s-erinnerung">
         <h2 id="s-erinnerung">Erinnerungen</h2>
-        <p class="muted">So erinnert BriefPilot Sie standardmäßig an bestätigte Fristen und Termine. Für einzelne Aufgaben können Sie das ändern.</p>
+        <p class="muted">Standard für neue Fristen.</p>
         <form class="stack" data-form="reminders" novalidate>
           <fieldset class="field"><legend class="field-label">Wann erinnern?</legend>
             <div class="chips">${REMINDER_OFFSETS.map((o) => html`<label class="chip"><input type="checkbox" name="reminderOffsets" value="${o.id}" ${s.reminderOffsets.includes(o.id) ? 'checked' : ''}>${o.label}</label>`)}</div></fieldset>
@@ -185,17 +185,17 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
           <label class="check"><input type="checkbox" name="emailReminders" ${s.emailReminders ? 'checked' : ''}>
             <span>Zusätzlich per E-Mail erinnern${mailOn ? '' : naStar()}</span></label>
           <label class="check"><input type="checkbox" name="notificationDetails" ${s.notificationDetails ? 'checked' : ''}>
-            <span>Aufgabe in Benachrichtigungen nennen<br><span class="small muted">Aus: Es erscheint nur „Sie haben eine anstehende Aufgabe“ – besser, wenn andere Ihren Bildschirm sehen können.</span></span></label>
+            <span>Aufgabe in Benachrichtigungen nennen<br><span class="small muted">Aus: nur „Anstehende Aufgabe“.</span></span></label>
           <p><button class="btn btn-secondary" type="submit">Erinnerungen speichern</button></p>
         </form>
       </section>
 
       <section class="panel stack settings-section" aria-labelledby="s-push">
         <h2 id="s-push">Benachrichtigungen auf diesem Gerät</h2>
-        <p class="muted">Erinnerungen erscheinen immer in der App auf der Startseite. Zusätzlich kann dieses Gerät eine Benachrichtigung zeigen.</p>
+        <p class="muted">Zusätzlich zur Startseite.</p>
         ${push.available ? html`
           <p>${push.subscribed ? html`<span class="badge badge-done">${icon('check')}Eingeschaltet</span>` : html`<span class="badge">Ausgeschaltet</span>`}</p>
-          ${push.permission === 'denied' ? html`<div class="note note-warn">${icon('alert')}<p>Benachrichtigungen sind in Ihrem Browser für diese Seite blockiert. Bitte erlauben Sie sie in den Browser-Einstellungen.</p></div>` : ''}
+          ${push.permission === 'denied' ? html`<div class="note note-warn">${icon('alert')}<p>Im Browser blockiert.</p></div>` : ''}
           <div class="row">
             ${push.subscribed
               ? html`<button class="btn btn-secondary" type="button" data-action="push-test">${icon('bell')}Test senden</button>
@@ -213,8 +213,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         <fieldset class="field"><legend class="field-label">Darstellung</legend>
           <div class="chips" role="radiogroup">
             ${[['auto', 'Automatisch', 'contrast'], ['hell', 'Hell', 'sun'], ['dunkel', 'Dunkel', 'moon']].map(([v, l, ic]) => html`<label class="chip"><input type="radio" name="theme" value="${v}" ${themeChoice() === v ? 'checked' : ''}>${icon(ic)}${l}</label>`)}
-          </div>
-          <p class="hint">„Automatisch“ folgt der Einstellung Ihres Geräts (hell am Tag, dunkel am Abend).</p></fieldset>
+          </div></fieldset>
         <p class="small muted">Gilt für dieses Gerät.</p>
       </section>
 
@@ -244,7 +243,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
 
       <section class="panel stack settings-section" aria-labelledby="s-daten">
         <h2 id="s-daten">Meine Daten</h2>
-        <p class="muted">Laden Sie alle Ihre Briefe und Angaben als ZIP-Datei herunter oder löschen Sie Ihr Konto vollständig.</p>
+        <p class="muted">Alles als ZIP laden oder Konto löschen.</p>
         <div class="row">
           <button class="btn btn-secondary" type="button" data-action="export">${icon('download')}Alle Daten herunterladen</button>
           <button class="btn btn-danger" type="button" data-action="delete-account">${icon('trash')}Konto löschen</button>
@@ -418,7 +417,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
     const demo = state.me.isDemo || state.me.isGuest;
     openDialog(html`<form class="dialog-body stack" novalidate>
       <h2>Konto endgültig löschen</h2>
-      <p>Alle Briefe, Erklärungen, Aufgaben, Erinnerungen und Ihr Konto werden sofort gelöscht. Das kann nicht rückgängig gemacht werden.</p>
+      <p>Alles wird sofort gelöscht – endgültig.</p>
       <p class="muted">Tipp: Laden Sie vorher Ihre Daten herunter.</p>
       ${demo ? '' : html`<div class="field"><label for="d-pw">Ihr Passwort</label><input class="input" type="password" id="d-pw" name="password" autocomplete="current-password"></div>`}
       <div class="field"><label for="d-confirm">Zur Bestätigung LÖSCHEN eingeben</label><input class="input" id="d-confirm" name="confirm" autocomplete="off"></div>

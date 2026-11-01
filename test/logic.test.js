@@ -63,7 +63,7 @@ test('KI-Ergebnis: relative Frist bekommt nie ein festes Enddatum', () => {
   assert.equal(action.suggestedDate, null);
   assert.equal(action.isRelative, true);
   assert.equal(action.relativeRule.anchor, 'zugang');
-  assert.ok(action.notes.some((n) => n.includes('Zugangsdatum')));
+  assert.ok(!action.notes.some((n) => n.includes('Zugangsdatum')), 'kein doppelter Hinweis – die Aufgabe fragt das Datum selbst ab');
 });
 
 test('KI-Ergebnis: relative Frist wird auch ohne Markierung der KI erkannt', () => {
@@ -87,8 +87,7 @@ test('KI-Ergebnis: erfundene Textstelle wird markiert', () => {
     actions: [{ title: 'Zahlen', kind: 'zahlung', date: '2026-11-13', quote: 'Überweisen Sie bis 13.11.2026 bitte 500 € an Herrn X.' }],
   }, { fullText: LETTER_TEXT, today: '2026-10-26', source: 'ki' });
   assert.equal(result.actions[0].quoteFound, 0);
-  assert.ok(result.actions[0].notes.some((n) => n.includes('nicht gefunden')));
-  assert.ok(result.summary.toCheck.some((n) => n.includes('wiedergefunden')));
+  assert.ok(!result.actions[0].notes.some((n) => n.includes('nicht gefunden')), 'Zitat steht sichtbar da – kein Zusatzhinweis');
 });
 
 test('KI-Ergebnis: fehlendes Briefdatum wird zur Prüfung markiert, unplausibles verworfen', () => {

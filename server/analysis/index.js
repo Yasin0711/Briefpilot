@@ -187,7 +187,7 @@ export function createAnalyzer({ db, storage, config, ai, log = console }) {
       raw.document_type = files.some((f) => /presentation/.test(f.mime)) ? 'Präsentation' : files.some((f) => /spreadsheet/.test(f.mime)) ? 'Tabelle' : 'Dokument';
       raw.to_check = (raw.to_check || []).filter((t) => !/Absender/.test(t));
     }
-    if (photos) raw.to_check.push(`${photos} Foto(s) dieses Briefes wurden nicht gelesen (Texterkennung für Fotos benötigt KI).`);
+    if (photos) raw.to_check.push(`${photos} Foto(s) nicht gelesen (braucht KI).`);
     if (quotaNote) raw.to_check.unshift(quotaNote);
     if (config.ai.enabled && user.ai_consent !== 'ja') {
       raw.to_check.push('Mit freigegebener KI-Auswertung bekommen Sie eine Erklärung in einfacher Sprache (Einstellungen → Datenschutz & KI).');

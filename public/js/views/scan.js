@@ -61,7 +61,7 @@ export async function render({ root, query, state, navigate, refreshMe }) {
     }
     if (state.me.aiConsent === 'nein') {
       return html`<div class="note">${icon('info')}<div><strong>KI-Auswertung ist ausgeschaltet</strong>
-        <p>Sie haben die KI-Auswertung abgelehnt. Fotos werden nur gespeichert. Sie können das jederzeit in den <a href="#/einstellungen">Einstellungen</a> ändern.</p></div></div>`;
+        <p>Fotos werden nur gespeichert. Ändern in den <a href="#/einstellungen">Einstellungen</a> ändern.</p></div></div>`;
     }
     return '';
   }
@@ -190,13 +190,13 @@ export async function render({ root, query, state, navigate, refreshMe }) {
       <input type="file" accept="${ACCEPT}" multiple data-files aria-label="Fotos, Screenshots oder PDF-Dateien auswählen"></label>`;
 
     mount(root, html`<div class="stack-l">
-      <div class="page-head"><div><h1>Brief scannen</h1><p>Scannen Sie alle Seiten nacheinander oder laden Sie Fotos, Screenshots oder ein PDF hoch. Alle Seiten werden zu einem Brief zusammengefasst.</p></div></div>
+      <div class="page-head"><div><h1>Brief scannen</h1><p>Alle Seiten nacheinander – sie werden ein Brief.</p></div></div>
       ${consentCard()}
 
       <div class="stack">
         <div class="capture-grid">${fileFirst ? [fileBtn, cameraBtn] : [cameraBtn, fileBtn]}</div>
         ${live ? html`<p class="center">${cameraApp('Mit der Kamera-App fotografieren', 'btn-ghost btn-small')}</p>` : ''}
-        ${!window.isSecureContext ? html`<p class="small muted">Hinweis: Die Live-Kamera mit automatischer Auslösung braucht eine sichere Verbindung (https). Bis dahin öffnet „Seite fotografieren“ die Kamera-App – die Seite wird danach trotzdem automatisch zugeschnitten und verbessert.</p>` : ''}
+        ${!window.isSecureContext ? html`<p class="small muted">Live-Kamera nur über https.</p>` : ''}
       </div>
 
       ${!count ? bulkSection() : ''}
@@ -206,22 +206,22 @@ export async function render({ root, query, state, navigate, refreshMe }) {
         <ol class="pages">${pages.map((p, i) => pageItem(p, i))}</ol>
         ${hasImages ? html`<label class="check check-strong"><input type="checkbox" data-keep ${keepOriginals ? 'checked' : ''} ${uploading ? 'disabled' : ''}>
           <span><strong>Originalfotos zusätzlich aufbewahren</strong>
-          <span class="row-sub">Die unbearbeiteten Aufnahmen werden mit dem Brief gespeichert, zum Beispiel als Nachweis. Braucht mehr Speicherplatz.</span></span></label>` : ''}
+          <span class="row-sub">Braucht mehr Speicher.</span></span></label>` : ''}
         <div data-progress hidden class="stack"><p data-progress-text class="small" aria-live="polite"></p><div class="progress"><span data-bar></span></div></div>
         <button class="btn btn-block" type="button" data-submit ${working || uploading ? 'disabled' : ''}>${icon('check')}${working ? 'Seiten werden noch bearbeitet …' : 'Brief speichern und auswerten'}</button>
       </section>` : html`<section class="panel stack">
         <h2>So gelingt der Scan</h2>
         <ul class="tips">
-          <li>Brief auf einen dunklen, ruhigen Untergrund legen – dann findet BriefPilot die Ränder von selbst.</li>
+          <li>Dunkler Untergrund hilft.</li>
           <li>Für gleichmäßiges Licht sorgen. Im Dunkeln hilft das Licht-Symbol in der Kamera.</li>
-          <li>Ist „Automatisch“ eingeschaltet, löst die Kamera selbst aus, sobald das Blatt ruhig im Bild liegt.</li>
-          <li>Alle Seiten nacheinander scannen – auch bedruckte Rückseiten. Die Reihenfolge können Sie danach ändern.</li>
+          <li>„Automatisch“ löst selbst aus.</li>
+          <li>Auch bedruckte Rückseiten scannen.</li>
         </ul>
         <p class="small muted">Schief fotografierte Seiten werden automatisch gerade gerückt, Schatten aufgehellt und der Kontrast verbessert. Erlaubt sind Fotos und Screenshots (JPG, PNG, WebP) und PDF-Dateien bis ${maxMb} MB, höchstens ${maxPages} Dateien pro Brief.</p>
       </section>`}
 
       ${aiNote()}
-      ${state.me.isDemo ? html`<div class="note note-warn">${icon('info')}<div class="stack"><p><strong>Demomodus:</strong> Bitte laden Sie keine echten Briefe hoch. Zum Ausprobieren können Sie einen erfundenen Beispielbrief herunterladen und dann hier hochladen:</p>
+      ${state.me.isDemo ? html`<div class="note note-warn">${icon('info')}<div class="stack"><p><strong>Demomodus:</strong> Keine echten Briefe hochladen. Beispiele:</p>
         <div class="row"><a class="btn btn-small btn-secondary" href="/api/demo/beispielbrief?nr=0" download>${icon('download')}Beispiel: Stromabrechnung</a>
         <a class="btn btn-small btn-secondary" href="/api/demo/beispielbrief?nr=3" download>${icon('download')}Beispiel: Versicherung</a></div></div></div>` : ''}
     </div>`);

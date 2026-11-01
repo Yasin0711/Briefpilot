@@ -102,10 +102,10 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
       const quoteDates = parseGermanDates(letterDateQuote || '').map((d) => d.date);
       const matches = quoteDates.includes(letterDate);
       letterDateStatus = quoteState === 'gefunden' && matches ? 'erkannt' : 'unsicher';
-      if (letterDateStatus === 'unsicher') toCheck.push('Das Briefdatum ist nicht ganz sicher erkannt. Bitte mit dem Original vergleichen.');
+      if (letterDateStatus === 'unsicher') toCheck.push('Briefdatum unsicher.');
     }
   } else {
-    toCheck.push('Im Brief wurde kein Briefdatum gefunden. Bitte tragen Sie es ein, falls es im Brief steht.');
+    toCheck.push('Kein Briefdatum gefunden.');
   }
 
   const references = cleanList(r.references, (ref) => {
@@ -118,7 +118,7 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
   });
   const { identifiers, missing } = buildIdentifiers(references, fullText, source);
   for (const m of missing.slice(0, 3)) {
-    toCheck.push(`Die Nummer „${m.value}“ (${m.label}) wurde im erkannten Brieftext nicht gefunden. Sie wird für die Zuordnung nicht verwendet.`);
+    toCheck.push(`${m.label} „${m.value}“ nicht im Brief gefunden.`);
   }
   const amounts = cleanList(r.amounts, (a) => {
     const label = str(a?.label, 80);
@@ -127,8 +127,6 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
   });
 
   // Aufgaben, Fristen, Termine
-  let relativeCount = 0;
-  let unverifiedCount = 0;
   const actions = cleanList(r.actions, (a, index) => {
     const title = str(a?.title, 160);
     if (!title) return null;
@@ -148,39 +146,33 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
       relativeText = relativeText || relativeFromQuote.text;
     }
     if (isRelative) {
-      relativeCount++;
-      if (date) notes.push('Für diese relative Frist wurde ein Enddatum vorgeschlagen. Es wurde verworfen, weil es vom Zugangsdatum abhängt.');
+      // Das Enddatum hängt vom Zugang ab – das fragt die Aufgabe selbst ab, kein zusätzlicher Hinweis
       date = null;
-      notes.push('Relative Frist: Das Enddatum hängt davon ab, wann Sie den Brief erhalten haben. Bitte geben Sie das Zugangsdatum an.');
     }
 
     // Textstelle prüfen
     const quoteState = verifyQuote(quote, fullText);
     if (!quote) {
-      notes.push('Zu dieser Angabe gibt es keine Textstelle aus dem Brief. Bitte besonders sorgfältig prüfen.');
-      unverifiedCount++;
+      notes.push('Keine Textstelle im Brief – bitte prüfen.');
     } else if (quoteState === 'nicht_gefunden') {
-      notes.push('Diese Textstelle wurde im erkannten Brieftext nicht gefunden. Bitte mit dem Original vergleichen.');
-      unverifiedCount++;
-    } else if (quoteState === 'aehnlich') {
-      notes.push('Die Textstelle wurde nur sinngemäß im Brief gefunden. Bitte mit dem Original vergleichen.');
+      // Das Zitat wird angezeigt und beim Bestätigen mit dem Original verglichen – kein Extra-Hinweis.
+      // quoteFound = 0 bleibt gespeichert.
     }
 
     // Datum gegen Textstelle prüfen
     if (date) {
       if (quoteDates.length > 0 && !quoteDates.includes(date)) {
-        notes.push('Das vorgeschlagene Datum stimmt nicht mit dem Datum in der Textstelle überein. Es wurde nicht übernommen.');
+        notes.push('Datum stimmt nicht mit der Textstelle überein – nicht übernommen.');
         date = null;
       } else if (quoteDates.length === 0) {
-        notes.push('Das Datum steht nicht wörtlich in der Textstelle. Bitte prüfen, ob es stimmt.');
+        notes.push('Datum steht so nicht im Brief.');
       }
     }
     if (time && quote && !timePattern(time).test(quote)) {
-      notes.push('Die Uhrzeit steht nicht wörtlich in der Textstelle. Bitte prüfen.');
+      notes.push('Uhrzeit steht so nicht im Brief.');
     }
-    if (date && today && daysBetween(today, date) < 0) notes.push('Dieses Datum liegt in der Vergangenheit.');
-    if (date && isWeekend(date)) notes.push('Das Datum fällt auf ein Wochenende.');
-    if (!date && !isRelative && kind !== 'aufgabe') notes.push('Für diese Angabe wurde kein eindeutiges Datum gefunden.');
+    if (date && today && daysBetween(today, date) < 0) notes.push('Liegt in der Vergangenheit.');
+    if (date && isWeekend(date)) notes.push('Fällt auf ein Wochenende.');
 
     let page = Number.isInteger(a?.page) && a.page > 0 && a.page < 500 ? a.page : null;
     if (page === null && quote && /--- Seite \d+ ---/.test(fullText)) {
@@ -209,12 +201,11 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
     };
   }, 20);
 
-  if (relativeCount) toCheck.push('Mindestens eine Frist hängt vom Zugangsdatum ab. Geben Sie an, wann Sie den Brief erhalten haben.');
-  if (unverifiedCount) toCheck.push('Nicht alle Angaben konnten im Brieftext wiedergefunden werden. Diese sind markiert.');
+  // Relative Fristen und Textstellen werden direkt bei der Aufgabe geprüft – hier nicht wiederholen.
 
   const injection = r.contains_instructions_to_ai === true || looksLikeInjection(fullText);
   if (injection) {
-    toCheck.unshift('Der Brief enthält Text, der wie eine Anweisung an eine KI oder ein Programm aussieht. BriefPilot hat diesen Text nicht befolgt. Seien Sie bei diesem Schreiben besonders vorsichtig.');
+    toCheck.unshift('Enthält Anweisungen an eine KI – ignoriert. Bitte vorsichtig sein.');
   }
 
   for (const item of cleanList(r.to_check, (t) => str(t, 300) || null, 15)) {

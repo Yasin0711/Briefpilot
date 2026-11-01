@@ -73,15 +73,13 @@ export async function openObjectDialog({ object = null, prefill = {}, letterId =
 
   openDialog(html`<form class="dialog-body stack" novalidate>
     <h2>${editing ? 'Akte bearbeiten' : 'Neue Akte'}</h2>
-    ${!editing ? html`<p class="muted small">Eine Akte sammelt alle Briefe zu einer Sache – zum Beispiel einem Auto, einem Stromzähler oder einem Vertrag. Mit den Nummern erkennt BriefPilot künftige Briefe von selbst.</p>` : ''}
+    ${!editing ? html`<p class="muted small">Alle Briefe zu einer Sache, z. B. Auto oder Vertrag.</p>` : ''}
     <div class="field"><label for="o-type">Art</label>
       <select class="input" id="o-type" name="type" data-type>${OBJECT_TYPES.map((t) => html`<option value="${t.id}" ${t.id === type ? 'selected' : ''}>${t.label}</option>`)}</select></div>
     <div class="field"><label for="o-name">Name</label>
-      <input class="input" id="o-name" name="name" maxlength="120" required value="${object?.name || prefill.name || ''}" placeholder="z. B. Fahrzeug 1 · SB-AB 123">
-      <p class="hint">So erscheint die Akte in Listen. Gut sind Name und wichtigste Nummer.</p></div>
+      <input class="input" id="o-name" name="name" maxlength="120" required value="${object?.name || prefill.name || ''}" placeholder="z. B. Fahrzeug 1 · SB-AB 123"></div>
     <div class="field"><label for="o-provider">Vertragspartner / Absender <span class="muted">(freiwillig)</span></label>
-      <input class="input" id="o-provider" name="provider" maxlength="160" value="${object?.provider || prefill.provider || ''}" placeholder="z. B. HUK-COBURG, Stadtwerke Saarbrücken">
-      <p class="hint">Hilft, gleiche Nummern verschiedener Firmen auseinanderzuhalten.</p></div>
+      <input class="input" id="o-provider" name="provider" maxlength="160" value="${object?.provider || prefill.provider || ''}" placeholder="z. B. HUK-COBURG, Stadtwerke Saarbrücken"></div>
     ${household.persons.length || household.addresses.length ? html`<div class="field-pair">
       ${household.persons.length ? html`<div class="field"><label for="o-person">Person <span class="muted">(freiwillig)</span></label>
         <select class="input" id="o-person" name="personId"><option value="">–</option>${household.persons.map((p) => html`<option value="${p.id}" ${p.id === object?.personId ? 'selected' : ''}>${p.name}</option>`)}</select></div>` : ''}
@@ -89,7 +87,7 @@ export async function openObjectDialog({ object = null, prefill = {}, letterId =
         <select class="input" id="o-address" name="addressId"><option value="">–</option>${household.addresses.map((a) => html`<option value="${a.id}" ${a.id === object?.addressId ? 'selected' : ''}>${a.label}${a.street ? ` – ${a.street}` : ''}</option>`)}</select></div>` : ''}
     </div>` : ''}
     ${!editing ? html`<fieldset class="field"><legend class="field-label">Nummern</legend>
-      <p class="hint">Kennzeichen, Vertrags-, Kunden- oder Zählernummer. Leerzeichen und Bindestriche spielen keine Rolle.</p>
+      <p class="hint">Kennzeichen, Vertrags-, Kunden- oder Zählernummer.</p>
       <div class="stack-s" data-id-rows>${rows.map((r, i) => identifierRow(r, i, type))}</div>
       <p><button class="btn btn-ghost btn-small" type="button" data-add-id>${icon('plus')}Weitere Nummer</button></p>
     </fieldset>` : ''}

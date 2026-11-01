@@ -26,6 +26,10 @@ Laufendes Arbeitsprotokoll. Wird nach jedem abgeschlossenen Schritt aktualisiert
 
 ## 3. Getroffene Entscheidungen
 
+**Kernprinzip: So wenig Text wie möglich.** Jede Information steht genau einmal auf dem Bildschirm, Hinweise sind Einzeiler.
+Was schon sichtbar ist (z. B. das Zitat aus dem Brief, die Frage nach dem Zugangsdatum), wird nicht zusätzlich als Warnung wiederholt.
+Gilt für App-Texte, Server-Hinweise und die KI-Anweisungen (kurze Zusammenfassung, höchstens 3 Prüfhinweise).
+
 | Thema | Entscheidung | Grund |
 |---|---|---|
 | Kostenlose KI | **Google Gemini, kostenloses Kontingent** (`GEMINI_API_KEY` von aistudio.google.com, keine Kreditkarte). Modell `gemini-3.8-flash`, automatisch Ersatzmodell `gemini-3.5-flash-lite`, wenn das Gratis-Kontingent erschöpft ist. | Liest Fotos und PDFs (auch Scans) direkt; laut Google-Bedingungen gelten für Nutzer in der EU auch im Gratis-Kontingent die Datenregeln des bezahlten Dienstes (keine Produktverbesserung mit den Daten). Ohne Rechnungskonto bei Google entstehen keine Kosten. |

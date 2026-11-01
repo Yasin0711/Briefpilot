@@ -16,7 +16,7 @@ export async function render({ root, isCurrent }) {
     setInboxCount(letters.length);
     mount(root, html`<div class="stack-l">
       <div class="page-head"><div><h1>Briefe zuordnen</h1>
-        <p>Hier landen Briefe, bei denen BriefPilot nicht sicher ist, zu welcher Akte sie gehören. Ihre Entscheidung hilft auch bei künftigen Briefen.</p></div></div>
+        <p>Briefe mit unklarer Akte.</p></div></div>
       ${briefeTabs('zuordnen', { inbox: letters.length })}
       ${letters.length ? html`<div class="stack-l">${letters.map((l) => html`<article class="panel stack decision-card" data-letter="${l.id}" aria-labelledby="t-${l.id}">
           <div class="letter-head">
@@ -31,7 +31,7 @@ export async function render({ root, isCurrent }) {
           <div data-decision></div>
         </article>`)}</div>`
         : html`<div class="empty">${icon('checkCircle')}<h2>Alles zugeordnet</h2>
-          <p>Zurzeit wartet kein Brief auf Ihre Entscheidung. Neue Briefe ordnet BriefPilot anhand der Nummern in Ihren Akten selbst zu.</p>
+          <p>Nichts zu entscheiden.</p>
           <a class="btn btn-secondary" href="#/akten">${icon('folder')}Akten ansehen</a></div>`}
     </div>`);
     for (const l of letters) {

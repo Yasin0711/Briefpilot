@@ -966,3 +966,7 @@ a.tag:hover { color: var(--ink); }
 /* Stern: Funktion zurzeit nicht verfügbar */
 .na-star { color: var(--muted); text-decoration: none; font-weight: 600; margin-left: 3px; }
 .na-row { color: var(--muted); }
+
+/* Feldbeschriftung mit kleinem Symbol (z. B. Sanduhr bei relativer Frist) */
+.label-icon { display: flex; align-items: center; gap: 6px; }
+.label-icon svg { width: 18px; height: 18px; flex: none; color: var(--review); }

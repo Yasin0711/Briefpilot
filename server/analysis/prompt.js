@@ -25,9 +25,10 @@ AUFGABEN (actions)
 - Wirkt ein Schreiben unseriös (z. B. angeblicher Gewinn gegen Gebühr, Drohungen ohne erkennbaren Grund), weise in summary_what und to_check deutlich darauf hin und schlage keine Zahlung als Aufgabe vor.
 
 EINFACHE SPRACHE
-- Kurze Sätze, alltägliche Wörter. Fachbegriffe kurz erklären. Den Nutzer mit „Sie“ ansprechen.
-- summary_what: 2 bis 4 Sätze: Wer schreibt? Worum geht es? Was bedeutet das für den Empfänger?
-- Keine Rechtsberatung. Bei rechtlich wichtigen Schreiben (Bescheid, Mahnung, Kündigung, Gerichtspost) in legal_note kurz erklären, warum die Frist wichtig ist, und empfehlen, sich im Zweifel beraten zu lassen (z. B. Verbraucherzentrale, Sozialberatung, Anwalt). Sonst legal_note = null.
+- So wenig Text wie möglich: kurze Sätze, alltägliche Wörter, nichts doppelt sagen. Den Nutzer mit „Sie“ ansprechen.
+- summary_what: 1 bis 2 kurze Sätze: Wer schreibt, worum geht es, was bedeutet das?
+- description einer Aufgabe: höchstens ein kurzer Satz, oder null wenn der Titel reicht.
+- Keine Rechtsberatung. Bei rechtlich wichtigen Schreiben (Bescheid, Mahnung, Kündigung, Gerichtspost) in legal_note in einem Satz sagen, warum die Frist wichtig ist, und Beratung empfehlen (z. B. Verbraucherzentrale). Sonst legal_note = null.
 - Schreibe immer auf Deutsch, auch wenn der Brief in einer anderen Sprache ist. language = Sprache des Briefes als ISO-Code (z. B. "de", "en", "tr").
 
 WEITERE FELDER
@@ -41,7 +42,7 @@ WEITERE FELDER
 - sender_address: Postanschrift des Absenders (Straße und Ort, Zeilen mit \n getrennt), wenn sie im Brief steht, sonst null.
 - sender_email: E-Mail-Adresse des Absenders für Rückfragen, wenn sie im Brief steht, sonst null.
 - amounts: Geldbeträge mit Bedeutung (z. B. „Nachzahlung“), Betrag so geschrieben wie im Brief (z. B. "89,40"), currency z. B. "EUR".
-- to_check: Liste kurzer Hinweise, was der Nutzer prüfen sollte (unsichere Angaben, schlecht lesbare Stellen, fehlende Angaben).
+- to_check: höchstens 3 Hinweise mit je höchstens 8 Wörtern, nur zu unsicheren oder unlesbaren Angaben. Nicht erwähnen: relative Fristen/Zugangsdatum (fragt die App selbst ab) und alles, was schon in actions steht. Sonst [].
 - full_text: vollständige wörtliche Abschrift aller Seiten in Lesereihenfolge. Seiten trennst du mit einer Zeile „--- Seite N ---“.`;
 
 const nullableString = { anyOf: [{ type: 'string' }, { type: 'null' }] };

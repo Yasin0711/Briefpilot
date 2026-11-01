@@ -73,7 +73,7 @@ export function mountDecision(container, { letter, assignment, current = [], onD
           ${c.evidence?.length ? html`<span class="choice-evidence">${evidenceList(c.evidence)}</span>` : ''}
         </label>`)}
       </fieldset>
-      ${candidates.length > 1 ? html`<p class="small muted">Gehört der Brief zu mehreren Akten (z. B. eine Rechnung für alle Fahrzeuge), wählen Sie alle passenden aus.</p>` : ''}`
+      ${candidates.length > 1 ? html`<p class="small muted">Mehrere Akten möglich.</p>` : ''}`
         : html`<p class="muted">${current.length ? '' : 'BriefPilot hat keine passende Akte gefunden.'}</p>`}
 
       <div class="field decision-other">

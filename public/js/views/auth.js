@@ -34,7 +34,7 @@ export async function renderLogin({ root, state, navigate, refreshMe }) {
       ${state.status?.demoEnabled ? html`
         <div class="divider">oder</div>
         <button class="btn btn-ghost btn-block" type="button" data-demo>${icon('eye')}Demo mit Beispielbriefen ansehen</button>
-        <p class="small muted">Die Demo nutzt erfundene Briefe. Sie brauchen dafür kein Konto. Bitte keine echten Briefe in der Demo hochladen.</p>` : ''}
+        <p class="small muted">Mit erfundenen Briefen, ohne Konto.</p>` : ''}
     </div>
     ${statusHint(state)}
   </div>`);
@@ -90,12 +90,12 @@ export async function renderRegister({ root, state, navigate, refreshMe }) {
         <input class="input" id="email" name="email" type="email" autocomplete="email" inputmode="email" required></div>
       <div class="field"><label for="password">Passwort</label>
         <input class="input" id="password" name="password" type="password" autocomplete="new-password" minlength="${PASSWORD_MIN_LENGTH}" required>
-        <p class="hint">Mindestens ${PASSWORD_MIN_LENGTH} Zeichen. Ein Satz aus mehreren Wörtern ist sicher und gut zu merken.</p></div>
+        <p class="hint">Mindestens ${PASSWORD_MIN_LENGTH} Zeichen.</p></div>
       <div class="field"><label for="password2">Passwort wiederholen</label>
         <input class="input" id="password2" name="password2" type="password" autocomplete="new-password" required></div>
       <label class="check check-strong"><input type="checkbox" name="acceptPrivacy">
         <span>Ich habe die <a href="#/datenschutz" target="_blank" rel="noopener">Hinweise zum Datenschutz</a> gelesen.</span></label>
-      <p class="small muted">Ob Ihre Briefe mit KI ausgewertet werden dürfen, fragen wir Sie separat vor dem ersten Scannen.</p>
+      <p class="small muted">Die KI-Freigabe fragen wir vor dem ersten Scan.</p>
       <button class="btn btn-block" type="submit">Konto erstellen</button>
     </form>
     <p><a href="#/anmelden">Ich habe schon ein Konto</a></p>
@@ -128,7 +128,7 @@ export async function renderForgot({ root, state }) {
     ${brand('Passwort zurücksetzen')}
     <form class="stack" novalidate>
       <h1>Passwort vergessen</h1>
-      <p class="muted">Geben Sie Ihre E-Mail-Adresse ein. Wir schicken Ihnen einen Link, mit dem Sie ein neues Passwort festlegen können.</p>
+      <p class="muted">Wir schicken Ihnen einen Link.</p>
       <div class="field"><label for="email">E-Mail-Adresse</label>
         <input class="input" id="email" name="email" type="email" autocomplete="email" inputmode="email" required></div>
       <button class="btn btn-block" type="submit">Link anfordern</button>
@@ -148,7 +148,7 @@ export async function renderForgot({ root, state }) {
           ? html`<p class="small na-row">E-Mail-Versand${naStar()}</p>`
           : '';
         mount(root.querySelector('[data-result]'), html`<div class="note note-ok" role="status">${icon('mail')}<div class="stack">
-          <p>Wenn es ein Konto mit dieser Adresse gibt, ist ein Link unterwegs. Er ist 60 Minuten gültig. Schauen Sie auch im Spam-Ordner nach.</p>${extra}</div></div>`);
+          <p>Link ist unterwegs (60 Min. gültig). Auch im Spam schauen.</p>${extra}</div></div>`);
         form.hidden = true;
       } catch (err) {
         showError(form, err);

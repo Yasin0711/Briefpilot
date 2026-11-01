@@ -69,6 +69,12 @@ function reminderChips(selected, name = 'reminders') {
   </fieldset>`;
 }
 
+// Hinweise, die schon an anderer Stelle sichtbar sind (Zitat, Datumsfeld), nicht doppelt zeigen
+const REDUNDANT_NOTE = /Zugangsdatum|nicht gefunden|sinngemäß|kein eindeutiges Datum/i;
+function visibleNotes(task) {
+  return (task.checkNotes || []).filter((n) => !REDUNDANT_NOTE.test(n));
+}
+
 function confirmForm(task, letter, settings, today, { correcting = false } = {}) {
   const relative = task.isRelative;
   const dateValue = task.dueDate || task.suggestedDate || '';
@@ -77,30 +83,26 @@ function confirmForm(task, letter, settings, today, { correcting = false } = {})
   return html`<form class="confirm-box stack" data-confirm="${task.id}" novalidate>
     <h4 class="visually-hidden">Angaben bestätigen</h4>
     ${relative ? html`
-      <div class="note note-warn">${icon('hourglass')}<p>Diese Frist hängt davon ab, wann Sie den Brief bekommen haben${task.relativeText ? html` („${task.relativeText}“)` : ''}. Ohne Zugangsdatum zeigt BriefPilot kein Enddatum an.</p></div>
-      <div class="field"><label for="rd-${task.id}">Wann haben Sie den Brief bekommen?</label>
-        <input class="input" type="date" id="rd-${task.id}" name="receivedDate" max="${today}" value="${letter.receivedDate || ''}" data-received>
-        <p class="hint">Das Datum, an dem der Brief in Ihrem Briefkasten lag. Bei Bescheiden von Behörden gilt ein Brief oft erst einige Tage nach dem Absenden als zugestellt – im Zweifel beim Absender nachfragen.</p></div>
+      <div class="field"><label class="label-icon" for="rd-${task.id}">${icon('hourglass')}Wann haben Sie den Brief bekommen?</label>
+        <input class="input" type="date" id="rd-${task.id}" name="receivedDate" max="${today}" value="${letter.receivedDate || ''}" data-received></div>
       <div data-computed aria-live="polite"></div>
       <div class="field"><label for="dd-${task.id}">Fristende</label>
-        <input class="input" type="date" id="dd-${task.id}" name="dueDate" value="${task.dueDate || ''}" data-due>
-        <p class="hint">Wird nach Eingabe des Zugangsdatums vorgeschlagen. Bitte selbst prüfen.</p></div>`
+        <input class="input" type="date" id="dd-${task.id}" name="dueDate" value="${task.dueDate || ''}" data-due></div>`
     : html`<div class="field-pair">
         <div class="field"><label for="dd-${task.id}">${dueLabel(task.kind)}</label>
-          <input class="input" type="date" id="dd-${task.id}" name="dueDate" value="${dateValue}">
-          ${!dateValue && task.kind !== 'aufgabe' ? html`<p class="hint">Kein Datum erkannt. Tragen Sie es ein, falls es im Brief steht.</p>` : ''}</div>
+          <input class="input" type="date" id="dd-${task.id}" name="dueDate" value="${dateValue}"></div>
         <div class="field"><label for="dt-${task.id}">Uhrzeit <span class="muted">(freiwillig)</span></label>
           <input class="input" type="time" id="dt-${task.id}" name="dueTime" value="${timeValue}"></div>
       </div>`}
     ${reminderChips(offsets)}
     <label class="check check-strong"><input type="checkbox" name="checked">
-      <span>Ich habe ${relative ? 'die Frist' : 'Datum und Angaben'} mit dem Original-Brief verglichen.</span></label>
+      <span>Mit dem Original verglichen</span></label>
     <div class="row">
       <button class="btn" type="submit" data-mode="date">${icon('check')}${correcting ? 'Änderung speichern' : 'Bestätigen'}</button>
-      ${!relative ? html`<button class="btn btn-secondary" type="submit" data-mode="nodate">Ohne Datum übernehmen</button>` : ''}
+      ${!relative ? html`<button class="btn btn-secondary" type="submit" data-mode="nodate">Ohne Datum</button>` : ''}
       ${correcting
         ? html`<button class="btn btn-ghost" type="button" data-action="cancel-correct" data-id="${task.id}">Abbrechen</button>`
-        : html`<button class="btn btn-ghost" type="button" data-action="discard" data-id="${task.id}">${icon('x')}Keine Aufgabe – verwerfen</button>`}
+        : html`<button class="btn btn-ghost" type="button" data-action="discard" data-id="${task.id}">${icon('x')}Verwerfen</button>`}
     </div>
   </form>`;
 }
@@ -111,8 +113,8 @@ function taskCard(task, letter, settings, today, correcting) {
   let dateLine;
   if (task.status === 'erledigt') dateLine = html`<p class="small muted">Erledigt${task.completedAt ? ` am ${formatUploaded(task.completedAt)}` : ''}</p>`;
   else if (isReview) {
-    if (task.isRelative) dateLine = html`<p><strong>Relative Frist:</strong> ${task.relativeText || 'hängt vom Zugang ab'}</p>`;
-    else if (task.suggestedDate) dateLine = html`<p>Erkanntes Datum: <strong>${formatDate(task.suggestedDate, { weekday: true })}${task.suggestedTime ? `, ${task.suggestedTime} Uhr` : ''}</strong> – noch nicht bestätigt</p>`;
+    if (task.isRelative) dateLine = html`<p>Frist: ${task.relativeText || 'ab Erhalt des Briefs'}</p>`;
+    else if (task.suggestedDate) dateLine = html`<p>${formatDate(task.suggestedDate, { weekday: true })}${task.suggestedTime ? `, ${task.suggestedTime} Uhr` : ''}</p>`;
     else dateLine = html`<p class="muted">${task.kind === 'aufgabe' ? 'Ohne festes Datum' : 'Kein Datum erkannt'}</p>`;
   } else if (task.dueDate) {
     dateLine = html`<p><strong>${formatDate(task.dueDate, { weekday: true })}${task.dueTime ? `, ${task.dueTime} Uhr` : ''}</strong> ${whenLabel(task.dueDate, today)}</p>`;
@@ -133,7 +135,7 @@ function taskCard(task, letter, settings, today, correcting) {
       <div><p class="quote-label">Im Brief steht${task.sourcePage ? ` (Seite ${task.sourcePage})` : ''}:</p>
       <blockquote class="quote">${task.sourceQuote}</blockquote></div>
     </div>` : ''}
-    ${task.checkNotes?.length && task.status !== 'erledigt' ? html`<ul class="task-notes">${task.checkNotes.map((n) => html`<li>${icon('alert')}<span>${n}</span></li>`)}</ul>` : ''}
+    ${visibleNotes(task).length && task.status !== 'erledigt' ? html`<ul class="task-notes">${visibleNotes(task).map((n) => html`<li>${icon('alert')}<span>${n}</span></li>`)}</ul>` : ''}
     ${isReview || correcting ? confirmForm(task, letter, settings, today, { correcting }) : ''}
     ${task.status === 'offen' && !correcting ? html`
       <p class="reminder-line">${icon('bell')}${activeReminders.length
@@ -241,7 +243,7 @@ function explanation(data, settings, today, correcting, openSteps = new Set()) {
   </details>`;
   return html`<div class="explain">
     ${step('1', 'Worum geht es?', s.legalNote ? 'Wichtig' : '', html`<div class="explain-body stack">
-        <p>${s.what || 'Für diesen Brief gibt es keine automatische Erklärung. Bitte lesen Sie das Original.'}</p>
+        <p>${s.what || 'Keine Erklärung vorhanden – siehe Original.'}</p>
         ${s.legalNote ? html`<div class="note note-warn">${icon('alert')}<div><strong>Wichtig</strong><p>${s.legalNote}</p></div></div>` : ''}
       </div>`, Boolean(s.legalNote))}
 
@@ -441,13 +443,13 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         </div>
       </header>
 
-      ${analyzing ? html`<div class="note" role="status"><span class="spinner" aria-hidden="true"></span><div><strong>Ihr Brief wird gelesen …</strong><p>Das dauert meist unter einer Minute. Sie können die Seite verlassen – die Auswertung läuft weiter.</p></div></div>` : ''}
+      ${analyzing ? html`<div class="note" role="status"><span class="spinner" aria-hidden="true"></span><div><strong>Wird gelesen …</strong><p>Meist unter einer Minute.</p></div></div>` : ''}
       ${letter.analysisStatus === 'fehler' ? html`<div class="note note-danger" role="alert">${icon('alert')}<div class="stack"><div><strong>Die Auswertung hat nicht geklappt.</strong><p>${letter.analysisError}</p></div>
         <p><button class="btn btn-small" type="button" data-action="reanalyze">${icon('refresh')}Erneut auswerten</button></p></div></div>` : ''}
-      ${letter.analysisStatus === 'nicht_moeglich' ? html`<div class="note note-warn" role="status">${icon('info')}<div class="stack"><div><strong>Der Brief ist gespeichert, aber nicht automatisch gelesen.</strong><p>${letter.analysisError}</p></div>
+      ${letter.analysisStatus === 'nicht_moeglich' ? html`<div class="note note-warn" role="status">${icon('info')}<div class="stack"><div><strong>Gespeichert, aber nicht gelesen.</strong><p>${letter.analysisError}</p></div>
         <div class="row"><button class="btn btn-small" type="button" data-action="edit-facts">${icon('edit')}Angaben selbst eintragen</button>
         <button class="btn btn-small btn-secondary" type="button" data-action="add-task">${icon('plus')}Aufgabe anlegen</button></div></div></div>` : ''}
-      ${letter.injectionWarning ? html`<div class="note note-danger" role="alert">${icon('shield')}<div><strong>Vorsicht bei diesem Schreiben</strong><p>Der Brief enthält Text, der sich wie eine Anweisung an eine KI oder ein Programm liest. BriefPilot hat diesen Text nicht befolgt und nichts automatisch erledigt.</p></div></div>` : ''}
+      ${letter.injectionWarning ? html`<div class="note note-danger" role="alert">${icon('shield')}<div><strong>Vorsicht bei diesem Schreiben</strong><p>Enthält Anweisungen an eine KI – wurden ignoriert.</p></div></div>` : ''}
       ${duplicateNote()}
       ${analyzing ? '' : assignmentPanel()}
 
@@ -523,7 +525,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       });
       const update = () => {
         if (!isValidIsoDate(input.value) || !task.relativeRule) {
-          mount(out, task.relativeRule ? '' : html`<p class="small muted">Die Frist konnte nicht automatisch berechnet werden. Bitte tragen Sie das Fristende selbst ein.</p>`);
+          mount(out, task.relativeRule ? '' : html`<p class="small muted">Fristende bitte selbst eintragen.</p>`);
           return;
         }
         const res = computeRelativeEnd(task.relativeRule, { receivedDate: input.value, letterDate: letter.letterDate });
@@ -531,9 +533,8 @@ export async function render({ root, params, query, state, navigate, isCurrent }
           mount(out, '');
           return;
         }
-        mount(out, html`<div class="computed"><p>Rechnerisches Fristende: <strong>${formatDate(res.date, { weekday: true })}</strong></p>
-          <p class="small muted">Berechnet: ${formatDate(res.start)} plus ${periodLabel(task.relativeRule)}. Das ist ein Vorschlag, keine Rechtsauskunft.</p>
-          ${isWeekend(res.date) ? html`<p class="small"><strong>Wochenende:</strong> Endet eine Frist an einem Samstag, Sonntag oder Feiertag, verschiebt sie sich oft auf den nächsten Werktag. Sicherer ist es, vorher zu handeln.</p>` : ''}</div>`);
+        mount(out, html`<div><p class="small muted">${formatDate(res.start, { short: true })} + ${periodLabel(task.relativeRule)} = ${formatDate(res.date, { short: true })}</p>
+          ${isWeekend(res.date) ? html`<p class="small muted">Fällt aufs Wochenende – besser vorher handeln.</p>` : ''}</div>`);
         if (!manual) due.value = res.date;
       };
       input.addEventListener('input', update);
@@ -752,7 +753,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         <textarea class="input" id="f-refs" name="references" rows="4">${(l.identifiers?.length
           ? l.identifiers.map((i) => `${identifierKindLabel(i.kind)}: ${i.value}`)
           : (l.references || []).map((r) => `${r.label}: ${r.value}`)).join('\n')}</textarea>
-        <p class="hint">Eine Angabe pro Zeile, zum Beispiel „Kundennummer: 12345“ oder „Kfz-Kennzeichen: SB-AB 123“. Nach dem Speichern prüft BriefPilot die Akte neu (Ihre eigene Zuordnung bleibt).</p></div>
+        <p class="hint">Eine pro Zeile, z. B. „Kundennummer: 12345“.</p></div>
       ${persons.length ? html`<div class="field"><label for="f-person">Betrifft</label><select class="input" id="f-person" name="personId">
         <option value="">–</option>${persons.map((p) => html`<option value="${p.id}" ${p.id === l.personId ? 'selected' : ''}>${p.name}</option>`)}</select></div>` : ''}
       <div class="field"><label for="f-saddr">Anschrift des Absenders <span class="muted">(für Antworten)</span></label>
@@ -801,7 +802,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     }
     openDialog(html`<form class="dialog-body stack" novalidate>
       <h2>Seiten eines anderen Briefes anhängen</h2>
-      <p class="muted">Gehört ein anderer gespeicherter Brief eigentlich hierher (z. B. eine einzeln gescannte Seite 2)? Seine Seiten werden hinten angehängt, danach wird der Brief neu ausgewertet. Bestätigte Aufgaben und Antworten wandern mit.</p>
+      <p class="muted">Seiten eines anderen Briefs hinten anhängen.</p>
       <fieldset class="field"><legend class="field-label">Welcher Brief?</legend>
         <div class="pick-list">${others.map((l) => html`<label class="check"><input type="radio" name="sourceId" value="${l.id}">
           <span><strong>${l.subject || 'Brief ohne Betreff'}</strong><span class="row-sub">${l.sender || 'Absender unbekannt'} · ${l.letterDate ? formatDate(l.letterDate) : `hochgeladen ${formatUploaded(l.uploadedAt)}`}${l.pageCount ? ` · ${l.pageCount === 1 ? '1 Seite' : `${l.pageCount} Seiten`}` : ''}</span></span></label>`)}</div>

@@ -24,7 +24,7 @@ export async function renderList({ root, query, navigate, isCurrent }) {
 
   mount(root, html`<div class="stack-l">
     <div class="page-head"><div><h1>Akten</h1>
-      <p>Ordner für Fahrzeuge, Zähler, Verträge und Ämter. Briefe werden anhand ihrer Nummern automatisch einsortiert.</p></div>
+      <p>Briefe werden automatisch einsortiert.</p></div>
       <button class="btn btn-small" type="button" data-new>${icon('plus')}Neue Akte</button></div>
     <div data-tabs>${briefeTabs('akten')}</div>
     <form class="search-box" role="search" data-search>
@@ -51,7 +51,7 @@ export async function renderList({ root, query, navigate, isCurrent }) {
       mount(results, q
         ? html`<div class="empty">${icon('search')}<h2>Keine Akte gefunden</h2><p>Versuchen Sie einen Teil des Namens, der Firma oder einer Nummer.</p></div>`
         : html`<div class="empty">${icon('folder')}<h2>Noch keine Akten</h2>
-          <p>Legen Sie für jede Sache eine Akte an – zum Beispiel für jedes Auto mit Kennzeichen, jeden Stromzähler oder jede Versicherung. Dann sortiert BriefPilot neue Briefe selbst ein.</p>
+          <p>Eine Akte pro Sache – z. B. Auto, Zähler, Versicherung.</p>
           <button class="btn" type="button" data-new>${icon('plus')}Erste Akte anlegen</button></div>`);
       return;
     }
@@ -156,7 +156,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
 
       <section class="panel stack" aria-labelledby="ids-h">
         <div class="section-title"><h2 id="ids-h">Nummern</h2></div>
-        <p class="small muted">Steht eine dieser Nummern in einem Brief, ordnet BriefPilot ihn dieser Akte zu. Nummern wie Kunden- oder Vertragsnummern zählen nur zusammen mit dem passenden Absender.</p>
+        <p class="small muted">Briefe mit diesen Nummern landen hier.</p>
         ${objectIds.length ? html`<ul class="id-list">${objectIds.map((i) => html`<li>
             <span class="grow"><span class="row-sub">${i.kindLabel}</span><span class="row-title mono">${i.value}</span>
               <span class="row-meta">${i.status === 'alt' ? html`<span class="badge">frühere Nummer</span>` : ''}
@@ -185,12 +185,12 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
         ${letters.length ? html`<div class="panel panel-plain"><ul class="list">${letters.map((l) => letterRow(l, {
           note: html`<span class="link-why">${icon(l.link.origin === 'nutzer' ? 'user' : 'link')}${ORIGIN_LABEL[l.link.origin] || 'zugeordnet'}${l.link.evidence?.[0] && l.link.evidence[0].type !== 'nutzer' ? `: ${evidenceText(l.link.evidence[0])}` : ''}${l.link.caseId ? ` · Vorgang: ${cases.find((c) => c.id === l.link.caseId)?.title || ''}` : ''}</span>`,
         }))}</ul></div>`
-          : html`<p class="muted">Noch keine Briefe in dieser Akte. Neue Briefe mit einer der Nummern landen automatisch hier.</p>`}
+          : html`<p class="muted">Noch keine Briefe.</p>`}
       </section>
 
       <section class="panel stack" aria-labelledby="cases-h">
         <div class="section-title"><h2 id="cases-h">Vorgänge</h2></div>
-        <p class="small muted">Zusammengehörige Briefe innerhalb der Akte, z. B. ein Schadenfall oder eine Rechnung mit Mahnung. Vorgänge mit Rechnungs- oder Schadennummer legt BriefPilot selbst an.</p>
+        <p class="small muted">Zusammengehörige Briefe, z. B. ein Schadenfall.</p>
         ${cases.length ? html`<ul class="id-list">${cases.map((c) => html`<li>
             <span class="grow"><span class="row-title">${c.title}</span>
               <span class="row-meta"><span class="badge">${CASE_KINDS.find((k) => k.id === c.kind)?.label || 'Vorgang'}</span>
@@ -222,10 +222,10 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
     const select = await otherObjectsSelect('successorId', 'Nachfolger (freiwillig)');
     openDialog(html`<form class="dialog-body stack" novalidate>
       <h2>Akte beenden</h2>
-      <p class="muted">Zum Beispiel: Auto verkauft, Zähler gewechselt, Vertrag gekündigt oder umgezogen. Die Briefe bleiben in der Akte. Nummern einer beendeten Akte zählen bei neuen Briefen nur noch eingeschränkt.</p>
+      <p class="muted">Z. B. Auto verkauft oder Vertrag gekündigt. Die Briefe bleiben.</p>
       <div class="field"><label for="end-date">Beendet am</label><input class="input" type="date" id="end-date" name="endedAt" value="${today}" max="${today}"></div>
       ${select}
-      <p class="hint">Ein Nachfolger ist z. B. der neue Zähler oder das neue Auto. Legen Sie ihn vorher als eigene Akte an.</p>
+      <p class="hint">Z. B. neuer Zähler oder neues Auto.</p>
       <div class="row"><button class="btn" type="submit">Beenden</button><button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
     </form>`, (dialog, close) => {
       const form = dialog.querySelector('form');

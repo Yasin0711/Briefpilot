@@ -721,7 +721,10 @@ export function inspectPdf(buf) {
     return { valid: false, pageCount: 0, encrypted: false, activeContent: false };
   }
   const haystack = [raw, ...doc.decodedObjectStreams].join('\n');
-  const activeContent = /\/(JavaScript|JS|Launch|RichMedia)(?![A-Za-z])/.test(haystack);
+  // Nur außerhalb von Datenströmen suchen: In gepackten Bildern kommt „/JS“ sonst zufällig
+  // als Bytefolge vor (Fehlalarm bei großen Scans). Objektströme sind oben bereits entpackt enthalten.
+  const structure = [raw.replace(/\bstream\r?\n[\s\S]*?\bendstream\b/g, ''), ...doc.decodedObjectStreams].join('\n');
+  const activeContent = /\/(JavaScript|JS|Launch|RichMedia)(?![A-Za-z])/.test(structure);
   let pageCount = 0;
   try {
     pageCount = doc.pages().length;

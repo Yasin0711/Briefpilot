@@ -60,3 +60,23 @@ test('Upload: PDF mit JavaScript wird angenommen und nur entschärft gespeichert
     await server.stop();
   }
 });
+
+test('Kein Fehlalarm: „/JS“ als zufällige Bytefolge in Bilddaten (großer Scan)', () => {
+  const body = 'BT /F1 12 Tf 72 720 Td (Weiterbildung) Tj ET';
+  const img = 'xx/JS yy/JavaScript zz';
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /XObject << /Im1 5 0 R >> >> >>',
+    `<< /Length ${body.length} >>\nstream\n${body}\nendstream`,
+    `<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceGray /Length ${img.length} >>\nstream\n${img}\nendstream`,
+  ];
+  let out = '%PDF-1.4\n';
+  const offs = [];
+  objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const x = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offs.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF\n`;
+  const info = inspectPdf(Buffer.from(out, 'latin1'));
+  assert.equal(info.valid, true);
+  assert.equal(info.activeContent, false, 'Bytes in Bilddaten sind kein JavaScript');
+});

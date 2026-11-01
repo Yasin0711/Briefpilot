@@ -331,6 +331,17 @@ const MIGRATIONS = [
   -- Schlagworte (Tags) je Brief/Dokument
   ALTER TABLE letters ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';
   `,
+  `
+  -- Eigene Ordner für Akten (wie Ordner in „Dateien“)
+  CREATE TABLE folders (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+  );
+  CREATE INDEX idx_folders_user ON folders(user_id);
+  ALTER TABLE objects ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

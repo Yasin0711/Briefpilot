@@ -1,5 +1,5 @@
 // Akten: Liste (gruppiert nach Art) und Detailansicht mit Nummern, Vorgängen, Briefen und Aufgaben.
-import { html, mount } from '../html.js';
+import { html, mount, trusted } from '../html.js';
 import { api } from '../api.js';
 import { icon, toast, confirmDialog, openDialog, showError, clearErrors, busy } from '../ui.js';
 import { OBJECT_TYPES, objectType, CASE_KINDS } from '../shared/constants.js';
@@ -16,22 +16,56 @@ function idSummary(identifiers = []) {
   return current.map((i) => i.value).join(' · ');
 }
 
-// ---------- Liste ----------
+// ---------- Liste (wie „Dateien“: Ordner und Akten als Kacheln) ----------
+
+const SORTS = [
+  { id: 'name', label: 'Name' },
+  { id: 'neu', label: 'Neueste Briefe' },
+  { id: 'anzahl', label: 'Anzahl Briefe' },
+];
+const SORT_KEY = 'bp-akten-sort';
+
+/** Ordner-Symbol wie in „Dateien“ (Ordner kräftiger, Akte heller). */
+function folderSvg(kind) {
+  return trusted(`<svg class="files-icon is-${kind}" viewBox="0 0 64 50" aria-hidden="true"><path class="back" d="M4 7a4 4 0 0 1 4-4h15.5a4 4 0 0 1 3 1.3L31 9h25a4 4 0 0 1 4 4v29a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z"/><path class="front" d="M4 17a4 4 0 0 1 4-4h48a4 4 0 0 1 4 4v25a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z"/></svg>`);
+}
+
+function sortObjects(list, sort) {
+  const byName = (a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' });
+  const copy = [...list];
+  if (sort === 'neu') return copy.sort((a, b) => String(b.lastLetterDate || '').localeCompare(String(a.lastLetterDate || '')) || byName(a, b));
+  if (sort === 'anzahl') return copy.sort((a, b) => (b.letterCount || 0) - (a.letterCount || 0) || byName(a, b));
+  return copy.sort(byName);
+}
 
 export async function renderList({ root, query, navigate, isCurrent }) {
   let q = query.get('q') || '';
+  let folderId = query.get('ordner') || '';
+  let sort = 'name';
+  try {
+    sort = localStorage.getItem(SORT_KEY) || 'name';
+  } catch {
+    sort = 'name';
+  }
   let requestId = 0;
+  let data = null;
 
   mount(root, html`<div class="stack-l">
-    <div class="page-head"><div><h1>Akten</h1>
-      <p>Briefe werden automatisch einsortiert.</p></div>
-      <button class="btn btn-small" type="button" data-new>${icon('plus')}Neue Akte</button></div>
+    <div class="page-head"><div><h1>Akten</h1></div>
+      <div class="row">
+        <button class="btn btn-small btn-secondary" type="button" data-new-folder>${icon('plus')}Ordner</button>
+        <button class="btn btn-small" type="button" data-new>${icon('plus')}Akte</button>
+      </div></div>
     <div data-tabs>${briefeTabs('akten')}</div>
-    <form class="search-box" role="search" data-search>
-      ${icon('search')}
-      <label class="visually-hidden" for="oq">Akten durchsuchen</label>
-      <input class="input" id="oq" name="q" type="search" placeholder="Name, Kennzeichen oder Nummer" value="${q}" autocomplete="off">
-    </form>
+    <div class="search-row">
+      <form class="search-box grow" role="search" data-search>
+        ${icon('search')}
+        <label class="visually-hidden" for="oq">Akten durchsuchen</label>
+        <input class="input" id="oq" name="q" type="search" placeholder="Suchen …" value="${q}" autocomplete="off">
+      </form>
+      <label class="visually-hidden" for="osort">Sortieren</label>
+      <select class="input sort-select" id="osort" data-sort>${SORTS.map((o) => html`<option value="${o.id}" ${o.id === sort ? 'selected' : ''}>${o.label}</option>`)}</select>
+    </div>
     <div data-results aria-live="polite"><p class="muted">Wird geladen …</p></div>
   </div>`);
 
@@ -39,43 +73,110 @@ export async function renderList({ root, query, navigate, isCurrent }) {
 
   async function load() {
     const id = ++requestId;
-    const data = await api.get(`/api/objects${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+    data = await api.get(`/api/objects${q ? `?q=${encodeURIComponent(q)}` : ''}`);
     if (id !== requestId || !isCurrent()) return;
     setInboxCount(data.inbox);
     mount(root.querySelector('[data-tabs]'), briefeTabs('akten', { inbox: data.inbox }));
-    const hash = `#/akten${q ? `?q=${encodeURIComponent(q)}` : ''}`;
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (folderId) params.set('ordner', folderId);
+    const hash = `#/akten${params.toString() ? `?${params}` : ''}`;
     if (location.hash !== hash) history.replaceState(history.state, '', hash);
+    draw();
+  }
+
+  function draw() {
+    const folders = data.folders || [];
+    const folder = folders.find((f) => f.id === folderId) || null;
+    if (folderId && !folder) folderId = '';
     const active = data.objects.filter((o) => o.status !== 'beendet');
     const ended = data.objects.filter((o) => o.status === 'beendet');
-    if (!data.objects.length) {
+    if (!data.objects.length && !folders.length) {
       mount(results, q
-        ? html`<div class="empty">${icon('search')}<h2>Keine Akte gefunden</h2><p>Versuchen Sie einen Teil des Namens, der Firma oder einer Nummer.</p></div>`
+        ? html`<div class="empty">${icon('search')}<h2>Nichts gefunden</h2></div>`
         : html`<div class="empty">${icon('folder')}<h2>Noch keine Akten</h2>
-          <p>Eine Akte pro Sache – z. B. Auto, Zähler, Versicherung.</p>
           <button class="btn" type="button" data-new>${icon('plus')}Erste Akte anlegen</button></div>`);
       return;
     }
-    const groups = OBJECT_TYPES.map((t) => ({ type: t, items: active.filter((o) => o.type === t.id) })).filter((g) => g.items.length);
-    mount(results, html`${groups.map((g) => html`<section>
-        <h2 class="month-head">${g.type.plural} <span class="muted">(${g.items.length})</span></h2>
-        <div class="panel panel-plain"><ul class="list">${g.items.map(objectRow)}</ul></div>
-      </section>`)}
-      ${ended.length ? html`<details class="ended"><summary class="month-head">Beendete Akten (${ended.length})</summary>
-        <div class="panel panel-plain"><ul class="list">${ended.map(objectRow)}</ul></div></details>` : ''}`);
+    // Suche: alle Treffer; im Ordner: dessen Akten; sonst Ordner + Akten ohne Ordner
+    const shownFolders = q || folder ? [] : sortFolders(folders);
+    const objects = sortObjects(q ? active : active.filter((o) => (o.folderId || '') === (folder ? folder.id : '')), sort);
+    mount(results, html`
+      ${folder ? html`<div class="files-crumb row">
+        <button class="btn btn-ghost btn-small" type="button" data-open-folder="">${icon('chevronLeft')}Akten</button>
+        <h2 class="grow">${folder.name}</h2>
+        <button class="icon-btn" type="button" data-folder-edit aria-label="Ordner bearbeiten" title="Bearbeiten">${icon('edit')}</button>
+      </div>` : ''}
+      ${shownFolders.length || objects.length ? html`<ul class="files-grid">
+        ${shownFolders.map((f) => html`<li><button class="files-item" type="button" data-open-folder="${f.id}">
+          ${folderSvg('ordner')}<span class="files-name">${f.name}</span>
+          <span class="files-sub">${f.objectCount === 1 ? '1 Akte' : `${f.objectCount} Akten`}</span></button></li>`)}
+        ${objects.map((o) => html`<li><a class="files-item" href="#/akten/${o.id}">
+          ${folderSvg('akte')}<span class="files-name">${o.name}</span>
+          <span class="files-sub">${o.letterCount === 1 ? '1 Brief' : `${o.letterCount || 0} Briefe`}${o.openTasks ? html` · <span class="files-open">${o.openTasks} offen</span>` : ''}</span></a></li>`)}
+      </ul>` : html`<p class="muted">${folder ? 'Noch leer.' : 'Keine Akten.'}</p>`}
+      ${folder ? html`<p><button class="btn btn-small btn-secondary" type="button" data-folder-add>${icon('plus')}Akten hineinlegen</button></p>` : ''}
+      ${ended.length && !folder ? html`<details class="ended"><summary class="month-head">Beendete Akten (${ended.length})</summary>
+        <ul class="files-grid">${sortObjects(ended, sort).map((o) => html`<li><a class="files-item is-ended" href="#/akten/${o.id}">
+          ${folderSvg('akte')}<span class="files-name">${o.name}</span><span class="files-sub">beendet</span></a></li>`)}</ul></details>` : ''}`);
   }
 
-  function objectRow(o) {
-    const ids = idSummary(o.identifiers);
-    return html`<li><a class="list-row" href="#/akten/${o.id}">
-      ${objectTile(o.type)}
-      <span class="grow"><span class="row-title">${o.name}</span>
-        ${o.provider ? html`<span class="row-sub">${o.provider}</span>` : ''}
-        ${ids ? html`<span class="row-sub mono">${ids}</span>` : ''}
-        <span class="row-meta"><span class="badge">${o.letterCount === 1 ? '1 Brief' : `${o.letterCount || 0} Briefe`}</span>
-          ${o.openTasks ? html`<span class="badge badge-open">${o.openTasks} offen</span>` : ''}
-          ${o.status === 'beendet' ? html`<span class="badge">beendet${o.endedAt ? ` am ${formatDate(o.endedAt)}` : ''}</span>` : ''}
-          ${o.personName ? html`<span class="badge">${icon('user')}${o.personName}</span>` : ''}</span></span>
-      ${icon('chevronRight', 'chev')}</a></li>`;
+  function sortFolders(folders) {
+    const byName = (a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' });
+    return sort === 'anzahl' ? [...folders].sort((a, b) => b.objectCount - a.objectCount || byName(a, b)) : [...folders].sort(byName);
+  }
+
+  /** Ordner anlegen oder bearbeiten: Name und welche Akten hineingehören. */
+  function folderDialog(folder = null) {
+    const all = sortObjects(data.objects, 'name');
+    const inFolder = new Set(all.filter((o) => folder && o.folderId === folder.id).map((o) => o.id));
+    openDialog(html`<form class="dialog-body stack" novalidate>
+      <h2>${folder ? 'Ordner bearbeiten' : 'Neuer Ordner'}</h2>
+      <div class="field"><label for="fd-name">Name</label>
+        <input class="input" id="fd-name" name="name" maxlength="80" required value="${folder?.name || ''}" placeholder="z. B. Familie, Haus, Arbeit"></div>
+      ${all.length ? html`<fieldset class="field"><legend class="field-label">Akten in diesem Ordner</legend>
+        <div class="folder-pick">${all.map((o) => html`<label class="check"><input type="checkbox" name="obj" value="${o.id}" ${inFolder.has(o.id) ? 'checked' : ''}><span>${o.name}</span></label>`)}</div>
+      </fieldset>` : ''}
+      <div class="row"><button class="btn" type="submit">${icon('check')}Speichern</button>
+        <button class="btn btn-secondary" type="button" data-close>Abbrechen</button>
+        ${folder ? html`<button class="btn btn-ghost" type="button" data-delete-folder>${icon('trash')}Ordner löschen</button>` : ''}</div>
+    </form>`, (dialog, close) => {
+      const form = dialog.querySelector('form');
+      dialog.querySelector('[data-close]').addEventListener('click', () => close());
+      dialog.querySelector('[data-delete-folder]')?.addEventListener('click', async () => {
+        try {
+          await api.del(`/api/folders/${folder.id}`);
+          close();
+          toast('Ordner gelöscht. Die Akten bleiben erhalten.');
+          folderId = '';
+          await load();
+        } catch (err) {
+          toast(err.message, { error: true });
+        }
+      });
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        clearErrors(form);
+        const name = form.querySelector('[name=name]').value.trim();
+        const chosen = [...form.querySelectorAll('[name=obj]:checked')].map((c) => c.value);
+        const removed = [...inFolder].filter((oid) => !chosen.includes(oid));
+        await busy(form.querySelector('[type=submit]'), async () => {
+          try {
+            const res = folder
+              ? await api.patch(`/api/folders/${folder.id}`, { name, objectIds: chosen })
+              : await api.post('/api/folders', { name, objectIds: chosen });
+            for (const oid of removed) await api.patch(`/api/objects/${oid}`, { folderId: null });
+            close();
+            toast(folder ? 'Ordner gespeichert.' : 'Ordner angelegt.');
+            folderId = res.folder.id;
+            forgetObjects();
+            await load();
+          } catch (err) {
+            showError(form, err);
+          }
+        });
+      });
+    });
   }
 
   let debounce = null;
@@ -92,9 +193,33 @@ export async function renderList({ root, query, navigate, isCurrent }) {
     q = input.value.trim();
     load().catch((err) => toast(err.message, { error: true }));
   });
+  root.querySelector('[data-sort]').addEventListener('change', (e) => {
+    sort = e.target.value;
+    try {
+      localStorage.setItem(SORT_KEY, sort);
+    } catch {
+      /* nur für diese Ansicht */
+    }
+    draw();
+  });
   root.addEventListener('click', (e) => {
+    const open = e.target.closest('[data-open-folder]');
+    if (open) {
+      folderId = open.dataset.openFolder;
+      load().catch((err) => toast(err.message, { error: true }));
+      return;
+    }
+    if (e.target.closest('[data-new-folder]')) {
+      folderDialog();
+      return;
+    }
+    if (e.target.closest('[data-folder-edit], [data-folder-add]')) {
+      folderDialog((data.folders || []).find((f) => f.id === folderId));
+      return;
+    }
     if (e.target.closest('[data-new]')) {
       openObjectDialog({
+        prefill: { folderId },
         onSaved: (res) => {
           forgetObjects();
           navigate(`/akten/${res.object.id}`);

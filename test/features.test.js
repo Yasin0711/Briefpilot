@@ -313,6 +313,12 @@ test('Kostenlose KI (Gemini, nachgebaut): Auswertung, Rückfrage mit Antwortentw
     r = await c.post(`/api/letters/${created.data.id}/replies`, { mode: 'ki', instruction: 'Bitte um Ratenzahlung' });
     assert.equal(r.status, 200, JSON.stringify(r.data));
     assert.match(r.data.reply.subject, /Ratenzahlung/);
+    // Weitere Unterlagen als Bezug: Text eines anderen Briefes landet im Prompt
+    const other = await c.post('/api/letters', { fileIds: [(await c.upload(insurancePdf({ plate: 'SB-XY 1', policy: 'KFZ-777' }), 'application/pdf')).data.id] });
+    await server.app.ctx.analyzer.idle();
+    const withRef = await c.post(`/api/letters/${created.data.id}/replies`, { mode: 'ki', instruction: 'Bitte um Ratenzahlung', refLetterIds: [other.data.id] });
+    assert.equal(withRef.status, 200, JSON.stringify(withRef.data));
+    assert.match(JSON.stringify(requests.at(-1).body.contents), /WEITERE UNTERLAGEN/);
     // Weitere Entwürfe zu diesem Entwurf
     const variants = await c.post(`/api/replies/${r.data.reply.id}/variants`, { count: 3 });
     assert.equal(variants.status, 200, JSON.stringify(variants.data));

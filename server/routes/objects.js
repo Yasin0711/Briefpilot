@@ -44,6 +44,7 @@ function serializeObject(row) {
     endedAt: row.ended_at,
     successorId: row.successor_id,
     notes: row.notes,
+    folderId: row.folder_id || null,
     letterCount: row.letter_count ?? undefined,
     openTasks: row.open_tasks ?? undefined,
     lastLetterDate: row.last_letter_date ?? undefined,
@@ -77,6 +78,47 @@ const OBJECT_SELECT = `
   FROM objects o
   LEFT JOIN persons p ON p.id = o.person_id
   LEFT JOIN addresses a ON a.id = o.address_id`;
+
+/** Gleich benannte Akten (gleiche Art, aktiv) gelten als dieselbe Akte. */
+const sameName = (name) => String(name || '').toLocaleLowerCase('de').replace(/\s+/g, ' ').trim();
+
+/** Führt Akte source in target zusammen (Nummern, Vorgänge, Briefe) und löscht source. */
+export function mergeObjectInto(db, user, source, target, { log = true } = {}) {
+  for (const i of db.all('SELECT * FROM identifiers WHERE object_id = ?', source.id)) {
+    const dup = db.get('SELECT id FROM identifiers WHERE object_id = ? AND normalized = ? AND COALESCE(case_id, \'\') = COALESCE(?, \'\')', target.id, i.normalized, i.case_id);
+    if (dup) db.run('DELETE FROM identifiers WHERE id = ?', i.id);
+    else db.run('UPDATE identifiers SET object_id = ? WHERE id = ?', target.id, i.id);
+  }
+  db.run('UPDATE cases SET object_id = ? WHERE object_id = ?', target.id, source.id);
+  for (const link of db.all('SELECT * FROM letter_links WHERE object_id = ?', source.id)) {
+    const dup = db.get('SELECT id FROM letter_links WHERE letter_id = ? AND object_id = ?', link.letter_id, target.id);
+    if (dup) db.run('DELETE FROM letter_links WHERE id = ?', link.id);
+    else db.run('UPDATE letter_links SET object_id = ? WHERE id = ?', target.id, link.id);
+    if (log) logLetterEvent(db, user.id, link.letter_id, 'zugeordnet', { akten: [target.name], durch: 'nutzer', grund: `Akte „${source.name}“ zusammengeführt` });
+  }
+  db.run('UPDATE objects SET successor_id = ? WHERE successor_id = ?', target.id, source.id);
+  if (!target.provider && source.provider) db.run('UPDATE objects SET provider = ?, provider_key = ? WHERE id = ?', source.provider, source.provider_key, target.id);
+  if (!target.folder_id && source.folder_id) db.run('UPDATE objects SET folder_id = ? WHERE id = ?', source.folder_id, target.id);
+  db.run('DELETE FROM objects WHERE id = ?', source.id);
+}
+
+/** Doppelt angelegte Akten (gleicher Name, gleiche Art, aktiv) automatisch zusammenführen. */
+export function mergeDuplicateObjects(db, user) {
+  const rows = db.all("SELECT * FROM objects WHERE user_id = ? AND status = 'aktiv' ORDER BY created_at", user.id);
+  const seen = new Map();
+  let merged = 0;
+  db.tx(() => {
+    for (const o of rows) {
+      const key = `${o.type}|${sameName(o.name)}`;
+      const keep = seen.get(key);
+      if (keep) {
+        mergeObjectInto(db, user, o, keep, { log: false });
+        merged++;
+      } else seen.set(key, o);
+    }
+  });
+  return merged;
+}
 
 export function registerObjectRoutes(router, ctx) {
   const { db, limiter } = ctx;
@@ -146,6 +188,7 @@ export function registerObjectRoutes(router, ctx) {
 
   // ---------- Akten ----------
   router.get('/api/objects', (req, res, { user, query }) => {
+    mergeDuplicateObjects(db, user);
     const where = ['o.user_id = ?'];
     const params = [user.id];
     const type = query.get('type');
@@ -177,7 +220,58 @@ export function registerObjectRoutes(router, ctx) {
         identifiers: ids.filter((i) => i.object_id === r.id).slice(0, 6).map(serializeIdentifier),
       })),
       inbox: db.get("SELECT COUNT(*) AS n FROM letters WHERE user_id = ? AND assignment_status IN ('pruefen', 'vorschlag', 'neue_akte')", user.id).n,
+      folders: listFolders(user),
     };
+  });
+
+  // ---------- Ordner (eigene Gruppen für Akten) ----------
+  function listFolders(user) {
+    return db.all(
+      `SELECT f.*, (SELECT COUNT(*) FROM objects o WHERE o.folder_id = f.id) AS object_count
+         FROM folders f WHERE f.user_id = ? ORDER BY f.name COLLATE NOCASE`, user.id
+    ).map((f) => ({ id: f.id, name: f.name, objectCount: f.object_count, createdAt: f.created_at }));
+  }
+  const ownFolder = (user, id) => {
+    const f = db.get('SELECT * FROM folders WHERE id = ? AND user_id = ?', id, user.id);
+    if (!f) throw notFound('Dieser Ordner wurde nicht gefunden.');
+    return f;
+  };
+  /** Akten in einen Ordner legen (objectIds) – nur eigene Akten. */
+  function putIntoFolder(user, folderId, objectIds) {
+    for (const oid of (Array.isArray(objectIds) ? objectIds : []).slice(0, 500)) {
+      db.run('UPDATE objects SET folder_id = ? WHERE id = ? AND user_id = ?', folderId, String(oid), user.id);
+    }
+  }
+  router.get('/api/folders', (req, res, { user }) => ({ folders: listFolders(user) }));
+  router.post('/api/folders', async (req, res, { user }) => {
+    const body = await readJson(req);
+    const name = text(body.name, 80);
+    if (!name) throw badRequest('Bitte einen Namen für den Ordner angeben.', { field: 'name' });
+    // Gleich benannter Ordner: wiederverwenden statt doppelt anlegen
+    let folder = db.all('SELECT * FROM folders WHERE user_id = ?', user.id).find((f) => sameName(f.name) === sameName(name));
+    if (!folder) {
+      folder = { id: newId(), name };
+      db.run('INSERT INTO folders (id, user_id, name, created_at) VALUES (?, ?, ?, ?)', folder.id, user.id, name, new Date().toISOString());
+    }
+    putIntoFolder(user, folder.id, body.objectIds);
+    return { folder: listFolders(user).find((f) => f.id === folder.id) };
+  });
+  router.patch('/api/folders/:id', async (req, res, { user, params }) => {
+    const folder = ownFolder(user, params.id);
+    const body = await readJson(req);
+    if (body.name !== undefined) {
+      const name = text(body.name, 80);
+      if (!name) throw badRequest('Der Name darf nicht leer sein.', { field: 'name' });
+      db.run('UPDATE folders SET name = ? WHERE id = ?', name, folder.id);
+    }
+    if (body.objectIds !== undefined) putIntoFolder(user, folder.id, body.objectIds);
+    return { folder: listFolders(user).find((f) => f.id === folder.id) };
+  });
+  router.delete('/api/folders/:id', (req, res, { user, params }) => {
+    const folder = ownFolder(user, params.id);
+    db.run('UPDATE objects SET folder_id = NULL WHERE folder_id = ?', folder.id); // Akten bleiben erhalten
+    db.run('DELETE FROM folders WHERE id = ?', folder.id);
+    return { ok: true };
   });
 
   router.post('/api/objects', async (req, res, { user }) => {
@@ -192,6 +286,17 @@ export function registerObjectRoutes(router, ctx) {
     const addressId = checkAddress(user, body.addressId);
     const items = (Array.isArray(body.identifiers) ? body.identifiers.slice(0, 20) : []).map((i, idx) => cleanIdentifier(i, idx));
     const letter = body.letterId ? ownLetter(user, String(body.letterId)) : null;
+    const folderId = body.folderId ? ownFolder(user, String(body.folderId)).id : null;
+    const existing = db.all("SELECT * FROM objects WHERE user_id = ? AND type = ? AND status = 'aktiv'", user.id, body.type)
+      .find((o) => sameName(o.name) === sameName(name));
+    if (existing) {
+      // Keine doppelte Akte: Nummern ergänzen und Brief zuordnen
+      for (const item of items) insertIdentifier(user, existing, item, { source: letter ? 'brief' : 'nutzer', letterId: letter?.id || null });
+      if (folderId && !existing.folder_id) db.run('UPDATE objects SET folder_id = ? WHERE id = ?', folderId, existing.id);
+      if (letter) setLetterLinks(db, user, letter.id, { objectIds: [existing.id] });
+      const reassigned = reassignOpenLetters(db, user.id);
+      return { object: serializeObject(db.get(`${OBJECT_SELECT} WHERE o.id = ?`, existing.id)), reassigned, warnings: [], existing: true };
+    }
     const now = new Date().toISOString();
     const id = newId();
     db.tx(() => {
@@ -200,6 +305,7 @@ export function registerObjectRoutes(router, ctx) {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id, user.id, body.type, name, provider, provider ? orgKey(provider) : null, category, personId, addressId, text(body.notes, 1000), now, now
       );
+      if (folderId) db.run('UPDATE objects SET folder_id = ? WHERE id = ?', folderId, id);
       const object = db.get('SELECT * FROM objects WHERE id = ?', id);
       for (const item of items) insertIdentifier(user, object, item, { source: letter ? 'brief' : 'nutzer', letterId: letter?.id || null });
     });
@@ -273,6 +379,7 @@ export function registerObjectRoutes(router, ctx) {
     if (body.personId !== undefined) updates.person_id = checkPerson(user, body.personId);
     if (body.addressId !== undefined) updates.address_id = checkAddress(user, body.addressId);
     if (body.notes !== undefined) updates.notes = text(body.notes, 1000);
+    if (body.folderId !== undefined) updates.folder_id = body.folderId ? ownFolder(user, String(body.folderId)).id : null;
     if (body.status !== undefined) {
       if (!['aktiv', 'beendet'].includes(body.status)) throw badRequest('Unbekannter Status.');
       updates.status = body.status;
@@ -319,23 +426,7 @@ export function registerObjectRoutes(router, ctx) {
     const body = await readJson(req);
     const target = ownObject(user, String(body.targetId || ''));
     if (target.id === source.id) throw badRequest('Bitte eine andere Akte wählen.');
-    db.tx(() => {
-      for (const i of db.all('SELECT * FROM identifiers WHERE object_id = ?', source.id)) {
-        const dup = db.get('SELECT id FROM identifiers WHERE object_id = ? AND normalized = ? AND COALESCE(case_id, \'\') = COALESCE(?, \'\')', target.id, i.normalized, i.case_id);
-        if (dup) db.run('DELETE FROM identifiers WHERE id = ?', i.id);
-        else db.run('UPDATE identifiers SET object_id = ? WHERE id = ?', target.id, i.id);
-      }
-      db.run('UPDATE cases SET object_id = ? WHERE object_id = ?', target.id, source.id);
-      for (const link of db.all('SELECT * FROM letter_links WHERE object_id = ?', source.id)) {
-        const dup = db.get('SELECT id FROM letter_links WHERE letter_id = ? AND object_id = ?', link.letter_id, target.id);
-        if (dup) db.run('DELETE FROM letter_links WHERE id = ?', link.id);
-        else db.run('UPDATE letter_links SET object_id = ? WHERE id = ?', target.id, link.id);
-        logLetterEvent(db, user.id, link.letter_id, 'zugeordnet', { akten: [target.name], durch: 'nutzer', grund: `Akte „${source.name}“ zusammengeführt` });
-      }
-      db.run('UPDATE objects SET successor_id = ? WHERE successor_id = ?', target.id, source.id);
-      if (!target.provider && source.provider) db.run('UPDATE objects SET provider = ?, provider_key = ? WHERE id = ?', source.provider, source.provider_key, target.id);
-      db.run('DELETE FROM objects WHERE id = ?', source.id);
-    });
+    db.tx(() => mergeObjectInto(db, user, source, target));
     return { ok: true, object: serializeObject(db.get(`${OBJECT_SELECT} WHERE o.id = ?`, target.id)) };
   });
 

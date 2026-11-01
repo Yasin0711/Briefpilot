@@ -132,10 +132,10 @@ function taskCard(task, letter, settings, today, correcting) {
       </div>
     </div>
     ${task.description ? html`<p class="task-desc">${task.description}</p>` : ''}
-    ${task.sourceQuote ? html`<div class="stack">
-      <div><p class="quote-label">Im Brief steht${task.sourcePage ? ` (Seite ${task.sourcePage})` : ''}:</p>
-      <blockquote class="quote">${task.sourceQuote}</blockquote></div>
-    </div>` : ''}
+    ${task.sourceQuote ? html`<details class="quote-details">
+      <summary>Textstelle${task.sourcePage ? ` (Seite ${task.sourcePage})` : ''}${icon('chevronDown')}</summary>
+      <blockquote class="quote">${task.sourceQuote}</blockquote>
+    </details>` : ''}
     ${visibleNotes(task).length && task.status !== 'erledigt' ? html`<ul class="task-notes">${visibleNotes(task).map((n) => html`<li>${icon('alert')}<span>${n}</span></li>`)}</ul>` : ''}
     ${isReview || correcting ? confirmForm(task, letter, settings, today, { correcting }) : ''}
     ${task.status === 'offen' && !correcting ? html`
@@ -310,13 +310,10 @@ export async function render({ root, params, query, state, navigate, isCurrent }
   const id = params.id;
   let data = null;
   // Ansicht: Erklärung, Antwort, Original – oder keine (null): dann folgt direkt der nächste Abschnitt
-  let tab = ['erklaerung', 'antworten', 'original'].includes(query.get('ansicht')) ? query.get('ansicht') : null;
+  let tab = ['erklaerung', 'aufgaben', 'antworten', 'original'].includes(query.get('ansicht')) ? query.get('ansicht') : null;
   const openSteps = new Set(); // aufgeklappte Punkte der Erklärung (bleiben beim Neuzeichnen offen)
   // Link auf eine bestimmte Aufgabe (z. B. aus „Aufgaben“): Erklärung und „Bis wann?“ öffnen
-  if (query.get('aufgabe')) {
-    tab = 'erklaerung';
-    openSteps.add('3');
-  }
+  if (query.get('aufgabe')) tab = 'aufgaben';
   let pollTimer = null;
   const correcting = new Set();
   const today = todayIn(state.me?.timezone || 'Europe/Berlin');
@@ -325,6 +322,13 @@ export async function render({ root, params, query, state, navigate, isCurrent }
   let persons = [];
   let assignEditing = false; // „Akte ändern“ geöffnet
   let split = null; // Set der Seiten im Modus „Seiten trennen“
+  // Leiste „Brief ablegen“ weggeklickt? (gilt für alle Briefe, bis sie wieder eingeblendet wird)
+  let barHidden = false;
+  try {
+    barHidden = localStorage.getItem('bp-filebar') === 'aus';
+  } catch {
+    barHidden = false;
+  }
 
   async function load() {
     const [letterData, household] = await Promise.all([
@@ -365,20 +369,14 @@ export async function render({ root, params, query, state, navigate, isCurrent }
 
   /** Feste Leiste unten: kurze Zusammenfassung, „Später“ und „Brief ablegen“. */
   function fileBar() {
-    const { letter, tasks, links } = data;
-    const confirmed = tasks.filter((t) => t.status === 'offen').length;
     const open = openPoints();
-    const akte = links.length ? links.map((l) => l.name).join(', ') : null;
-    const info = open.length ? open.join(' · ')
-      : [confirmed ? `${confirmed} ${confirmed === 1 ? 'Aufgabe' : 'Aufgaben'} bestätigt` : null, akte ? `Akte: ${akte}` : null].filter(Boolean).join(' · ');
-    void letter;
+    if (barHidden) {
+      return html`<button class="file-bar-show" type="button" data-action="bar-show" aria-label="Leiste „Brief ablegen“ einblenden">${icon('folder')}</button>`;
+    }
     return html`<div class="file-bar-spacer" aria-hidden="true"></div>
       <div class="file-bar" role="region" aria-label="Brief ablegen">
-        ${info ? html`<p class="file-bar-info ${open.length ? 'is-open' : ''}">${icon(open.length ? 'alert' : 'check')}<span>${info}</span></p>` : ''}
-        <div class="file-bar-actions">
-          <a class="btn btn-secondary" href="#/briefe">Später</a>
-          <button class="btn file-bar-main" type="button" data-action="file-away">${icon('folder')}Brief ablegen</button>
-        </div>
+        <button class="icon-btn file-bar-hide" type="button" data-action="bar-hide" aria-label="Leiste ausblenden" title="Ausblenden">${icon('chevronDown')}</button>
+        <button class="btn file-bar-main" type="button" data-action="file-away" ${open.length ? html`title="${open.join(' · ')}"` : ''}>${icon('folder')}Brief ablegen${open.length ? html`<span class="file-bar-badge" aria-label="${open.join(', ')}">${open.length}</span>` : ''}</button>
       </div>`;
   }
 
@@ -430,6 +428,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     const sourceLabel = ANALYSIS_SOURCE_LABELS[letter.analysisSource];
     const editable = !letter.isDemoContent && !analyzing;
     const drafts = data.replies.filter((r) => r.status !== 'gesendet').length;
+    const reviewCount = tasks.filter((t) => t.status === 'zu_pruefen').length;
     mount(root, html`<div class="stack-l">
       <p><a class="btn btn-ghost btn-small" href="#/briefe">${icon('chevronLeft')}Alle Briefe</a></p>
       <header class="letter-head">
@@ -457,18 +456,25 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       ${duplicateNote()}
       ${analyzing ? '' : assignmentPanel()}
 
-      <div class="tabs" role="tablist" aria-label="Ansicht">
+      <div class="tabs letter-tabs" role="tablist" aria-label="Ansicht">
         <button class="tab" role="tab" type="button" data-tab="erklaerung" aria-selected="${tab === 'erklaerung'}">Erklärung</button>
+        <button class="tab" role="tab" type="button" data-tab="aufgaben" aria-selected="${tab === 'aufgaben'}">Aufgaben${reviewCount ? html` <span class="tab-count">${reviewCount}</span>` : ''}</button>
         <button class="tab" role="tab" type="button" data-tab="antworten" aria-selected="${tab === 'antworten'}">Antwort${drafts ? html` <span class="tab-count">${drafts}</span>` : ''}</button>
         <button class="tab tab-original" role="tab" type="button" data-tab="original" aria-selected="${tab === 'original'}">Original</button>
       </div>
 
       <div class="detail-grid">
         <div class="stack-l ${tab ? '' : 'no-tab'}">
-          <div data-panel="erklaerung" class="stack-l" ${tab === 'erklaerung' ? '' : html`hidden`}>
-            ${analyzing ? html`<p class="muted">Die Erklärung erscheint hier, sobald der Brief gelesen ist.</p>` : explanation(data, settings, today, correcting, openSteps)}
+          ${tab === 'erklaerung' ? html`<div data-panel="erklaerung" class="stack-l">
+            ${analyzing ? html`<p class="muted">Erscheint, sobald der Brief gelesen ist.</p>` : explanation(data, settings, today, correcting, openSteps)}
             ${analyzing ? '' : chatPanel(data, state)}
-          </div>
+          </div>` : ''}
+          ${tab === 'aufgaben' ? html`<div data-panel="aufgaben" class="stack">
+            <div class="row"><h2 class="grow">Aufgaben</h2>
+              <button class="btn btn-small btn-secondary" type="button" data-action="add-task">${icon('plus')}Aufgabe</button></div>
+            ${tasks.length ? [...tasks].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]).map((t) => taskCard(t, letter, settings, today, correcting.has(t.id)))
+              : html`<p class="muted">${analyzing ? 'Erscheint, sobald der Brief gelesen ist.' : 'Keine Aufgaben.'}</p>`}
+          </div>` : ''}
           <div data-panel="antworten" ${tab === 'antworten' ? '' : html`hidden`}>${tab === 'antworten' ? repliesPanel(data, state) : ''}</div>
           <div data-panel="original" ${tab === 'original' ? '' : html`hidden`}>${originalView(files, { split, editable, letterId: letter.id })}</div>
           ${(tab === 'erklaerung' || !tab) && !analyzing ? factsPanel(letter, persons) : ''}
@@ -736,6 +742,14 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         }
       } else if (action === 'merge') {
         await mergeDialog();
+      } else if (action === 'bar-hide' || action === 'bar-show') {
+        barHidden = action === 'bar-hide';
+        try {
+          localStorage.setItem('bp-filebar', barHidden ? 'aus' : 'an');
+        } catch {
+          /* nur für diese Ansicht */
+        }
+        draw();
       } else if (action === 'delete-page') {
         if (await confirmDialog({ title: 'Seite löschen?', body: 'Der Brief wird danach neu gelesen.', confirmLabel: 'Löschen', danger: true })) {
           await api.del(`/api/letters/${id}/pages/${el.dataset.file}`);

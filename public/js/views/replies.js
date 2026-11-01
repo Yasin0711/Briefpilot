@@ -22,6 +22,25 @@ async function loadSuggestions(letterId) {
   }
 }
 
+// ---------- Weitere Unterlagen als Bezug (andere Briefe, ganze Akten) ----------
+const refStore = new Map(); // Brief-ID → { letters: Map(id → Titel), objects: Map(id → Name) }
+function refsOf(letterId) {
+  if (!refStore.has(letterId)) refStore.set(letterId, { letters: new Map(), objects: new Map() });
+  return refStore.get(letterId);
+}
+function refBody(letterId) {
+  const r = refsOf(letterId);
+  return { refLetterIds: [...r.letters.keys()], refObjectIds: [...r.objects.keys()] };
+}
+function refChips(letterId) {
+  const r = refsOf(letterId);
+  const chip = (kind, id, label) => html`<span class="tag ref-chip">${label}<button type="button" data-ref-remove="${kind}:${id}" aria-label="${label} entfernen">${icon('x')}</button></span>`;
+  return html`<span class="small muted">Bezug:</span><span class="tag">Dieser Brief</span>
+    ${[...r.objects].map(([id, name]) => chip('o', id, `Akte: ${name}`))}
+    ${[...r.letters].map(([id, title]) => chip('l', id, title))}
+    <button class="tag tag-edit" type="button" data-ref-pick>${icon('plus')}Unterlagen</button>`;
+}
+
 function templateButton(t) {
   return html`<button class="template-btn${t.recommended ? ' is-recommended' : ''}" type="button" data-template="${t.id}">${icon(t.id === 'leer' ? 'file' : t.recommended ? 'star' : 'pen')}<span><span>${t.label}</span>${t.reason ? html`<small class="template-reason">${t.reason}</small>` : ''}</span></button>`;
 }
@@ -84,6 +103,7 @@ export function repliesPanel(data, state) {
       ${ai.ready ? html`<form class="stack" data-ai-reply novalidate>
         <label class="visually-hidden" for="ai-instr">Was soll in der Antwort stehen?</label>
         <textarea class="input" id="ai-instr" name="instruction" rows="3" maxlength="1000" placeholder="Was soll in der Antwort stehen?"></textarea>
+        <div class="tag-row ref-row" data-refs>${refChips(letter.id)}</div>
         <div class="row"><button class="btn grow" type="submit">${icon('spark')}Entwurf erstellen</button>${bulb}</div>
       </form>` : html`<div class="row">${ai.na ? html`<p class="small na-row grow">${ai.reason}</p>` : html`<p class="small muted grow">${ai.reason}</p>`}${bulb}</div>`}
       <div class="template-grid" id="tpl-box" data-templates hidden><p class="muted small">Wird geladen …</p></div>
@@ -155,6 +175,57 @@ export function chatPanel(data, state) {
  */
 export function bindAssistant(root, ctx) {
   const { letterId, getData, reload, state } = ctx;
+
+  /** Auswahl weiterer Unterlagen: ganze Akten und einzelne Briefe. */
+  async function pickReferences() {
+    let objects = [];
+    let letters = [];
+    try {
+      [objects, letters] = await Promise.all([
+        api.get('/api/objects').then((d) => d.objects || []),
+        api.get('/api/letters?limit=300').then((d) => d.letters || []),
+      ]);
+    } catch (err) {
+      toast(err.message, { error: true });
+      return;
+    }
+    letters = letters.filter((l) => l.id !== letterId);
+    const r = refsOf(letterId);
+    openDialog(html`<form class="dialog-body stack" novalidate>
+      <h2>Unterlagen als Bezug</h2>
+      <input class="input" type="search" placeholder="Suchen …" data-ref-filter aria-label="Unterlagen durchsuchen">
+      ${objects.length ? html`<fieldset class="field"><legend class="field-label">Ganze Akten</legend>
+        <div class="folder-pick">${objects.map((o) => html`<label class="check" data-ref-item="${o.name.toLowerCase()}"><input type="checkbox" name="o" value="${o.id}" data-label="${o.name}" ${r.objects.has(o.id) ? 'checked' : ''}><span>${o.name} <span class="muted small">(${o.letterCount || 0})</span></span></label>`)}</div>
+      </fieldset>` : ''}
+      ${letters.length ? html`<fieldset class="field"><legend class="field-label">Einzelne Briefe</legend>
+        <div class="folder-pick">${letters.map((l) => {
+          const title = l.subject || l.sender || 'Brief ohne Betreff';
+          return html`<label class="check" data-ref-item="${`${title} ${l.sender || ''}`.toLowerCase()}"><input type="checkbox" name="l" value="${l.id}" data-label="${title}" ${r.letters.has(l.id) ? 'checked' : ''}><span>${title}${l.letterDate ? html` <span class="muted small">${formatDate(l.letterDate, { short: true })}</span>` : ''}</span></label>`;
+        })}</div>
+      </fieldset>` : html`<p class="muted">Keine weiteren Briefe.</p>`}
+      <div class="row"><button class="btn" type="submit">${icon('check')}Übernehmen</button>
+        <button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
+    </form>`, (dialog, close) => {
+      const form = dialog.querySelector('form');
+      dialog.querySelector('[data-close]').addEventListener('click', () => close());
+      form.querySelector('[data-ref-filter]').addEventListener('input', (ev) => {
+        const q = ev.target.value.trim().toLowerCase();
+        form.querySelectorAll('[data-ref-item]').forEach((el) => {
+          el.hidden = Boolean(q) && !el.dataset.refItem.includes(q);
+        });
+      });
+      form.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        r.objects.clear();
+        r.letters.clear();
+        form.querySelectorAll('[name=o]:checked').forEach((c) => r.objects.set(c.value, c.dataset.label));
+        form.querySelectorAll('[name=l]:checked').forEach((c) => r.letters.set(c.value, c.dataset.label));
+        close();
+        const box = root.querySelector('[data-refs]');
+        if (box) mount(box, refChips(letterId));
+      });
+    });
+  }
 
   async function fillTemplates() {
     const box = root.querySelector('[data-templates]');
@@ -384,7 +455,7 @@ export function bindAssistant(root, ctx) {
       const replyId = revise.closest('[data-reply]').dataset.reply;
       await busy(revise.querySelector('[type=submit]'), async () => {
         try {
-          await api.post(`/api/replies/${replyId}/revise`, { instruction });
+          await api.post(`/api/replies/${replyId}/revise`, { instruction, ...refBody(letterId) });
           toast('Entwurf angepasst.');
           await reload();
           ctx.showTab?.('antworten');
@@ -398,7 +469,7 @@ export function bindAssistant(root, ctx) {
     if (aiForm) {
       e.preventDefault();
       const instruction = aiForm.querySelector('[name=instruction]').value.trim();
-      await createReply({ mode: 'ki', instruction }, aiForm.querySelector('[type=submit]'));
+      await createReply({ mode: 'ki', instruction, ...refBody(letterId) }, aiForm.querySelector('[type=submit]'));
     }
   });
 
@@ -429,6 +500,18 @@ export function bindAssistant(root, ctx) {
       if (m) await createReply({ mode: 'text', subject: m.replySubject || '', body: m.replyBody }, take);
       return;
     }
+    const refRemove = e.target.closest('[data-ref-remove]');
+    if (refRemove) {
+      const [kind, id] = refRemove.dataset.refRemove.split(':');
+      const r = refsOf(letterId);
+      (kind === 'o' ? r.objects : r.letters).delete(id);
+      mount(root.querySelector('[data-refs]'), refChips(letterId));
+      return;
+    }
+    if (e.target.closest('[data-ref-pick]')) {
+      pickReferences();
+      return;
+    }
     const toggle = e.target.closest('[data-toggle-templates]');
     if (toggle) {
       const box = root.querySelector('[data-templates]');
@@ -453,7 +536,7 @@ export function bindAssistant(root, ctx) {
           break;
         case 'variants':
           await busy(act, async () => {
-            const res = await api.post(`/api/replies/${reply.id}/variants`, { count: 3 });
+            const res = await api.post(`/api/replies/${reply.id}/variants`, { count: 3, ...refBody(letterId) });
             toast(`${res.replies.length} weitere Entwürfe erstellt.`);
             await reload();
             ctx.showTab?.('antworten');

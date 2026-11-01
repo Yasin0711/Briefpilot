@@ -4,7 +4,7 @@ import { HttpError, badRequest, notFound, readJson } from '../lib/http.js';
 import { newId, isValidEmail, isGuest } from '../lib/security.js';
 import { AiError } from '../analysis/ai.js';
 import {
-  ASK_SYSTEM_PROMPT, ASK_SCHEMA, REPLY_SYSTEM_PROMPT, REPLY_SCHEMA, REPLY_VARIANTS_SCHEMA, letterContext,
+  ASK_SYSTEM_PROMPT, ASK_SCHEMA, REPLY_SYSTEM_PROMPT, REPLY_SCHEMA, REPLY_VARIANTS_SCHEMA, letterContext, referenceContext,
 } from '../analysis/prompt.js';
 import {
   REPLY_TEMPLATES, REPLY_TEMPLATE_IDS, templateReply, suggestReplyTemplates, suggestQuestions, replyDefaults, serializeReply, replyPlainText, replyReferences,
@@ -29,6 +29,23 @@ export function serializeMessage(m) {
 
 export function registerAssistantRoutes(router, ctx) {
   const { db, config, ai, analyzer, limiter, mailer } = ctx;
+
+  /** Gewählte weitere Briefe und Akten als Bezug (nur eigene; der aktuelle Brief zählt nicht doppelt). */
+  function referencesFor(user, body, currentId) {
+    const letterIds = new Set((Array.isArray(body.refLetterIds) ? body.refLetterIds : []).slice(0, 20).map(String));
+    for (const oid of (Array.isArray(body.refObjectIds) ? body.refObjectIds : []).slice(0, 10).map(String)) {
+      db.all(
+        `SELECT ll.letter_id FROM letter_links ll JOIN objects o ON o.id = ll.object_id JOIN letters l ON l.id = ll.letter_id
+          WHERE o.id = ? AND o.user_id = ? ORDER BY COALESCE(l.letter_date, l.uploaded_at) DESC LIMIT 15`, oid, user.id
+      ).forEach((row) => letterIds.add(row.letter_id));
+    }
+    letterIds.delete(currentId);
+    const rows = [...letterIds].slice(0, 25)
+      .map((id) => db.get('SELECT * FROM letters WHERE id = ? AND user_id = ?', id, user.id))
+      .filter(Boolean)
+      .sort((a, b) => String(b.letter_date || '').localeCompare(String(a.letter_date || '')));
+    return referenceContext(rows);
+  }
 
   const ownLetter = (user, id) => {
     const l = db.get('SELECT * FROM letters WHERE id = ? AND user_id = ?', id, user.id);
@@ -125,7 +142,7 @@ export function registerAssistantRoutes(router, ctx) {
         || REPLY_TEMPLATES.find((t) => t.id === body.template)?.label || 'Eine höfliche, kurze Antwort auf den Brief.';
       requireAi(user);
       try {
-        const prompt = `${letterContext(letter, tasks)}\n\nWunsch des Nutzers für das Antwortschreiben: ${instruction}`;
+        const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}\n\nWunsch des Nutzers für das Antwortschreiben: ${instruction}`;
         const { result } = await ai.completeJson({ system: REPLY_SYSTEM_PROMPT, prompt, schema: REPLY_SCHEMA, maxTokens: 4096 });
         subject = str(result?.subject, 300);
         text = str(result?.body, 8000);
@@ -170,7 +187,7 @@ export function registerAssistantRoutes(router, ctx) {
     let subject;
     let text;
     try {
-      const prompt = `${letterContext(letter, tasks)}\n\nAktueller Entwurf:\nBetreff: ${reply.subject}\n${reply.body}\n\n`
+      const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}\n\nAktueller Entwurf:\nBetreff: ${reply.subject}\n${reply.body}\n\n`
         + `Änderungswunsch des Nutzers: ${instruction}\n\n`
         + 'Überarbeite den Entwurf entsprechend. Ändere nur, was gewünscht ist; alles andere bleibt möglichst gleich. '
         + 'Angaben des Nutzers (z. B. ein korrigierter Name) übernimmst du so, wie er sie schreibt.';
@@ -198,7 +215,7 @@ export function registerAssistantRoutes(router, ctx) {
     const defaults = replyDefaults(db, user, letter);
     let drafts;
     try {
-      const prompt = `${letterContext(letter, tasks)}\n\nBisheriger Entwurf:\nBetreff: ${base.subject}\n${base.body}\n\n`
+      const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}\n\nBisheriger Entwurf:\nBetreff: ${base.subject}\n${base.body}\n\n`
         + `Schreibe ${count} deutlich unterschiedliche Alternativen zu diesem Entwurf (z. B. kürzer, ausführlicher, bestimmter im Ton). `
         + 'Gleiche Fakten, gleiche Platzhalter-Regeln. Gib sie im Feld drafts zurück.';
       const { result } = await ai.completeJson({ system: REPLY_SYSTEM_PROMPT, prompt, schema: REPLY_VARIANTS_SCHEMA, maxTokens: 6000 });

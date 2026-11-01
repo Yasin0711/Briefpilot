@@ -928,27 +928,32 @@ dialog.is-wide { width: min(760px, calc(100vw - 24px)); }
 .bulk-item.is-fehler { background: var(--danger-bg); }
 .bulk-item.is-doppelt { background: var(--review-bg); }
 
-/* Feste Leiste „Brief ablegen“ (über dem Menü) */
-.file-bar-spacer { height: 132px; }
+/* Feste Leiste „Brief ablegen“ (über dem Menü): eine schmale Zeile, mit Pfeil wegklickbar */
+.file-bar-spacer { height: 72px; }
 .file-bar {
   position: fixed; left: 0; right: 0; z-index: 25;
-  transform: translateZ(0);
   bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
-  background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 18px rgba(16, 35, 58, 0.10);
-  padding: 10px 16px 12px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -4px 12px rgba(16, 35, 58, 0.08);
+  padding: 8px 12px; display: flex; align-items: center; gap: 8px;
 }
-.file-bar-info { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--muted); min-width: 0; }
-.file-bar-info span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-bar-info svg { width: 16px; height: 16px; flex: none; color: var(--done); }
-.file-bar-info.is-open svg { color: var(--review); }
-.file-bar-actions { display: flex; gap: 10px; }
-.file-bar-actions .btn { min-height: 50px; }
-.file-bar-main { flex: 1; }
+.file-bar-hide { flex: none; width: 44px; height: 44px; }
+.file-bar-main { flex: 1; min-height: 46px; position: relative; }
+.file-bar-badge {
+  min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: var(--yellow); color: var(--on-yellow);
+  font-size: 0.78rem; font-weight: 650; display: inline-grid; place-items: center; margin-left: 4px;
+}
+.file-bar-show {
+  position: fixed; right: 14px; z-index: 25; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);
+  width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--ink); color: var(--on-ink);
+  box-shadow: var(--shadow); display: grid; place-items: center; cursor: pointer;
+}
+.file-bar-show svg { width: 22px; height: 22px; }
 @media (min-width: 960px) {
-  .file-bar { left: 260px; bottom: 0; padding-left: 32px; padding-right: 32px; }
-  .file-bar-actions { justify-content: flex-end; }
+  .file-bar { left: 260px; bottom: 0; padding-left: 32px; padding-right: 32px; justify-content: flex-end; }
   .file-bar-main { flex: 0 0 auto; min-width: 240px; }
+  .file-bar-show { bottom: 16px; }
 }
+
 
 /* Kein Reiter gewählt: nächster Abschnitt ohne Lücke direkt unter den Reitern */
 .stack-l.no-tab > [data-panel] + :not([data-panel]) { margin-top: 0; }
@@ -1066,3 +1071,40 @@ body.viewer-open { overflow: hidden; }
 .steps-short { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; }
 /* Entwurf per Wunsch ändern */
 .revise-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+
+/* Reiter im Brief bleiben beim Scrollen oben am Rand */
+.letter-tabs { position: sticky; top: 0; z-index: 20; box-shadow: 0 0 0 6px var(--paper); }
+@media (max-width: 420px) { .letter-tabs .tab { font-size: 0.82rem; padding: 4px 2px; } .letter-tabs { gap: 2px; } }
+/* Textstelle erst beim Aufklappen */
+.quote-details > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 0.86rem; min-height: 32px; }
+.quote-details > summary::-webkit-details-marker { display: none; }
+.quote-details > summary svg { width: 16px; height: 16px; transition: transform 0.15s; }
+.quote-details[open] > summary svg { transform: rotate(180deg); }
+.quote-details .quote { margin-top: 6px; }
+
+/* Akten wie „Dateien“: Ordner und Akten als Kacheln */
+.files-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 18px 8px; }
+.files-item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: 6px 4px; border: 0; background: none;
+  border-radius: 12px; color: inherit; text-decoration: none; font: inherit; cursor: pointer; text-align: center;
+}
+.files-item:hover { background: var(--surface-2); }
+.files-icon { width: 72px; height: 56px; }
+.files-icon .back { fill: #7fb8ee; }
+.files-icon .front { fill: #4f9fe8; }
+.files-icon.is-akte .back { fill: #b9d6f2; }
+.files-icon.is-akte .front { fill: #9cc5ee; }
+.files-name { font-size: 0.9rem; line-height: 1.25; color: var(--ink-strong); overflow-wrap: break-word; hyphens: auto; -webkit-hyphens: auto; max-width: 100%; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.files-sub { font-size: 0.75rem; color: var(--muted); }
+.files-open { color: var(--review); }
+.files-item.is-ended { opacity: 0.6; }
+.files-crumb { align-items: center; gap: 6px; }
+.files-crumb h2 { font-size: 1.1rem; }
+.sort-select { flex: none; width: auto; max-width: 46%; }
+.folder-pick { display: grid; gap: 4px; max-height: 300px; overflow-y: auto; }
+.ended .files-grid { margin-top: 10px; }
+/* Bezug für Antworten (weitere Briefe / Akten) */
+.ref-row { align-items: center; }
+.ref-chip { display: inline-flex; align-items: center; gap: 2px; }
+.ref-chip button { border: 0; background: none; padding: 0 0 0 2px; color: inherit; cursor: pointer; display: inline-grid; place-items: center; }
+.ref-chip button svg { width: 14px; height: 14px; }

@@ -55,9 +55,7 @@ export function mountDecision(container, { letter, assignment, current = [], onD
     if (learnChecked === null || !single) learnChecked = new Set(toLearn.filter((i) => i.status === 'neu').map((i) => i.value));
     const others = (allObjects || []).filter((o) => !candidates.some((c) => c.objectId === o.id));
     mount(container, html`<div class="decision stack">
-      ${info.message && !current.length && !(info.proposal && !candidates.length) ? html`<p class="decision-msg">${icon('inbox')}<strong>${info.message}</strong></p>` : ''}
       ${info.proposal && !candidates.length && !current.length ? html`<div class="proposal panel stack">
-        <p class="decision-msg">${icon('folder')}<strong>Für diesen Brief gibt es noch keine passende Akte.</strong></p>
         <div class="field"><label for="proposal-${letter.id}">Neue Akte (${info.proposal.typeLabel})</label>
           <input class="input" id="proposal-${letter.id}" data-proposal-name maxlength="120" value="${info.proposal.name}"></div>
         <div class="row"><button class="btn" type="button" data-accept-proposal>${icon('check')}Akte anlegen und Brief ablegen</button></div>

@@ -25,7 +25,8 @@ export async function render({ root, isCurrent }) {
               <h2 id="t-${l.id}">${l.subject || 'Brief ohne Betreff'}</h2>
               <div class="letter-meta"><span>${l.sender || 'Absender unbekannt'}</span>
                 <span>${l.letterDate ? `Brief vom ${formatDate(l.letterDate)}` : 'Briefdatum unbekannt'}</span></div>
-              <p><a class="btn btn-small btn-ghost" href="#/briefe/${l.id}">${icon('eye')}Brief ansehen</a></p>
+              <div class="inbox-actions"><a class="btn btn-small btn-secondary" href="#/briefe/${l.id}">${icon('eye')}Ansehen</a>
+                <button class="btn btn-small btn-secondary" type="button" data-view-letter="${l.id}" data-title="${l.subject || 'Brief'}">${icon('file')}PDF öffnen</button></div>
             </div>
           </div>
           <div data-decision></div>

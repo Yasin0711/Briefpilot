@@ -67,17 +67,28 @@ export async function render({ root, query, state, isCurrent }) {
     <div data-tabs>${briefeTabs('briefe', { inbox: state.counts.inbox })}</div>
     ${objectInfo ? html`<div class="filter-note">${objectTile(objectInfo.type)}<span class="grow">Nur Briefe der Akte <a href="#/akten/${objectInfo.id}"><strong>${objectInfo.name}</strong></a></span>
       <button class="btn btn-small btn-ghost" type="button" data-clear-object>${icon('x')}Filter entfernen</button></div>` : ''}
-    <form class="search-box" role="search" data-search>
-      ${icon('search')}
-      <label class="visually-hidden" for="q">Briefe durchsuchen</label>
-      <input class="input" id="q" name="q" type="search" placeholder="Absender, Inhalt, Datum, Kennzeichen oder Nummer" value="${filters.q}" autocomplete="off">
-    </form>
-    <div class="chips chips-scroll" role="group" aria-label="Filtern">
-      <button type="button" class="chip" data-cat="" aria-pressed="${!filters.category && !filters.filter}">Alle</button>
-      ${FILTERS.map((f) => html`<button type="button" class="chip" data-filter="${f.id}" aria-pressed="${filters.filter === f.id}">${icon(f.ic)}${f.label}</button>`)}
-      ${CATEGORIES.map((c) => html`<button type="button" class="chip" data-cat="${c.id}" aria-pressed="${filters.category === c.id}">${c.label}</button>`)}
+    <div class="search-row">
+      <form class="search-box grow" role="search" data-search>
+        ${icon('search')}
+        <label class="visually-hidden" for="q">Briefe durchsuchen</label>
+        <input class="input" id="q" name="q" type="search" placeholder="Suchen …" value="${filters.q}" autocomplete="off">
+      </form>
+      <button class="btn btn-secondary filter-btn" type="button" data-filter-toggle aria-expanded="false" aria-controls="filter-menu" aria-label="Filter">${icon('filter')}<span class="filter-count" data-filter-count hidden></span></button>
     </div>
-    <div class="chips chips-scroll tag-chips" role="group" aria-label="Schlagworte" data-tag-chips></div>
+    <div class="filter-menu" id="filter-menu" data-filter-menu hidden>
+      <details class="filter-group" ${filters.filter || filters.category ? html`open` : ''}>
+        <summary>Filter${icon('chevronDown')}</summary>
+        <div class="chips" role="group" aria-label="Filtern" data-filter-chips>
+          <button type="button" class="chip" data-cat="" aria-pressed="${!filters.category && !filters.filter}">Alle</button>
+          ${FILTERS.map((f) => html`<button type="button" class="chip" data-filter="${f.id}" aria-pressed="${filters.filter === f.id}">${icon(f.ic)}${f.label}</button>`)}
+          ${CATEGORIES.map((c) => html`<button type="button" class="chip" data-cat="${c.id}" aria-pressed="${filters.category === c.id}">${c.label}</button>`)}
+        </div>
+      </details>
+      <details class="filter-group" data-tag-group ${filters.tag ? html`open` : ''}>
+        <summary>Schlagworte${icon('chevronDown')}</summary>
+        <div class="chips tag-chips" role="group" aria-label="Schlagworte" data-tag-chips></div>
+      </details>
+    </div>
     <div class="row">
       <label for="sort" class="small muted">Sortieren nach</label>
       <select id="sort" class="input grow" data-sort>
@@ -142,7 +153,22 @@ export async function render({ root, query, state, isCurrent }) {
     root.querySelector('.filter-note')?.remove();
     load();
   });
-  root.querySelector('.chips:not([data-tag-chips])').addEventListener('click', (e) => {
+  // Filtermenü: nur ein Symbol, Inhalt erst auf Knopfdruck
+  const menu = root.querySelector('[data-filter-menu]');
+  const toggle = root.querySelector('[data-filter-toggle]');
+  toggle.addEventListener('click', () => {
+    menu.hidden = !menu.hidden;
+    toggle.setAttribute('aria-expanded', String(!menu.hidden));
+  });
+  function updateFilterCount() {
+    const n = [filters.filter || filters.category, filters.tag].filter(Boolean).length;
+    const badge = root.querySelector('[data-filter-count]');
+    badge.hidden = !n;
+    badge.textContent = String(n);
+    toggle.classList.toggle('is-active', n > 0);
+  }
+  updateFilterCount();
+  root.querySelector('[data-filter-chips]').addEventListener('click', (e) => {
     const chip = e.target.closest('.chip');
     if (!chip) return;
     if (chip.dataset.filter !== undefined) {
@@ -152,10 +178,11 @@ export async function render({ root, query, state, isCurrent }) {
       filters.category = chip.dataset.cat;
       filters.filter = '';
     }
-    root.querySelectorAll('.chip').forEach((c) => {
+    root.querySelectorAll('[data-filter-chips] .chip').forEach((c) => {
       const on = c.dataset.filter !== undefined ? filters.filter === c.dataset.filter : (c.dataset.cat === filters.category && !filters.filter && (c.dataset.cat !== '' || !filters.category));
       c.setAttribute('aria-pressed', String(on));
     });
+    updateFilterCount();
     load();
   });
   // Schlagworte: antippen filtert, nochmal antippen hebt den Filter auf
@@ -164,10 +191,10 @@ export async function render({ root, query, state, isCurrent }) {
     try {
       const { tags } = await api.get('/api/tags');
       if (!isCurrent()) return;
-      if (!tags.length) { tagBox.hidden = true; return; }
+      if (!tags.length) { tagBox.closest('[data-tag-group]').hidden = true; return; }
       mount(tagBox, tags.map((t) => html`<button type="button" class="chip chip-tag" data-tag="${t.tag}" aria-pressed="${filters.tag.toLowerCase() === t.tag.toLowerCase()}">#${t.tag}<span class="chip-count">${t.count}</span></button>`));
     } catch {
-      tagBox.hidden = true;
+      tagBox.closest('[data-tag-group]').hidden = true;
     }
   }
   tagBox.addEventListener('click', (e) => {
@@ -175,6 +202,7 @@ export async function render({ root, query, state, isCurrent }) {
     if (!chip) return;
     filters.tag = filters.tag.toLowerCase() === chip.dataset.tag.toLowerCase() ? '' : chip.dataset.tag;
     tagBox.querySelectorAll('[data-tag]').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.tag.toLowerCase() === filters.tag.toLowerCase())));
+    updateFilterCount();
     load();
   });
   loadTags();

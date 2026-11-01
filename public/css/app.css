@@ -980,3 +980,23 @@ a.tag:hover { color: var(--ink); }
 /* Feldbeschriftung mit kleinem Symbol (z. B. Sanduhr bei relativer Frist) */
 .label-icon { display: flex; align-items: center; gap: 6px; }
 .label-icon svg { width: 18px; height: 18px; flex: none; color: var(--review); }
+
+/* Briefe: Suche mit Filter-Symbol, Filter erst auf Knopfdruck */
+.search-row { display: flex; gap: 8px; align-items: stretch; }
+.filter-btn { position: relative; flex: none; width: 52px; padding: 0; justify-content: center; }
+.filter-btn svg { width: 22px; height: 22px; }
+.filter-btn.is-active { border-color: var(--ink); color: var(--ink); }
+.filter-count {
+  position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px;
+  background: var(--ink); color: var(--on-ink); font-size: 0.72rem; display: grid; place-items: center;
+}
+.filter-menu { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 14px; }
+.filter-group + .filter-group { border-top: 1px solid var(--line); }
+.filter-group > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+  min-height: 48px; font-weight: 550; color: var(--ink-strong);
+}
+.filter-group > summary::-webkit-details-marker { display: none; }
+.filter-group > summary svg { width: 20px; height: 20px; color: var(--muted); transition: transform 0.15s; }
+.filter-group[open] > summary svg { transform: rotate(180deg); }
+.filter-group .chips { padding-bottom: 12px; }

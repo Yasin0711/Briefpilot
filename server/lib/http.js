@@ -179,12 +179,28 @@ export function serveStatic(req, res, publicDir, pathname) {
     stat = fs.statSync(filePath);
   }
 
-  const etag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+  // Große Bibliotheken (z. B. PDF-Anzeige) liegen zusätzlich gepackt (.gz) daneben
+  const contentType = MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+  const isVendor = rel.startsWith('/vendor/');
+  let encoding = null;
+  if (isVendor && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+    try {
+      const gzStat = fs.statSync(`${filePath}.gz`);
+      filePath = `${filePath}.gz`;
+      stat = gzStat;
+      encoding = 'gzip';
+    } catch {
+      encoding = null;
+    }
+  }
+  const etag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}${encoding ? '-gz' : ''}"`;
   const headers = {
-    'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
+    'Content-Type': contentType,
     ETag: etag,
-    'Cache-Control': 'no-cache',
+    'Cache-Control': isVendor ? 'public, max-age=604800' : 'no-cache',
   };
+  if (isVendor) headers.Vary = 'Accept-Encoding';
+  if (encoding) headers['Content-Encoding'] = encoding;
   if (req.headers['if-none-match'] === etag) {
     res.writeHead(304, headers);
     res.end();

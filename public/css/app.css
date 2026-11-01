@@ -518,8 +518,14 @@ a.deadline-row:hover { background: var(--surface-2); }
 
 .original-page { border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; background: #fff; }
 .original-page + .original-page { margin-top: 12px; }
-.original-page img { width: 100%; height: auto; }
-.original-page iframe { width: 100%; height: 78vh; border: 0; display: block; }
+/* Original: jede Seite passt sofort komplett ins Fenster (Höhe kommt aus pdfview.js) */
+.original-fit { display: flex; justify-content: center; background: var(--surface-2); }
+.original-page img { width: auto; max-width: 100%; height: auto; max-height: var(--view-h, 75vh); }
+.pdf-view { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 0; background: var(--surface-2); min-height: 140px; justify-content: center; }
+.pdf-view.is-ready { justify-content: flex-start; }
+.pdf-view.is-error { display: none; }
+.pdf-page { max-width: 100%; background: #fff; box-shadow: 0 1px 4px rgba(16, 35, 58, 0.18); }
+.pdf-page canvas { display: block; width: 100%; height: auto; }
 .original-cap { font-size: 0.82rem; color: var(--muted); padding: 6px 10px; background: var(--surface-2); }
 .fulltext { font-family: var(--serif); white-space: pre-wrap; line-height: 1.65; background: var(--quote-bg); padding: 16px; border-radius: var(--radius-s); overflow-wrap: anywhere; }
 .fulltext mark { background: #ffe58a; color: #1c2a35; padding: 0 2px; border-radius: 3px; }

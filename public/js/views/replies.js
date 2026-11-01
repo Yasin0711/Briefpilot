@@ -6,13 +6,6 @@ import { icon, toast, openDialog, showError, clearErrors, busy, confirmDialog, n
 import { formatDate } from '../shared/dates.js';
 
 const SENT_VIA = { email: 'per E-Mail aus BriefPilot', post: 'per Post', eigenes_programm: 'mit eigenem E-Mail-Programm', kopiert: 'Text kopiert' };
-const SUGGESTIONS = [
-  'Was muss ich jetzt tun?',
-  'Muss ich etwas bezahlen – und bis wann?',
-  'Kann ich widersprechen?',
-  'Erkläre den Brief in einfachen Worten.',
-  'Hilf mir bei einer Antwort.',
-];
 
 let templatesCache = null;
 async function loadTemplates() {
@@ -138,7 +131,6 @@ export function chatPanel(data, state) {
         ${m.role === 'antwort' && m.replyBody ? html`<button class="btn btn-small btn-secondary" type="button" data-take-reply="${m.id}">${icon('reply')}Als Antwortentwurf übernehmen</button>` : ''}
       </li>`)}</ol>` : html`<ol class="chat-list" data-chat-list hidden></ol>`}
     ${ai.ready ? html`
-      ${!messages.length ? html`<div class="chips" role="group" aria-label="Vorschläge" data-question-chips>${SUGGESTIONS.map((s) => html`<button class="chip" type="button" data-suggest="${s}">${s}</button>`)}</div>` : ''}
       <form class="chat-form" data-ask novalidate>
         <label class="visually-hidden" for="ask-q">Ihre Frage zum Brief</label>
         <textarea class="input" id="ask-q" name="question" rows="2" maxlength="1000" placeholder="Ihre Frage zum Brief …"></textarea>
@@ -162,15 +154,13 @@ export function bindAssistant(root, ctx) {
     const box = root.querySelector('[data-templates]');
     if (!box) return;
     try {
-      const { templates, questions } = await loadSuggestions(letterId);
+      const { templates } = await loadSuggestions(letterId);
       if (!box.isConnected) return;
       const recommended = templates.filter((t) => t.recommended);
       const others = templates.filter((t) => !t.recommended);
       mount(box, recommended.length
         ? html`<p class="small template-head">${icon('star')} Passend zu diesem Brief</p>${recommended.map(templateButton)}<p class="small muted template-head">Weitere Vorlagen</p>${others.map(templateButton)}`
         : templates.map(templateButton));
-      const chips = root.querySelector('[data-question-chips]');
-      if (chips && questions?.length) mount(chips, questions.map((s) => html`<button class="chip" type="button" data-suggest="${s}">${s}</button>`));
     } catch (err) {
       mount(box, html`<p class="small muted">${err.message}</p>`);
     }

@@ -6,6 +6,7 @@ import {
   icon, dateTile, whenLabel, categoryTile, statusBadge, taskKindLabel, toast, confirmDialog, openDialog,
   formValues, showError, clearErrors, busy, formatUploaded, scroller,
 } from '../ui.js';
+import { hydratePdfViews } from '../pdfview.js';
 import {
   CATEGORIES, REMINDER_OFFSETS, ANALYSIS_SOURCE_LABELS, TASK_KINDS, categoryLabel,
 } from '../shared/constants.js';
@@ -156,7 +157,6 @@ function originalView(files, { split = null, editable = true, tools = true } = {
   const pages = files.filter((f) => f.role !== 'original');
   const originals = files.filter((f) => f.role === 'original');
   if (!pages.length) return html`<p class="muted">Keine Datei vorhanden.</p>`;
-  const inlinePdf = navigator.pdfViewerEnabled === true;
   let page = 0;
   const views = pages.map((f) => {
     const first = page + 1;
@@ -172,11 +172,11 @@ function originalView(files, { split = null, editable = true, tools = true } = {
       </figure>`;
     }
     if (f.kind === 'image') {
-      return html`<figure class="original-page ${split?.has(f.id) ? 'is-picked' : ''}">${pick}<a href="/api/files/${f.id}" target="_blank" rel="noopener"><img src="/api/files/${f.id}" alt="Originalbrief, ${label}" loading="lazy"></a>
-        <figcaption class="original-cap">${label} (Foto) – zum Vergrößern antippen</figcaption></figure>`;
+      return html`<figure class="original-page ${split?.has(f.id) ? 'is-picked' : ''}">${pick}<a class="original-fit" href="/api/files/${f.id}" target="_blank" rel="noopener"><img src="/api/files/${f.id}" alt="Originalbrief, ${label}"></a>
+        <figcaption class="original-cap">${label}</figcaption></figure>`;
     }
     return html`<figure class="original-page ${split?.has(f.id) ? 'is-picked' : ''}">${pick}
-      ${inlinePdf ? html`<iframe src="/api/files/${f.id}" title="Originalbrief, ${label} (PDF)"></iframe>` : ''}
+      <a class="pdf-view" data-pdf-view="${f.id}" href="/api/files/${f.id}" target="_blank" rel="noopener" aria-label="Originalbrief, ${label} (PDF) öffnen"><span class="spinner" aria-hidden="true"></span></a>
       <figcaption class="original-cap row"><span class="grow">${label} (PDF)</span>
         <a class="btn btn-small btn-secondary" href="/api/files/${f.id}" target="_blank" rel="noopener">${icon('file')}PDF öffnen</a></figcaption>
     </figure>`;
@@ -512,6 +512,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       });
     }
     if (tab === 'antworten') assistant.fillTemplates();
+    hydratePdfViews(root);
 
     // Relative Frist: rechnerisches Ende vorschlagen, sobald ein Zugangsdatum eingegeben ist
     root.querySelectorAll('[data-received]').forEach((input) => {

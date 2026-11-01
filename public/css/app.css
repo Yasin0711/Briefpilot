@@ -1110,3 +1110,6 @@ body.viewer-open { overflow: hidden; }
 .ref-chip button svg { width: 14px; height: 14px; }
 .inbox-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 .inbox-actions .btn { justify-content: center; white-space: nowrap; padding-left: 8px; padding-right: 8px; }
+/* Wiederherstellen vom Gerät */
+.restore-screen { min-height: 60vh; display: grid; place-content: center; justify-items: center; gap: 12px; text-align: center; }
+.restore-screen h1 { font-size: 1.3rem; }

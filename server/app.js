@@ -9,6 +9,7 @@ import { registerLetterRoutes } from './routes/letters.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerObjectRoutes } from './routes/objects.js';
 import { registerAssistantRoutes } from './routes/assistant.js';
+import { registerBackupRoutes } from './routes/backup.js';
 
 export function createApp(ctx) {
   const { db, config } = ctx;
@@ -21,6 +22,7 @@ export function createApp(ctx) {
   registerTaskRoutes(router, ctx);
   registerObjectRoutes(router, ctx);
   registerAssistantRoutes(router, ctx);
+  registerBackupRoutes(router, ctx);
 
   return async function handle(req, res) {
     const started = Date.now();

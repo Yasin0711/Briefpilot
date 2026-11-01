@@ -47,6 +47,7 @@ export function createStorage({ dir, keyBase64 }) {
     },
 
     async remove(storageKey) {
+      if (!storageKey) return; // z. B. Datei aus einer Gerätesicherung, deren Inhalt noch fehlt
       await fs.rm(resolve(storageKey), { force: true });
     },
 

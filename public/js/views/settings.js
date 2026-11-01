@@ -6,6 +6,7 @@ import { REMINDER_OFFSETS, PERSON_RELATIONS, ADDRESS_KINDS } from '../shared/con
 import { loadHousehold, forgetHousehold } from './objectDialog.js';
 import { formatDateTime } from '../shared/dates.js';
 import { applyTextSize, applyTheme, themeChoice } from '../app.js';
+import { syncBackup, backupInfo, markLoggedOut, clearBackup } from '../backup.js';
 
 const EVENT_LABELS = {
   registriert: 'Konto erstellt', angemeldet: 'Angemeldet', anmeldung_fehlgeschlagen: 'Anmeldung fehlgeschlagen',
@@ -137,6 +138,17 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         });
       });
     });
+  }
+
+  /** Stand der Gerätesicherung anzeigen. */
+  async function showBackupInfo() {
+    const el = root.querySelector('[data-backup-info]');
+    if (!el) return;
+    const info = await backupInfo().catch(() => null);
+    if (!el.isConnected) return;
+    el.textContent = info
+      ? `Zuletzt: ${formatDateTime(info.savedAt, state.me?.timezone)} · ${info.files} ${info.files === 1 ? 'Datei' : 'Dateien'} · ${Math.max(0.1, Math.round(info.bytes / 104857.6) / 10).toLocaleString('de-DE')} MB`
+      : 'Noch keine Sicherung.';
   }
 
   async function draw() {
@@ -271,6 +283,12 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
           <ul class="list small">${sessions.events.map((ev) => html`<li class="list-row"><span class="grow">${EVENT_LABELS[ev.event] || ev.event}</span><span class="muted">${formatDateTime(ev.at, me.timezone)}</span></li>`)}</ul></details>` : ''}
       </section>
 
+      ${me.isDemo ? '' : html`<section class="panel stack settings-section" aria-labelledby="s-sicherung">
+        <h2 id="s-sicherung">Sicherung auf diesem Gerät</h2>
+        <p class="small muted" data-backup-info>Wird geprüft …</p>
+        <p><button class="btn btn-secondary btn-small" type="button" data-action="backup-now">${icon('refresh')}Jetzt sichern</button></p>
+      </section>`}
+
       <section class="panel stack settings-section" aria-labelledby="s-daten">
         <h2 id="s-daten">Meine Daten</h2>
         <p class="muted">Alles als ZIP laden oder Konto löschen.</p>
@@ -288,6 +306,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
 
       <p><button class="btn btn-ghost" type="button" data-action="logout">${icon('logout')}Abmelden</button></p>
     </div>`);
+    showBackupInfo();
   }
 
   root.addEventListener('change', (e) => {
@@ -371,8 +390,17 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         return;
       }
       const action = el.dataset.action;
+      if (action === 'backup-now') {
+        await busy(el, async () => {
+          const ok = await syncBackup(state.me, { force: true });
+          toast(ok ? 'Auf diesem Gerät gesichert.' : 'Sichern hat nicht geklappt.', { error: !ok });
+          showBackupInfo();
+        });
+        return;
+      }
       if (action === 'logout') {
         await api.post('/api/auth/logout');
+        await markLoggedOut();
         state.me = null;
         navigate('/anmelden');
       } else if (action === 'logout-others') {
@@ -461,6 +489,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         await busy(form.querySelector('[type=submit]'), async () => {
           try {
             await api.post('/api/me/delete', { password: v.password, confirm: v.confirm.trim().toUpperCase() });
+            await clearBackup();
             close();
             state.me = null;
             toast('Ihr Konto und alle Daten wurden gelöscht.');

@@ -3,6 +3,7 @@ import { html, mount } from '../html.js';
 import { api } from '../api.js';
 import { icon, LOGO, formValues, showError, clearErrors, busy, toast, naStar } from '../ui.js';
 import { PASSWORD_MIN_LENGTH } from '../shared/constants.js';
+import { hasRestorableBackup, restoreFromDevice } from '../backup.js';
 
 function brand(subtitle) {
   return html`<div class="brand-mark">${LOGO}<div><strong>BriefPilot</strong><span>${subtitle}</span></div></div>`;
@@ -27,6 +28,7 @@ export async function renderLogin({ root, state, navigate, refreshMe }) {
       <p class="row"><a href="#/passwort-vergessen">Passwort vergessen?</a></p>
     </form>
     <div class="stack">
+      <div data-restore-slot></div>
       <div class="divider">oder</div>
       <button class="btn btn-block" type="button" data-guest>${icon('check')}Ohne Konto fortfahren</button>
       <p class="small muted">Ihre Briefe bleiben dann nur auf diesem Gerät erreichbar. Kein Passwort nötig.</p>
@@ -54,6 +56,27 @@ export async function renderLogin({ root, state, navigate, refreshMe }) {
       }
     });
   });
+  // Sicherung auf diesem Gerät vorhanden: mit einem Tipp alles zurückholen
+  hasRestorableBackup({ includeLoggedOut: true }).then((yes) => {
+    const slot = root.querySelector('[data-restore-slot]');
+    if (!yes || !slot) return;
+    mount(slot, html`<button class="btn btn-scan btn-block" type="button" data-restore>${icon('refresh')}Gespeicherte Daten wiederherstellen</button>`);
+    slot.querySelector('[data-restore]').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      await busy(btn, async () => {
+        const res = await restoreFromDevice((done, total) => {
+          if (total) btn.lastChild.textContent = `${done} von ${total} Dateien …`;
+        });
+        if (res.ok) {
+          await refreshMe();
+          toast('Daten wiederhergestellt.');
+          navigate('/');
+        } else {
+          toast(res.message || 'Das hat nicht geklappt.', { error: true });
+        }
+      });
+    });
+  }).catch(() => {});
   root.querySelector('[data-guest]')?.addEventListener('click', async (e) => {
     await busy(e.currentTarget, async () => {
       try {

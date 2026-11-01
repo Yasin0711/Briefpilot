@@ -1,6 +1,7 @@
 // Einstiegspunkt der Oberfläche: Seitenwechsel (Router), Navigation, Anmeldestatus.
 import { html, mount } from './html.js';
-import { api, setUnauthorizedHandler } from './api.js';
+import { api, setUnauthorizedHandler, setMutationHandler } from './api.js';
+import { syncBackup, scheduleBackup, hasRestorableBackup, restoreFromDevice, requestPersistentStorage } from './backup.js';
 import { icon, LOGO, scroller } from './ui.js';
 import { installLetterThumbs } from './pdfview.js';
 import { installViewerLinks } from './viewer.js';
@@ -164,6 +165,7 @@ async function route() {
       <p class="row"><a class="btn btn-secondary btn-small" href="#/">Zur Übersicht</a></p></div></div>`);
   }
   if (token === renderToken && document.activeElement === document.body) main.focus({ preventScroll: true });
+  if (state.me) syncBackup(state.me); // höchstens einmal pro Minute
 }
 
 function applyTextSize() {
@@ -215,7 +217,24 @@ async function start() {
     state.status = null;
   }
   await refreshMe();
+  // Server ohne unser Konto (z. B. nach einem Neustart): Sicherung vom Gerät einspielen
+  if (!state.me && await hasRestorableBackup()) {
+    const main = document.getElementById('main');
+    mount(main, html`<div class="restore-screen" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span>
+      <h1>Daten werden wiederhergestellt …</h1><p class="muted" data-restore-progress></p></div>`);
+    const result = await restoreFromDevice((done, total) => {
+      const el = main.querySelector('[data-restore-progress]');
+      if (el && total) el.textContent = `${done} von ${total} Dateien`;
+    });
+    if (result.ok) await refreshMe();
+    else if (result.conflict) setTimeout(() => import('./ui.js').then(({ toast }) => toast(result.message)), 600);
+  }
+  setMutationHandler(() => {
+    if (state.me) scheduleBackup(state.me);
+  });
   if (state.me) {
+    requestPersistentStorage();
+    syncBackup(state.me, { force: true });
     api.get('/api/overview').then((o) => {
       setReviewCount(o.counts.tasksToReview);
       setInboxCount(o.counts.inbox);

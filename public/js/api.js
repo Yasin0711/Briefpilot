@@ -10,6 +10,11 @@ export class ApiError extends Error {
 }
 
 let onUnauthorized = () => {};
+let onMutation = () => {};
+/** Wird nach jeder erfolgreichen Änderung aufgerufen (z. B. für die Gerätesicherung). */
+export function setMutationHandler(fn) {
+  onMutation = fn;
+}
 export function setUnauthorizedHandler(fn) {
   onUnauthorized = fn;
 }
@@ -27,6 +32,13 @@ async function request(method, path, body, { raw = false, headers = {} } = {}) {
     res = await fetch(path, init);
   } catch {
     throw new ApiError('Keine Verbindung zum Server. Bitte prüfen Sie Ihre Internetverbindung.', 0);
+  }
+  if (res.ok && method !== 'GET' && !path.startsWith('/api/backup') && !path.startsWith('/api/auth/')) {
+    try {
+      onMutation(path);
+    } catch {
+      /* ohne Sicherung weiter */
+    }
   }
   if (raw && res.ok) return res;
   const type = res.headers.get('content-type') || '';

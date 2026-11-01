@@ -8,8 +8,7 @@ import { liveCameraAvailable, openCamera } from '../scanner/camera.js';
 import { openEditor } from '../scanner/editor.js';
 import { FILTERS, MAX_SOURCE_SIDE, decodeImage, toCanvas, detectCorners, renderPage, cleanOriginal, imageproc } from '../scanner/processing.js';
 
-const ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf';
-const BULK_ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp,.pptx,.docx,.xlsx,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const ALL_ACCEPT = 'application/pdf,image/*,.heic,.heif,.pptx,.docx,.xlsx,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const BULK_STATUS = { wartet: 'wartet', laedt: 'wird übertragen …', fertig: 'gespeichert – wird gelesen', doppelt: 'schon vorhanden – übersprungen', fehler: 'Fehler' };
 const MIN_SIDE = 300; // kleinere Bilder sind nicht lesbar
 const SURE = 0.35; // ab dieser Sicherheit gilt die Blatterkennung als zuverlässig
@@ -126,17 +125,13 @@ export async function render({ root, query, state, navigate, refreshMe }) {
   function bulkSection() {
     const items = bulk?.items || [];
     const done = items.filter((i) => ['fertig', 'doppelt', 'fehler'].includes(i.status)).length;
-    return html`<section class="panel stack" aria-labelledby="bulk-h">
-      <h2 id="bulk-h">${icon('folder')} Viele Dokumente auf einmal</h2>
-      <p class="small muted">Für Ihren Bestand: PDFs (auch mit vielen Seiten), PowerPoint, Word, Excel und Fotos. Jede Datei wird ein eigenes Dokument, gelesen und der passenden Akte zugeordnet – passt keine, schlägt BriefPilot eine neue vor. Bis ${maxMb} MB pro Datei.</p>
-      ${bulk?.running ? '' : html`<label class="btn btn-secondary btn-block capture-btn">${icon('upload')}Dateien auswählen
-        <input type="file" accept="${BULK_ACCEPT}" multiple data-bulk aria-label="Mehrere Dokumente auswählen"></label>`}
-      ${items.length ? html`<p class="small" aria-live="polite"><strong>${done} von ${items.length}</strong> verarbeitet${bulk.running ? ' – Sie können die Seite geöffnet lassen.' : '.'}</p>
-        <ul class="bulk-list">${items.map((it) => html`<li class="bulk-item is-${it.status}">
-          <span class="grow"><span class="row-title">${it.name}</span>
-            <span class="row-sub">${Math.max(0.1, Math.round(it.size / 1024 / 102.4) / 10)} MB · ${it.status === 'laedt' ? `${Math.round((it.progress || 0) * 100)} % übertragen` : BULK_STATUS[it.status]}${it.error ? `: ${it.error}` : ''}</span></span>
-          ${it.letterId ? html`<a class="btn btn-small btn-ghost" href="#/briefe/${it.letterId}">Öffnen</a>` : ''}</li>`)}</ul>
-        ${!bulk.running && done === items.length ? html`<a class="btn btn-block" href="#/briefe">${icon('mail')}Zu den Dokumenten</a>` : ''}` : ''}
+    return html`<section class="panel stack" aria-label="Dateien">
+      <p class="small" aria-live="polite"><strong>${done} von ${items.length}</strong> Dateien</p>
+      <ul class="bulk-list">${items.map((it) => html`<li class="bulk-item is-${it.status}">
+        <span class="grow"><span class="row-title">${it.name}</span>
+          <span class="row-sub">${it.status === 'laedt' ? `${Math.round((it.progress || 0) * 100)} %` : BULK_STATUS[it.status]}${it.error ? `: ${it.error}` : ''}</span></span>
+        ${it.letterId ? html`<a class="btn btn-small btn-ghost" href="#/briefe/${it.letterId}">Öffnen</a>` : ''}</li>`)}</ul>
+      ${!bulk.running && done === items.length ? html`<a class="btn btn-block" href="#/briefe">${icon('mail')}Zu den Briefen</a>` : ''}
     </section>`;
   }
 
@@ -151,7 +146,7 @@ export async function render({ root, query, state, navigate, refreshMe }) {
           it.progress = fraction;
           const row = root.querySelectorAll('.bulk-item')[bulk.items.indexOf(it)];
           const sub = row?.querySelector('.row-sub');
-          if (sub) sub.textContent = `${Math.max(0.1, Math.round(it.size / 1024 / 102.4) / 10)} MB · ${Math.round(fraction * 100)} % übertragen`;
+          if (sub) sub.textContent = `${Math.round(fraction * 100)} %`;
         });
         if (res.duplicateOf) {
           it.status = 'doppelt';
@@ -171,60 +166,65 @@ export async function render({ root, query, state, navigate, refreshMe }) {
     }
     bulk.running = false;
     const ok = bulk.items.filter((i) => i.status === 'fertig').length;
+    // Eine einzelne Datei: gleich den Brief öffnen
+    if (bulk.items.length === 1 && ok === 1 && !pages.length) {
+      saved = true;
+      navigate(`/briefe/${bulk.items[0].letterId}`);
+      return;
+    }
     toast(`${ok} ${ok === 1 ? 'Dokument' : 'Dokumente'} gespeichert. Sie werden jetzt gelesen und zugeordnet.`);
     draw();
   }
 
   function draw() {
-    const fileFirst = query.get('modus') === 'datei';
     const live = liveCameraAvailable() && !liveFailed;
     const count = pages.length;
     const working = pages.some((p) => p.busy);
     const hasImages = pages.some((p) => p.kind === 'image');
-    const cameraApp = (label, cls) => html`<label class="btn ${cls} capture-btn">${icon('camera')}${label}
-      <input type="file" accept="image/*" capture="environment" data-camera aria-label="${label}"></label>`;
-    const cameraBtn = live
-      ? html`<button class="btn btn-scan btn-block" type="button" data-live>${icon('camera')}${count ? 'Weitere Seiten scannen' : 'Kamera öffnen und scannen'}</button>`
-      : cameraApp(count ? 'Weitere Seite fotografieren' : 'Seite fotografieren', 'btn-scan btn-block');
-    const fileBtn = html`<label class="btn btn-secondary btn-block capture-btn">${icon('upload')}Fotos, Screenshots oder PDF
-      <input type="file" accept="${ACCEPT}" multiple data-files aria-label="Fotos, Screenshots oder PDF-Dateien auswählen"></label>`;
+    const scanBtn = (label, cls) => (live
+      ? html`<button class="btn ${cls}" type="button" data-live>${icon('camera')}${label}</button>`
+      : html`<label class="btn ${cls} capture-btn">${icon('camera')}${label}
+          <input type="file" accept="image/*" capture="environment" data-camera aria-label="${label}"></label>`);
+    const filesBtn = (cls) => html`<label class="btn btn-secondary ${cls} capture-btn">${icon('folder')}Dateien
+      <input type="file" accept="${ALL_ACCEPT}" multiple data-files aria-label="Dateien hochladen"></label>`;
 
     mount(root, html`<div class="stack-l">
-      <div class="page-head"><div><h1>Brief scannen</h1><p>Alle Seiten nacheinander – sie werden ein Brief.</p></div></div>
+      <h1 class="visually-hidden">Scannen</h1>
       ${consentCard()}
+      ${!count && !bulk ? html`<div class="scan-start">
+        ${scanBtn('Scannen', 'btn-scan btn-block scan-start-main')}
+        ${filesBtn('btn-block')}
+      </div>` : ''}
 
-      <div class="stack">
-        <div class="capture-grid">${fileFirst ? [fileBtn, cameraBtn] : [cameraBtn, fileBtn]}</div>
-        ${live ? html`<p class="center">${cameraApp('Mit der Kamera-App fotografieren', 'btn-ghost btn-small')}</p>` : ''}
-        ${!window.isSecureContext ? html`<p class="small muted">Live-Kamera nur über https.</p>` : ''}
-      </div>
-
-      ${!count ? bulkSection() : ''}
+      ${bulk ? bulkSection() : ''}
 
       ${count ? html`<section class="stack" aria-labelledby="pages-h">
-        <h2 id="pages-h">${count === 1 ? '1 Seite' : `${count} Seiten`} in diesem Brief</h2>
+        <div class="row"><h2 id="pages-h" class="grow">${count === 1 ? '1 Seite' : `${count} Seiten`}</h2>
+          ${scanBtn('Weitere', 'btn-small btn-secondary')}${filesBtn('btn-small')}</div>
         <ol class="pages">${pages.map((p, i) => pageItem(p, i))}</ol>
-        ${hasImages ? html`<label class="check check-strong"><input type="checkbox" data-keep ${keepOriginals ? 'checked' : ''} ${uploading ? 'disabled' : ''}>
-          <span><strong>Originalfotos zusätzlich aufbewahren</strong>
-          <span class="row-sub">Braucht mehr Speicher.</span></span></label>` : ''}
+        ${hasImages ? html`<label class="check"><input type="checkbox" data-keep ${keepOriginals ? 'checked' : ''} ${uploading ? 'disabled' : ''}>
+          <span>Originalfotos aufbewahren</span></label>` : ''}
         <div data-progress hidden class="stack"><p data-progress-text class="small" aria-live="polite"></p><div class="progress"><span data-bar></span></div></div>
-        <button class="btn btn-block" type="button" data-submit ${working || uploading ? 'disabled' : ''}>${icon('check')}${working ? 'Seiten werden noch bearbeitet …' : 'Brief speichern und auswerten'}</button>
-      </section>` : html`<section class="panel stack">
-        <h2>So gelingt der Scan</h2>
-        <ul class="tips">
-          <li>Dunkler Untergrund hilft.</li>
-          <li>Für gleichmäßiges Licht sorgen. Im Dunkeln hilft das Licht-Symbol in der Kamera.</li>
-          <li>„Automatisch“ löst selbst aus.</li>
-          <li>Auch bedruckte Rückseiten scannen.</li>
-        </ul>
-        <p class="small muted">Schief fotografierte Seiten werden automatisch gerade gerückt, Schatten aufgehellt und der Kontrast verbessert. Erlaubt sind Fotos und Screenshots (JPG, PNG, WebP) und PDF-Dateien bis ${maxMb} MB, höchstens ${maxPages} Dateien pro Brief.</p>
-      </section>`}
+        <button class="btn btn-block" type="button" data-submit ${working || uploading ? 'disabled' : ''}>${icon('check')}${working ? 'Wird bearbeitet …' : 'Brief speichern'}</button>
+      </section>` : ''}
 
       ${aiNote()}
-      ${state.me.isDemo ? html`<div class="note note-warn">${icon('info')}<div class="stack"><p><strong>Demomodus:</strong> Keine echten Briefe hochladen. Beispiele:</p>
-        <div class="row"><a class="btn btn-small btn-secondary" href="/api/demo/beispielbrief?nr=0" download>${icon('download')}Beispiel: Stromabrechnung</a>
-        <a class="btn btn-small btn-secondary" href="/api/demo/beispielbrief?nr=3" download>${icon('download')}Beispiel: Versicherung</a></div></div></div>` : ''}
+      ${state.me.isDemo ? html`<div class="note note-warn">${icon('info')}<div class="stack"><p><strong>Demo:</strong> keine echten Briefe. Beispiele:</p>
+        <div class="row"><a class="btn btn-small btn-secondary" href="/api/demo/beispielbrief?nr=0" download>${icon('download')}Stromabrechnung</a>
+        <a class="btn btn-small btn-secondary" href="/api/demo/beispielbrief?nr=3" download>${icon('download')}Versicherung</a></div></div></div>` : ''}
     </div>`);
+  }
+
+  /** Dateien aus dem Ordner: Fotos werden Seiten dieses Briefs, PDFs und Office-Dateien je ein eigenes Dokument. */
+  function handlePicked(files) {
+    const isImage = (f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name);
+    const images = files.filter(isImage);
+    const docs = files.filter((f) => !isImage(f));
+    if (images.length) addFiles(images);
+    if (docs.length) {
+      if (bulk?.running) toast('Bitte warten, bis die anderen Dateien übertragen sind.', { error: true });
+      else runBulk(docs);
+    }
   }
 
   function focus(selector) {
@@ -294,6 +294,8 @@ export async function render({ root, query, state, navigate, refreshMe }) {
         pages.push(page);
         return { thumbUrl: page.thumb };
       },
+      onFiles: (files) => handlePicked(files),
+      fileAccept: ALL_ACCEPT,
       onClose: () => {
         draw();
         focus(pages.length ? '[data-submit]' : '[data-live]');
@@ -554,12 +556,13 @@ export async function render({ root, query, state, navigate, refreshMe }) {
       writePref(KEEP_KEY, keepOriginals ? 'ja' : 'nein');
       return;
     }
-    if (e.target.matches('[data-bulk]') && e.target.files?.length) {
-      if (!bulk?.running) runBulk([...e.target.files]);
+    if (e.target.matches('[data-files]') && e.target.files?.length) {
+      handlePicked([...e.target.files]);
+      e.target.value = '';
       return;
     }
-    if (e.target.matches('[data-camera], [data-files]') && e.target.files?.length) {
-      addFiles([...e.target.files], { fromCameraApp: e.target.matches('[data-camera]') });
+    if (e.target.matches('[data-camera]') && e.target.files?.length) {
+      addFiles([...e.target.files], { fromCameraApp: true });
     }
   });
 
@@ -571,6 +574,7 @@ export async function render({ root, query, state, navigate, refreshMe }) {
         await refreshMe();
         toast(consent.dataset.consent === 'ja' ? 'KI-Auswertung ist eingeschaltet.' : 'Briefe werden ohne KI gespeichert.');
         draw();
+        if (liveCameraAvailable() && !liveFailed) startCamera();
       } catch (err) {
         toast(err.message, { error: true });
       }
@@ -622,6 +626,9 @@ export async function render({ root, query, state, navigate, refreshMe }) {
   window.addEventListener('beforeunload', onBeforeUnload);
 
   draw();
+  // Direkt in den Scanner – außer beim Hochladen von Dateien oder solange die KI-Frage offen ist
+  const consentOpen = state.status?.ai?.enabled && !['ja', 'nein'].includes(state.me.aiConsent);
+  if (query.get('modus') !== 'datei' && !consentOpen && liveCameraAvailable()) startCamera();
   return () => {
     controller.abort();
     window.removeEventListener('beforeunload', onBeforeUnload);

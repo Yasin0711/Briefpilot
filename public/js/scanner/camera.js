@@ -32,7 +32,7 @@ const { hashDistance } = imageproc;
  *           onError: (err) => void, signal?: AbortSignal }} options
  *   shot = { canvas, corners, confidence }
  */
-export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, onClose, onError, signal }) {
+export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, onClose, onError, onFiles, fileAccept = '', signal }) {
   const root = document.createElement('div');
   root.className = 'scanner';
   root.setAttribute('role', 'dialog');
@@ -80,10 +80,12 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
       <p class="scanner-hint" data-hint aria-live="polite">Kamera wird gestartet …</p>
     </div>
     <div class="scanner-bottom">
-      <button class="scanner-thumb" type="button" data-done aria-label="Fertig – Seiten ansehen" ${count ? '' : html`hidden`}>
-        <img data-thumb alt="" ${thumb ? html`src="${thumb}"` : ''}><span class="scanner-count" data-count>${count}</span></button>
+      ${onFiles ? html`<label class="scanner-files">${icon('folder')}<span>Dateien</span>
+        <input class="visually-hidden" type="file" multiple accept="${fileAccept}" data-pick aria-label="Dateien hochladen"></label>` : html`<span></span>`}
       <button class="scanner-shutter" type="button" data-shoot aria-label="Seite aufnehmen"><span class="scanner-ring" data-ring></span></button>
-      <button class="scanner-done" type="button" data-done>${count ? 'Fertig' : 'Abbrechen'}</button>
+      <button class="scanner-finish" type="button" data-done aria-label="Fertig – Seiten ansehen" ${count ? '' : html`hidden`}>
+        <span class="scanner-thumb"><img data-thumb alt="" ${thumb ? html`src="${thumb}"` : ''}><span class="scanner-count" data-count>${count}</span></span>
+        <span>Fertig</span></button>
     </div>`);
 
   const $ = (sel) => root.querySelector(sel);
@@ -251,7 +253,6 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
       $('[data-count]').textContent = String(count);
       root.querySelectorAll('[data-done]').forEach((b) => {
         b.hidden = false;
-        if (b.classList.contains('scanner-done')) b.textContent = 'Fertig';
       });
       updateTitle();
       armed = false;
@@ -261,6 +262,14 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
       capturing = false;
     }
   }
+
+  // Ordner-Symbol: Dateien statt Kamera – Kamera schließen und Dateien weitergeben
+  root.addEventListener('change', (e) => {
+    if (!e.target.matches('[data-pick]') || !e.target.files?.length) return;
+    const files = [...e.target.files];
+    close();
+    onFiles?.(files);
+  });
 
   root.addEventListener('click', async (e) => {
     if (e.target.closest('[data-close]') || e.target.closest('[data-done]')) {

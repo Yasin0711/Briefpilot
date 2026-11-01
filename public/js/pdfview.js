@@ -21,7 +21,7 @@ function lib() {
   return libPromise;
 }
 
-function loadDoc(fileId) {
+export function loadDoc(fileId) {
   if (!docs.has(fileId)) {
     const p = lib().then((m) => m.getDocument({
       url: `/api/files/${fileId}`,

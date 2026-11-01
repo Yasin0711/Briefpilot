@@ -48,6 +48,8 @@ export async function render({ root, query, state, navigate, refreshMe }) {
   let saved = false;
   let liveFailed = false;
   let keepOriginals = readPref(KEEP_KEY, 'nein') === 'ja';
+  // ?zu=<Brief-ID>: Seiten zu einem bestehenden Brief hinzufügen
+  const targetLetter = /^[\w-]{8,64}$/.test(query.get('zu') || '') ? query.get('zu') : null;
   const controller = new AbortController(); // schließt Kamera und Editor, wenn die Seite verlassen wird
   const maxMb = state.status?.limits?.maxFileMb || 15;
   const maxPages = state.status?.limits?.maxPages || 20;
@@ -189,7 +191,7 @@ export async function render({ root, query, state, navigate, refreshMe }) {
       <input type="file" accept="${ALL_ACCEPT}" multiple data-files aria-label="Dateien hochladen"></label>`;
 
     mount(root, html`<div class="stack-l">
-      <h1 class="visually-hidden">Scannen</h1>
+      ${targetLetter ? html`<div class="row"><h1 class="grow">Seiten hinzufügen</h1><a class="btn btn-small btn-ghost" href="#/briefe/${targetLetter}">Abbrechen</a></div>` : html`<h1 class="visually-hidden">Scannen</h1>`}
       ${consentCard()}
       ${!count && !bulk ? html`<div class="scan-start">
         ${scanBtn('Scannen', 'btn-scan btn-block scan-start-main')}
@@ -205,7 +207,7 @@ export async function render({ root, query, state, navigate, refreshMe }) {
         ${hasImages ? html`<label class="check"><input type="checkbox" data-keep ${keepOriginals ? 'checked' : ''} ${uploading ? 'disabled' : ''}>
           <span>Originalfotos aufbewahren</span></label>` : ''}
         <div data-progress hidden class="stack"><p data-progress-text class="small" aria-live="polite"></p><div class="progress"><span data-bar></span></div></div>
-        <button class="btn btn-block" type="button" data-submit ${working || uploading ? 'disabled' : ''}>${icon('check')}${working ? 'Wird bearbeitet …' : 'Brief speichern'}</button>
+        <button class="btn btn-block" type="button" data-submit ${working || uploading ? 'disabled' : ''}>${icon('check')}${working ? 'Wird bearbeitet …' : targetLetter ? 'Zum Brief hinzufügen' : 'Brief speichern'}</button>
       </section>` : ''}
 
       ${aiNote()}
@@ -218,6 +220,10 @@ export async function render({ root, query, state, navigate, refreshMe }) {
   /** Dateien aus dem Ordner: Fotos werden Seiten dieses Briefs, PDFs und Office-Dateien je ein eigenes Dokument. */
   function handlePicked(files) {
     const isImage = (f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name);
+    if (targetLetter) {
+      addFiles(files); // alles wird Seite des bestehenden Briefs
+      return;
+    }
     const images = files.filter(isImage);
     const docs = files.filter((f) => !isImage(f));
     if (images.length) addFiles(images);
@@ -519,6 +525,16 @@ export async function render({ root, query, state, navigate, refreshMe }) {
             navigate(`/briefe/${known.duplicate.letterId}`);
             return;
           }
+        }
+        if (targetLetter) {
+          // Seiten an einen bestehenden Brief anhängen
+          await api.post(`/api/letters/${targetLetter}/pages`, { fileIds: pages.map((p) => p.fileId) });
+          outcome = 'gespeichert';
+          saved = true;
+          pages.forEach((p) => p.thumb && URL.revokeObjectURL(p.thumb));
+          toast('Seiten hinzugefügt. Der Brief wird neu gelesen.');
+          navigate(`/briefe/${targetLetter}?ansicht=original`);
+          return;
         }
         text.textContent = 'Brief wird angelegt …';
         const originalIds = keepOriginals ? pages.filter((p) => p.originalFileId).map((p) => p.originalFileId) : [];

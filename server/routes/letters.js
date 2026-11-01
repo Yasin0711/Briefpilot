@@ -595,6 +595,48 @@ export function registerLetterRoutes(router, ctx) {
     return { ok: true, id: target.id };
   });
 
+  /** Weitere Seiten (bereits hochgeladen, noch ohne Brief) hinten an einen Brief anhängen. */
+  router.post('/api/letters/:id/pages', async (req, res, { user, params }) => {
+    const letter = ownLetter(user, params.id);
+    checkEditable(letter);
+    const body = await readJson(req);
+    const ids = Array.isArray(body.fileIds) ? [...new Set(body.fileIds.map(String))] : [];
+    if (!ids.length) throw badRequest('Bitte Seiten auswählen.');
+    const existing = db.get("SELECT COUNT(*) AS n FROM files WHERE letter_id = ? AND role = 'seite'", letter.id).n;
+    if (existing + ids.length > config.limits.maxFilesPerLetter) throw badRequest(`Ein Brief darf höchstens ${config.limits.maxFilesPerLetter} Dateien haben.`);
+    const files = ids.map((id) => db.get("SELECT id FROM files WHERE id = ? AND user_id = ? AND letter_id IS NULL AND role = 'seite'", id, user.id));
+    if (files.some((f) => !f)) throw badRequest('Mindestens eine Seite wurde nicht gefunden. Bitte erneut hochladen.');
+    const now = new Date().toISOString();
+    db.tx(() => {
+      const maxPos = db.get("SELECT COALESCE(MAX(position), -1) AS p FROM files WHERE letter_id = ? AND role = 'seite'", letter.id).p;
+      ids.forEach((id, i) => db.run('UPDATE files SET letter_id = ?, position = ? WHERE id = ?', letter.id, maxPos + 1 + i, id));
+      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", now, letter.id);
+    });
+    logLetterEvent(db, user.id, letter.id, 'seiten_hinzu', { seiten: ids.length });
+    analyzer.enqueue(letter.id);
+    return { ok: true, id: letter.id };
+  });
+
+  /** Eine einzelne Seite aus einem Brief löschen (die letzte Seite bleibt – dann den Brief löschen). */
+  router.delete('/api/letters/:id/pages/:fileId', async (req, res, { user, params }) => {
+    const letter = ownLetter(user, params.id);
+    checkEditable(letter);
+    const pages = db.all("SELECT id, storage_key FROM files WHERE letter_id = ? AND role = 'seite' ORDER BY position", letter.id);
+    const page = pages.find((p) => p.id === params.fileId);
+    if (!page) throw notFound('Diese Seite wurde nicht gefunden.');
+    if (pages.length === 1) throw badRequest('Das ist die einzige Seite. Bitte stattdessen den Brief löschen.');
+    const now = new Date().toISOString();
+    db.tx(() => {
+      db.run('DELETE FROM files WHERE id = ?', page.id);
+      pages.filter((p) => p.id !== page.id).forEach((p, i) => db.run('UPDATE files SET position = ? WHERE id = ?', i, p.id));
+      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", now, letter.id);
+    });
+    await storage.remove(page.storage_key);
+    logLetterEvent(db, user.id, letter.id, 'seite_entfernt');
+    analyzer.enqueue(letter.id);
+    return { ok: true };
+  });
+
   /** Verschiebt ausgewählte Seiten in einen neuen Brief. */
   router.post('/api/letters/:id/split', async (req, res, { user, params }) => {
     const letter = ownLetter(user, params.id);

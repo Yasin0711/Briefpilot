@@ -38,6 +38,27 @@ async function pushState(status) {
   return { available: true, subscribed: Boolean(sub), permission: Notification.permission, sub, reg };
 }
 
+/** Kamera dauerhaft erlauben: das legt das iPhone fest, nicht die App – daher kurze Anleitung je Browser. */
+function cameraSection(camState) {
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const browser = /EdgiOS|EdgA|Edg\//.test(ua) ? 'edge' : /CriOS|Chrome\//.test(ua) ? 'chrome' : 'safari';
+  const stateText = { granted: 'erlaubt', denied: 'blockiert', prompt: 'fragt jedes Mal' }[camState];
+  let steps;
+  if (ios && browser === 'safari') {
+    steps = ['iPhone-Einstellungen öffnen', 'Apps → Safari → Kamera', '„Erlauben“ wählen'];
+  } else if (ios) {
+    steps = [`iPhone-Einstellungen → Apps → ${browser === 'edge' ? 'Edge' : 'Chrome'} → Kamera einschalten`, 'Tipp: BriefPilot in Safari öffnen und „Zum Home-Bildschirm“ hinzufügen – dort lässt sich die Kamera dauerhaft erlauben'];
+  } else {
+    steps = ['Auf das Schloss-Symbol neben der Adresse tippen', 'Kamera → „Zulassen“'];
+  }
+  return html`<section class="panel stack settings-section" aria-labelledby="s-kamera">
+    <h2 id="s-kamera">Kamera immer erlauben</h2>
+    ${stateText ? html`<p class="small muted">Zurzeit: ${stateText}</p>` : ''}
+    <ol class="steps-short">${steps.map((t) => html`<li>${t}</li>`)}</ol>
+  </section>`;
+}
+
 export async function render({ root, state, navigate, refreshMe, isCurrent }) {
   const current = { household: { persons: [], addresses: [] } };
 
@@ -135,6 +156,13 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
       textSize = 'normal';
     }
     const mailOn = state.status?.mail?.enabled;
+    let camState = null;
+    try {
+      camState = (await navigator.permissions?.query({ name: 'camera' }))?.state || null;
+    } catch {
+      camState = null;
+    }
+    if (!isCurrent()) return;
 
     mount(root, html`<div class="stack-l">
       <div class="page-head"><div><h1>Einstellungen</h1></div></div>
@@ -203,6 +231,8 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
               : html`<button class="btn" type="button" data-action="push-on" ${push.permission === 'denied' ? 'disabled' : ''}>${icon('bell')}Benachrichtigungen einschalten</button>`}
           </div>` : push.na ? html`<p class="small na-row">Benachrichtigungen${naStar()}</p>` : html`<div class="note">${icon('info')}<p>${push.reason}</p></div>`}
       </section>
+
+      ${cameraSection(camState)}
 
       <section class="panel stack settings-section" aria-labelledby="s-anzeige">
         <h2 id="s-anzeige">Anzeige</h2>

@@ -153,7 +153,7 @@ function taskCard(task, letter, settings, today, correcting) {
 }
 
 /** Originalseiten (ohne zusätzlich aufbewahrte Originalfotos) mit Werkzeugen: PDF, trennen, zusammenführen. */
-function originalView(files, { split = null, editable = true, tools = true } = {}) {
+function originalView(files, { split = null, editable = true, tools = true, letterId = '' } = {}) {
   const pages = files.filter((f) => f.role !== 'original');
   const originals = files.filter((f) => f.role === 'original');
   if (!pages.length) return html`<p class="muted">Keine Datei vorhanden.</p>`;
@@ -162,23 +162,26 @@ function originalView(files, { split = null, editable = true, tools = true } = {
     const first = page + 1;
     page += f.pageCount || 1;
     const label = f.pageCount > 1 ? `Seiten ${first}–${page}` : `Seite ${first}`;
+    // Papierkorb direkt an der Seite – ohne nach oben zu scrollen
+    const del = editable && !split && pages.length > 1
+      ? html`<button class="icon-btn icon-btn-small" type="button" data-action="delete-page" data-file="${f.id}" aria-label="${label} löschen" title="Seite löschen">${icon('trash')}</button>` : '';
     const pick = split ? html`<label class="page-pick"><input type="checkbox" data-split-page="${f.id}" ${split.has(f.id) ? 'checked' : ''}><span>${label} in neuen Brief verschieben</span></label>` : '';
     if (f.kind === 'office') {
       const fmt = /presentation/.test(f.mime) ? 'PowerPoint' : /spreadsheet/.test(f.mime) ? 'Excel' : 'Word';
       const unit = fmt === 'PowerPoint' ? (f.pageCount === 1 ? 'Folie' : 'Folien') : fmt === 'Excel' ? (f.pageCount === 1 ? 'Tabelle' : 'Tabellen') : 'Dokument';
       return html`<figure class="original-page">
         <figcaption class="original-cap row"><span class="grow">${fmt}-Datei${fmt === 'Word' ? '' : ` · ${f.pageCount} ${unit}`} </span>
-          <a class="btn btn-small btn-secondary" href="/api/files/${f.id}">${icon('download')}Herunterladen</a></figcaption>
+          <a class="btn btn-small btn-secondary" href="/api/files/${f.id}">${icon('download')}Herunterladen</a>${del}</figcaption>
       </figure>`;
     }
     if (f.kind === 'image') {
-      return html`<figure class="original-page ${split?.has(f.id) ? 'is-picked' : ''}">${pick}<a class="original-fit" href="/api/files/${f.id}" target="_blank" rel="noopener"><img src="/api/files/${f.id}" alt="Originalbrief, ${label}"></a>
-        <figcaption class="original-cap">${label}</figcaption></figure>`;
+      return html`<figure class="original-page ${split?.has(f.id) ? 'is-picked' : ''}">${pick}<a class="original-fit" href="/api/files/${f.id}" data-view-letter="${letterId}" data-start="${first - 1}"><img src="/api/files/${f.id}" alt="Originalbrief, ${label}"></a>
+        <figcaption class="original-cap row"><span class="grow">${label}</span>${del}</figcaption></figure>`;
     }
     return html`<figure class="original-page ${split?.has(f.id) ? 'is-picked' : ''}">${pick}
-      <a class="pdf-view" data-pdf-view="${f.id}" href="/api/files/${f.id}" target="_blank" rel="noopener" aria-label="Originalbrief, ${label} (PDF) öffnen"><span class="spinner" aria-hidden="true"></span></a>
+      <a class="pdf-view" data-pdf-view="${f.id}" href="/api/files/${f.id}" data-view-letter="${letterId}" data-start="${first - 1}" aria-label="Originalbrief, ${label} (PDF) öffnen"><span class="spinner" aria-hidden="true"></span></a>
       <figcaption class="original-cap row"><span class="grow">${label} (PDF)</span>
-        <a class="btn btn-small btn-secondary" href="/api/files/${f.id}" target="_blank" rel="noopener">${icon('file')}PDF öffnen</a></figcaption>
+        <a class="btn btn-small btn-secondary" href="/api/files/${f.id}" data-view-letter="${letterId}" data-start="${first - 1}">${icon('maximize')}Vollbild</a>${del}</figcaption>
     </figure>`;
   });
   const toolbar = !tools ? '' : split
@@ -188,6 +191,7 @@ function originalView(files, { split = null, editable = true, tools = true } = {
           <button class="btn btn-small btn-ghost" type="button" data-action="split-cancel">Abbrechen</button></div></div>`
     : html`<div class="page-toolbar row" role="group" aria-label="Seiten">
         ${pages.every((p) => p.kind === 'office') ? '' : html`<button class="btn btn-small btn-secondary" type="button" data-action="pdf">${icon('download')}Als PDF</button>`}
+        ${editable ? html`<a class="btn btn-small btn-secondary" href="#/scannen?zu=${letterId}">${icon('plus')}Seiten hinzufügen</a>` : ''}
         ${editable && pages.length > 1 ? html`<button class="btn btn-small btn-ghost" type="button" data-action="split-start">${icon('split')}Seiten trennen</button>` : ''}
         ${editable ? html`<button class="btn btn-small btn-ghost" type="button" data-action="merge">${icon('merge')}Seiten eines anderen Briefes anhängen</button>` : ''}
       </div>`;
@@ -466,7 +470,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
             ${analyzing ? '' : chatPanel(data, state)}
           </div>
           <div data-panel="antworten" ${tab === 'antworten' ? '' : html`hidden`}>${tab === 'antworten' ? repliesPanel(data, state) : ''}</div>
-          <div data-panel="original" ${tab === 'original' ? '' : html`hidden`}>${originalView(files, { split, editable })}</div>
+          <div data-panel="original" ${tab === 'original' ? '' : html`hidden`}>${originalView(files, { split, editable, letterId: letter.id })}</div>
           ${(tab === 'erklaerung' || !tab) && !analyzing ? factsPanel(letter, persons) : ''}
           ${(tab === 'erklaerung' || !tab) && !analyzing ? html`<section class="panel stack">
             <h2>Weitere Möglichkeiten</h2>
@@ -481,7 +485,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         </div>
         <aside class="detail-original" aria-label="Originalbrief">
           <h2 class="visually-hidden">Original</h2>
-          ${originalView(files, { split, editable })}
+          ${originalView(files, { split, editable, letterId: letter.id })}
         </aside>
       </div>
       ${analyzing ? '' : fileBar()}
@@ -732,6 +736,12 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         }
       } else if (action === 'merge') {
         await mergeDialog();
+      } else if (action === 'delete-page') {
+        if (await confirmDialog({ title: 'Seite löschen?', body: 'Der Brief wird danach neu gelesen.', confirmLabel: 'Löschen', danger: true })) {
+          await api.del(`/api/letters/${id}/pages/${el.dataset.file}`);
+          toast('Seite gelöscht.');
+          await load();
+        }
       }
     } catch (err) {
       toast(err.message, { error: true });

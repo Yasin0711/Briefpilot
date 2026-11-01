@@ -1,9 +1,10 @@
 // Aufgaben und Termine: Zu prüfen, Offen, Erledigt.
 import { html, mount } from '../html.js';
 import { api, download } from '../api.js';
-import { icon, dateTile, whenLabel, taskKindLabel, toast } from '../ui.js';
+import { icon, whenLabel, taskKindLabel, toast } from '../ui.js';
 import { formatDate } from '../shared/dates.js';
 import { setReviewCount } from '../app.js';
+import { letterThumb } from './parts.js';
 
 const TABS = [
   { id: 'zu_pruefen', label: 'Zu prüfen' },
@@ -11,16 +12,12 @@ const TABS = [
   { id: 'erledigt', label: 'Erledigt' },
 ];
 
-/** Mini-Vorschau der ersten Seite – antippen öffnet die Datei. */
+/** Mini-Vorschau der ersten Seite – antippen öffnet den Brief im Vollbild. */
 function thumb(t) {
   const f = t.letterFile;
-  if (!f) return html`<span class="task-thumb is-empty" aria-hidden="true">${icon('file')}</span>`;
-  const label = `Brief öffnen: ${t.letterSubject || t.title}`;
-  if (f.kind === 'image' || f.kind === 'pdf') {
-    return html`<a class="task-thumb" href="/api/files/${f.id}" target="_blank" rel="noopener" aria-label="${label}">
-      <img src="/api/files/${f.id}/thumb" alt="" loading="lazy" data-thumb>${icon('file')}</a>`;
-  }
-  return html`<a class="task-thumb is-empty" href="/api/files/${f.id}" aria-label="${label}">${icon('file')}</a>`;
+  if (!f || !t.letterId) return html`<span class="task-thumb is-empty" aria-hidden="true">${icon('file')}</span>`;
+  return html`<a class="task-thumb" href="/api/files/${f.id}" data-view-letter="${t.letterId}" data-title="${t.letterSubject || t.title}" aria-label="Brief ansehen: ${t.letterSubject || t.title}">
+    ${letterThumb({ firstFile: f })}</a>`;
 }
 
 /** Zeile „Zu prüfen“: Vorschau · Titel (öffnet die Prüfung im Brief) · Datum als Text · Kalender · Bestätigen. */
@@ -33,14 +30,14 @@ function reviewRow(t, date, href) {
     ${thumb(t)}
     <span class="grow review-main">
       ${href ? html`<a class="row-title" href="${href}">${t.title}</a>` : html`<span class="row-title">${t.title}</span>`}
-      <span class="row-sub">${dateText}${t.letterSender ? ` · ${t.letterSender}` : ''}</span>
+      <span class="row-sub" data-sub="${t.id}">${dateText}${t.letterSender ? ` · ${t.letterSender}` : ''}</span>
     </span>
     <span class="review-actions">
       <label class="date-pick" title="${relative ? 'Zugangsdatum wählen – Fristende wird berechnet' : 'Datum ändern'}">
         ${icon('calendar')}<span>${pickLabel}</span>
         <input type="date" data-pick="${t.id}" data-relative="${relative ? '1' : ''}" value="${pickValue}" aria-label="${relative ? 'Zugangsdatum wählen' : 'Datum ändern'}: ${t.title}">
       </label>
-      <button class="btn btn-small" type="button" data-confirm="${t.id}" data-date="${relative ? '' : (date || '')}" data-relative="${relative ? '1' : ''}">${icon('check')}Bestätigen</button>
+      <button class="btn btn-small" type="button" data-confirm="${t.id}" data-date="${relative ? '' : (date || '')}" data-received="" data-relative="${relative ? '1' : ''}">${icon('check')}Bestätigen</button>
     </span>
   </li>`;
 }
@@ -75,7 +72,7 @@ export async function render({ root, query, isCurrent }) {
         const href = t.letterId ? `#/briefe/${t.letterId}?aufgabe=${t.id}` : null;
         if (t.status === 'zu_pruefen') return reviewRow(t, date, href);
         return html`<li class="deadline-row">
-          ${dateTile(date, { today, small: true, unsure: t.status === 'zu_pruefen' })}
+          ${thumb(t)}
           <span class="grow">
             ${href ? html`<a class="row-title" href="${href}">${t.title}</a>` : html`<span class="row-title">${t.title}</span>`}
             <span class="row-sub">${taskKindLabel(t.kind)}${t.letterSender ? ` – ${t.letterSender}` : ''}</span>
@@ -112,15 +109,24 @@ export async function render({ root, query, isCurrent }) {
     if (e.target.matches?.('[data-thumb]')) e.target.closest('.task-thumb')?.classList.add('is-empty');
   }, true);
 
-  // Datum im Kalender gewählt: gleich bestätigen (Frist bzw. Zugangsdatum → Fristende wird berechnet)
-  root.addEventListener('change', async (e) => {
+  // Datum im Kalender gewählt: nur vormerken – bestätigt wird erst mit „Bestätigen“.
+  // (Auf dem iPhone feuert die Datumsauswahl schon beim Drehen am Rad.)
+  root.addEventListener('change', (e) => {
     const pick = e.target.closest('[data-pick]');
     if (!pick || !pick.value) return;
-    try {
-      await confirmTask(pick.dataset.pick, pick.dataset.relative ? { receivedDate: pick.value } : { dueDate: pick.value });
-    } catch (err) {
-      toast(err.message, { error: true });
+    const id = pick.dataset.pick;
+    const btn = root.querySelector(`[data-confirm="${id}"]`);
+    const sub = root.querySelector(`[data-sub="${id}"]`);
+    const when = formatDate(pick.value, { short: true });
+    if (pick.dataset.relative) {
+      btn.dataset.received = pick.value;
+      if (sub) sub.textContent = `Erhalten am ${when}`;
+    } else {
+      btn.dataset.date = pick.value;
+      if (sub) sub.textContent = `Frist ${when}`;
     }
+    pick.closest('.date-pick')?.classList.add('is-set');
+    btn.classList.add('is-ready');
   });
 
   root.addEventListener('click', async (e) => {
@@ -132,6 +138,10 @@ export async function render({ root, query, isCurrent }) {
         root.querySelector(`[data-status="${status}"]`)?.focus();
       } else if (e.target.closest('[data-confirm]')) {
         const btn = e.target.closest('[data-confirm]');
+        if (btn.dataset.relative && btn.dataset.received) {
+          await confirmTask(btn.dataset.confirm, { receivedDate: btn.dataset.received });
+          return;
+        }
         if (btn.dataset.relative) {
           // Frist ab Zugang: ohne Zugangsdatum geht es nicht – Kalender öffnen
           const input = root.querySelector(`[data-pick="${btn.dataset.confirm}"]`);

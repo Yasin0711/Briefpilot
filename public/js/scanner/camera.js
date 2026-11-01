@@ -7,6 +7,32 @@ import { detectCorners, toCanvas, imageDataOf, imageproc } from './processing.js
 import { trapBackButton, closeOnAbort } from './overlay.js';
 
 const DETECT_EVERY_MS = 260;
+// Kamera nach dem Schließen kurz offen halten: Wer gleich weiterscannt, wird nicht erneut gefragt.
+const KEEP_STREAM_MS = 45_000;
+let kept = null; // { stream, timer }
+
+function takeKeptStream() {
+  if (!kept) return null;
+  clearTimeout(kept.timer);
+  const { stream } = kept;
+  kept = null;
+  return stream.getVideoTracks().some((t) => t.readyState === 'live') ? stream : null;
+}
+
+function keepStream(stream) {
+  if (!stream) return;
+  const stop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    if (kept?.stream === stream) kept = null;
+    document.removeEventListener('visibilitychange', onHide);
+  };
+  // App im Hintergrund: Kamera sofort aus
+  const onHide = () => {
+    if (document.visibilityState === 'hidden') stop();
+  };
+  document.addEventListener('visibilitychange', onHide);
+  kept = { stream, timer: setTimeout(stop, KEEP_STREAM_MS) };
+}
 const STABLE_FRAMES = 4; // ≈ 1 Sekunde ruhig halten
 const MIN_CONFIDENCE = 0.35;
 
@@ -104,7 +130,9 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
     if (closed) return;
     closed = true;
     clearTimeout(timer);
-    stream?.getTracks().forEach((t) => t.stop());
+    if (torchOn) track?.applyConstraints({ advanced: [{ torch: false }] }).catch(() => {});
+    if (video) video.srcObject = null;
+    keepStream(stream);
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('resize', drawOverlay);
     releaseBack();
@@ -305,7 +333,7 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
   });
 
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
+    stream = takeKeptStream() || await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
     });
@@ -313,7 +341,7 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
     close();
     const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
     onError?.(new Error(denied
-      ? 'Der Zugriff auf die Kamera wurde nicht erlaubt. Sie können die Kamera in den Browser-Einstellungen freigeben – oder ein Foto über die Kamera-App aufnehmen.'
+      ? 'Kamera nicht erlaubt. Anleitung: Einstellungen → Kamera immer erlauben.'
       : 'Die Kamera konnte nicht gestartet werden. Bitte nehmen Sie ein Foto über die Kamera-App auf.'));
     return;
   }

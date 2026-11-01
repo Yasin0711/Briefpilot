@@ -248,6 +248,8 @@ test('Kostenlose KI (Gemini, nachgebaut): Auswertung, Rückfrage mit Antwortentw
       let result;
       if (system.includes('Fragen zu genau EINEM Brief')) {
         result = { answer: 'Sie sollen 312,40 € bis zum 15.11.2026 überweisen.', reply_subject: 'Bitte um Fristverlängerung – KFZ-002', reply_body: 'Sehr geehrte Damen und Herren,\n\nbitte verlängern Sie die Frist.\n\nMit freundlichen Grüßen' };
+      } else if (system.includes('Antwortbrief') && JSON.stringify(parsed.contents).includes('Alternativen')) {
+        result = { drafts: ['kurz', 'ausführlich', 'bestimmt'].map((v) => ({ subject: `Ratenzahlung (${v})`, body: `Sehr geehrte Damen und Herren,\n\n${v}.\n\nMit freundlichen Grüßen` })) };
       } else if (system.includes('Antwortbrief')) {
         result = { subject: 'Ratenzahlung – KFZ-002', body: 'Sehr geehrte Damen und Herren,\n\nich bitte um Ratenzahlung.\n\nMit freundlichen Grüßen' };
       } else {
@@ -309,6 +311,12 @@ test('Kostenlose KI (Gemini, nachgebaut): Auswertung, Rückfrage mit Antwortentw
     r = await c.post(`/api/letters/${created.data.id}/replies`, { mode: 'ki', instruction: 'Bitte um Ratenzahlung' });
     assert.equal(r.status, 200, JSON.stringify(r.data));
     assert.match(r.data.reply.subject, /Ratenzahlung/);
+    // Weitere Entwürfe zu diesem Entwurf
+    const variants = await c.post(`/api/replies/${r.data.reply.id}/variants`, { count: 3 });
+    assert.equal(variants.status, 200, JSON.stringify(variants.data));
+    assert.equal(variants.data.replies.length, 3);
+    assert.match(variants.data.replies[2].subject, /bestimmt/);
+    assert.equal(variants.data.replies[0].status, 'entwurf');
 
     // Kontingent erschöpft: Rückfrage → 429 mit Erklärung; Auswertung eines PDFs → einfache Erkennung mit Hinweis
     mode = 'quota';

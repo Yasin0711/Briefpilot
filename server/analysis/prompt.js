@@ -166,6 +166,22 @@ export const REPLY_SCHEMA = {
   properties: { subject: { type: 'string' }, body: { type: 'string' } },
 };
 
+/** Mehrere unterschiedliche Entwürfe auf einmal (z. B. „kurz“, „ausführlich“, „bestimmt“). */
+export const REPLY_VARIANTS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['drafts'],
+  properties: {
+    drafts: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false, required: ['subject', 'body'],
+        properties: { subject: { type: 'string' }, body: { type: 'string' } },
+      },
+    },
+  },
+};
+
 /** Angaben zu einem Brief als Text für Rückfragen und Antwortentwürfe (statt erneut Bilder zu senden). */
 export function letterContext(letter, tasks = []) {
   const parse = (v, f) => {

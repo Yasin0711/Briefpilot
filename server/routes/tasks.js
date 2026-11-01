@@ -9,7 +9,7 @@ import {
 } from '../../public/js/shared/dates.js';
 
 const TASK_SELECT = `SELECT t.*, l.subject AS letter_subject, l.sender AS letter_sender,
-  (SELECT f.id || ':' || f.kind FROM files f WHERE f.letter_id = t.letter_id AND f.role = 'seite' ORDER BY f.position LIMIT 1) AS first_file
+  (SELECT f.id || ':' || f.kind || ':' || f.size FROM files f WHERE f.letter_id = t.letter_id AND f.role = 'seite' ORDER BY f.position LIMIT 1) AS first_file
   FROM tasks t LEFT JOIN letters l ON l.id = t.letter_id`;
 
 function checkDate(value, field, label = 'Datum') {
@@ -78,8 +78,8 @@ export function registerTaskRoutes(router, ctx) {
     );
     return {
       tasks: rows.map((r) => {
-        const [fileId, kind] = String(r.first_file || '').split(':');
-        return { ...serializeTask(r), letterFile: fileId ? { id: fileId, kind } : null };
+        const [fileId, kind, size] = String(r.first_file || '').split(':');
+        return { ...serializeTask(r), letterFile: fileId ? { id: fileId, kind, size: Number(size) || 0 } : null };
       }),
       counts,
       today: todayIn(user.timezone),

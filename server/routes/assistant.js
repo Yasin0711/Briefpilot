@@ -4,7 +4,7 @@ import { HttpError, badRequest, notFound, readJson } from '../lib/http.js';
 import { newId, isValidEmail, isGuest } from '../lib/security.js';
 import { AiError } from '../analysis/ai.js';
 import {
-  ASK_SYSTEM_PROMPT, ASK_SCHEMA, REPLY_SYSTEM_PROMPT, REPLY_SCHEMA, letterContext,
+  ASK_SYSTEM_PROMPT, ASK_SCHEMA, REPLY_SYSTEM_PROMPT, REPLY_SCHEMA, REPLY_VARIANTS_SCHEMA, letterContext,
 } from '../analysis/prompt.js';
 import {
   REPLY_TEMPLATES, REPLY_TEMPLATE_IDS, templateReply, suggestReplyTemplates, suggestQuestions, replyDefaults, serializeReply, replyPlainText, replyReferences,
@@ -154,6 +154,45 @@ export function registerAssistantRoutes(router, ctx) {
     );
     logLetterEvent(db, user.id, letter.id, 'antwort_entwurf', { herkunft: origin, vorlage: template });
     return { reply: serializeReply(db.get('SELECT * FROM replies WHERE id = ?', id)) };
+  });
+
+  /** Weitere, unterschiedlich formulierte Entwürfe zu einem vorhandenen Entwurf (KI, eine Anfrage). */
+  router.post('/api/replies/:id/variants', async (req, res, { user, params }) => {
+    const base = ownReply(user, params.id);
+    const letter = ownLetter(user, base.letter_id);
+    limiter.hit(`reply:${user.id}`, 100, 3600_000);
+    requireAi(user);
+    const body = await readJson(req);
+    const count = Math.min(Math.max(parseInt(body.count, 10) || 3, 1), 3);
+    const tasks = db.all('SELECT * FROM tasks WHERE letter_id = ? ORDER BY position', letter.id);
+    const defaults = replyDefaults(db, user, letter);
+    let drafts;
+    try {
+      const prompt = `${letterContext(letter, tasks)}\n\nBisheriger Entwurf:\nBetreff: ${base.subject}\n${base.body}\n\n`
+        + `Schreibe ${count} deutlich unterschiedliche Alternativen zu diesem Entwurf (z. B. kürzer, ausführlicher, bestimmter im Ton). `
+        + 'Gleiche Fakten, gleiche Platzhalter-Regeln. Gib sie im Feld drafts zurück.';
+      const { result } = await ai.completeJson({ system: REPLY_SYSTEM_PROMPT, prompt, schema: REPLY_VARIANTS_SCHEMA, maxTokens: 6000 });
+      drafts = (Array.isArray(result?.drafts) ? result.drafts : [])
+        .map((d) => ({ subject: str(d?.subject, 300), body: str(d?.body, 8000) }))
+        .filter((d) => d.body)
+        .slice(0, count);
+    } catch (err) {
+      throw aiFailure(err);
+    }
+    if (!drafts.length) throw new HttpError(502, 'Die KI hat keine weiteren Entwürfe geliefert. Bitte erneut versuchen.');
+    const now = new Date().toISOString();
+    const ids = drafts.map((d) => {
+      const id = newId();
+      db.run(
+        `INSERT INTO replies (id, user_id, letter_id, subject, body, recipient_json, sender_json, place, reply_date, origin, template, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ki', NULL, 'entwurf', ?, ?)`,
+        id, user.id, letter.id, d.subject || base.subject, d.body, base.recipient_json || JSON.stringify(defaults.recipient),
+        base.sender_json || JSON.stringify(defaults.sender), base.place || defaults.place || null, todayIn(user.timezone), now, now
+      );
+      return id;
+    });
+    logLetterEvent(db, user.id, letter.id, 'antwort_entwurf', { herkunft: 'ki', varianten: ids.length });
+    return { replies: ids.map((id) => serializeReply(db.get('SELECT * FROM replies WHERE id = ?', id))) };
   });
 
   router.patch('/api/replies/:id', async (req, res, { user, params }) => {

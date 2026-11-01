@@ -76,27 +76,27 @@ function mailtoLink(to, reply) {
 export function repliesPanel(data, state) {
   const { letter, replies } = data;
   const ai = aiState(state, letter);
+  // Vorlagen nur hinter der Glühbirne – sonst gleich die Eingabe
+  const bulb = html`<button class="btn btn-secondary bulb-btn" type="button" data-toggle-templates aria-expanded="false" aria-controls="tpl-box" aria-label="Vorschläge anzeigen" title="Vorschläge">${icon('bulb')}</button>`;
   return html`<section class="stack-l" aria-labelledby="reply-h">
     <div class="stack">
       <h2 id="reply-h">Antwort schreiben</h2>
-      <p class="muted">Wählen Sie eine Vorlage${ai.ready ? ' oder lassen Sie die KI einen Entwurf formulieren' : ''}. Sie prüfen und bearbeiten den Text – verschickt wird erst, wenn Sie es ausdrücklich bestätigen.</p>
-      <div class="template-grid" data-templates><p class="muted small">Vorlagen werden geladen …</p></div>
-      ${ai.ready ? html`<form class="panel stack" data-ai-reply novalidate>
-        <div class="field"><label for="ai-instr">${icon('spark')} Mit KI formulieren</label>
-          <textarea class="input" id="ai-instr" name="instruction" rows="3" maxlength="1000" placeholder="Was soll in der Antwort stehen? Zum Beispiel: Ich bitte um Ratenzahlung von 50 € im Monat."></textarea>
-          <p class="hint">Der Brief und Ihr Wunsch werden dafür an ${ai.provider} übermittelt.</p></div>
-        <p><button class="btn" type="submit">${icon('spark')}Entwurf erstellen</button></p>
-      </form>` : ai.na ? html`<p class="small na-row">${ai.reason}</p>` : html`<div class="note">${icon('info')}<p>${ai.reason}</p></div>`}
+      ${ai.ready ? html`<form class="stack" data-ai-reply novalidate>
+        <label class="visually-hidden" for="ai-instr">Was soll in der Antwort stehen?</label>
+        <textarea class="input" id="ai-instr" name="instruction" rows="3" maxlength="1000" placeholder="Was soll in der Antwort stehen?"></textarea>
+        <div class="row"><button class="btn grow" type="submit">${icon('spark')}Entwurf erstellen</button>${bulb}</div>
+      </form>` : html`<div class="row">${ai.na ? html`<p class="small na-row grow">${ai.reason}</p>` : html`<p class="small muted grow">${ai.reason}</p>`}${bulb}</div>`}
+      <div class="template-grid" id="tpl-box" data-templates hidden><p class="muted small">Wird geladen …</p></div>
     </div>
 
     <div class="stack" aria-labelledby="drafts-h">
       <h2 id="drafts-h">Ihre Antworten</h2>
-      ${replies.length ? replies.map((r) => replyCard(r)) : html`<p class="muted">Noch keine Antwort.</p>`}
+      ${replies.length ? replies.map((r) => replyCard(r, ai.ready)) : html`<p class="muted">Noch keine Antwort.</p>`}
     </div>
   </section>`;
 }
 
-function replyCard(r) {
+function replyCard(r, aiReady = false) {
   const sent = r.status === 'gesendet';
   return html`<article class="reply-card ${sent ? 'is-sent' : ''}" data-reply="${r.id}">
     <div class="row">
@@ -110,6 +110,7 @@ function replyCard(r) {
     ${!sent && r.placeholders ? html`<p class="task-notes">${icon('alert')}<span>Noch ${r.placeholders === 1 ? 'eine Stelle' : `${r.placeholders} Stellen`} in [eckigen Klammern] ausfüllen.</span></p>` : ''}
     <div class="row">
       ${!sent ? html`<button class="btn btn-small" type="button" data-reply-act="edit">${icon('edit')}Bearbeiten</button>` : ''}
+      ${!sent && aiReady ? html`<button class="btn btn-small btn-secondary" type="button" data-reply-act="variants">${icon('spark')}Weitere Entwürfe</button>` : ''}
       <button class="btn btn-small btn-secondary" type="button" data-reply-act="pdf">${icon('printer')}PDF</button>
       <button class="btn btn-small btn-secondary" type="button" data-reply-act="copy">${icon('copy')}Text kopieren</button>
       ${!sent ? html`<button class="btn btn-small btn-secondary" type="button" data-reply-act="email">${icon('send')}Per E-Mail …</button>
@@ -401,6 +402,14 @@ export function bindAssistant(root, ctx) {
       if (m) await createReply({ mode: 'text', subject: m.replySubject || '', body: m.replyBody }, take);
       return;
     }
+    const toggle = e.target.closest('[data-toggle-templates]');
+    if (toggle) {
+      const box = root.querySelector('[data-templates]');
+      box.hidden = !box.hidden;
+      toggle.setAttribute('aria-expanded', String(!box.hidden));
+      toggle.classList.toggle('is-on', !box.hidden);
+      return;
+    }
     const tpl = e.target.closest('[data-template]');
     if (tpl) {
       await createReply({ mode: 'vorlage', template: tpl.dataset.template }, tpl);
@@ -414,6 +423,14 @@ export function bindAssistant(root, ctx) {
       switch (act.dataset.replyAct) {
         case 'edit':
           openEditor(reply);
+          break;
+        case 'variants':
+          await busy(act, async () => {
+            const res = await api.post(`/api/replies/${reply.id}/variants`, { count: 3 });
+            toast(`${res.replies.length} weitere Entwürfe erstellt.`);
+            await reload();
+            ctx.showTab?.('antworten');
+          });
           break;
         case 'pdf':
           await download(`/api/replies/${reply.id}/pdf`, 'antwort.pdf');

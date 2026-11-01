@@ -17,6 +17,8 @@ export const EVENT_LABELS = {
   antwort_gesendet: 'Antwort versendet',
   antwort_pdf: 'Antwort als PDF erstellt',
   zusammengefuehrt: 'Mit anderem Brief zusammengeführt',
+  seiten_hinzu: 'Seiten hinzugefügt',
+  seite_entfernt: 'Seite gelöscht',
   getrennt: 'Seiten in neuen Brief verschoben',
   duplikat_verdacht: 'Möglicherweise doppelt',
   duplikat_verworfen: 'Kein Duplikat (bestätigt)',

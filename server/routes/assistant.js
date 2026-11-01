@@ -156,6 +156,36 @@ export function registerAssistantRoutes(router, ctx) {
     return { reply: serializeReply(db.get('SELECT * FROM replies WHERE id = ?', id)) };
   });
 
+  /** Entwurf nach Wunsch überarbeiten („Der Name ist falsch“, „Bitte freundlicher“ …). */
+  router.post('/api/replies/:id/revise', async (req, res, { user, params }) => {
+    const reply = ownReply(user, params.id);
+    if (reply.status === 'gesendet') throw badRequest('Diese Antwort wurde bereits versendet und kann nicht mehr geändert werden.');
+    const letter = ownLetter(user, reply.letter_id);
+    limiter.hit(`reply:${user.id}`, 100, 3600_000);
+    const body = await readJson(req);
+    const instruction = str(body.instruction, 1000);
+    if (!instruction) throw badRequest('Bitte schreiben Sie, was geändert werden soll.', { field: 'instruction' });
+    requireAi(user);
+    const tasks = db.all('SELECT * FROM tasks WHERE letter_id = ? ORDER BY position', letter.id);
+    let subject;
+    let text;
+    try {
+      const prompt = `${letterContext(letter, tasks)}\n\nAktueller Entwurf:\nBetreff: ${reply.subject}\n${reply.body}\n\n`
+        + `Änderungswunsch des Nutzers: ${instruction}\n\n`
+        + 'Überarbeite den Entwurf entsprechend. Ändere nur, was gewünscht ist; alles andere bleibt möglichst gleich. '
+        + 'Angaben des Nutzers (z. B. ein korrigierter Name) übernimmst du so, wie er sie schreibt.';
+      const { result } = await ai.completeJson({ system: REPLY_SYSTEM_PROMPT, prompt, schema: REPLY_SCHEMA, maxTokens: 4096 });
+      subject = str(result?.subject, 300);
+      text = str(result?.body, 8000);
+    } catch (err) {
+      throw aiFailure(err);
+    }
+    if (!text) throw new HttpError(502, 'Die KI hat keinen geänderten Text geliefert. Bitte erneut versuchen.');
+    db.run('UPDATE replies SET subject = ?, body = ?, updated_at = ? WHERE id = ?', subject || reply.subject, text, new Date().toISOString(), reply.id);
+    logLetterEvent(db, user.id, letter.id, 'antwort_geaendert', { herkunft: 'ki' });
+    return { reply: serializeReply(db.get('SELECT * FROM replies WHERE id = ?', reply.id)) };
+  });
+
   /** Weitere, unterschiedlich formulierte Entwürfe zu einem vorhandenen Entwurf (KI, eine Anfrage). */
   router.post('/api/replies/:id/variants', async (req, res, { user, params }) => {
     const base = ownReply(user, params.id);

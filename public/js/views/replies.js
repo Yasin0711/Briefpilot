@@ -107,6 +107,11 @@ function replyCard(r, aiReady = false) {
     </div>
     <h3>${r.subject}</h3>
     <p class="reply-preview">${String(r.body || '').slice(0, 260)}${String(r.body || '').length > 260 ? ' …' : ''}</p>
+    ${!sent && aiReady ? html`<form class="revise-form" data-revise novalidate>
+      <label class="visually-hidden" for="rv-${r.id}">Was soll anders sein?</label>
+      <input class="input" id="rv-${r.id}" name="instruction" maxlength="1000" autocomplete="off" placeholder="Was soll anders sein? z. B. „Der Name ist Müller“">
+      <button class="btn btn-small" type="submit">${icon('spark')}Ändern</button>
+    </form>` : ''}
     ${!sent && r.placeholders ? html`<p class="task-notes">${icon('alert')}<span>Noch ${r.placeholders === 1 ? 'eine Stelle' : `${r.placeholders} Stellen`} in [eckigen Klammern] ausfüllen.</span></p>` : ''}
     <div class="row">
       ${!sent ? html`<button class="btn btn-small" type="button" data-reply-act="edit">${icon('edit')}Bearbeiten</button>` : ''}
@@ -365,6 +370,28 @@ export function bindAssistant(root, ctx) {
       }
       input.value = '';
       await ask(question, askForm);
+      return;
+    }
+    const revise = e.target.closest('[data-revise]');
+    if (revise) {
+      e.preventDefault();
+      const input = revise.querySelector('[name=instruction]');
+      const instruction = input.value.trim();
+      if (!instruction) {
+        input.focus();
+        return;
+      }
+      const replyId = revise.closest('[data-reply]').dataset.reply;
+      await busy(revise.querySelector('[type=submit]'), async () => {
+        try {
+          await api.post(`/api/replies/${replyId}/revise`, { instruction });
+          toast('Entwurf angepasst.');
+          await reload();
+          ctx.showTab?.('antworten');
+        } catch (err) {
+          toast(err.message, { error: true });
+        }
+      });
       return;
     }
     const aiForm = e.target.closest('[data-ai-reply]');

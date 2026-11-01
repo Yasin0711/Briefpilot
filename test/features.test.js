@@ -248,6 +248,8 @@ test('Kostenlose KI (Gemini, nachgebaut): Auswertung, Rückfrage mit Antwortentw
       let result;
       if (system.includes('Fragen zu genau EINEM Brief')) {
         result = { answer: 'Sie sollen 312,40 € bis zum 15.11.2026 überweisen.', reply_subject: 'Bitte um Fristverlängerung – KFZ-002', reply_body: 'Sehr geehrte Damen und Herren,\n\nbitte verlängern Sie die Frist.\n\nMit freundlichen Grüßen' };
+      } else if (system.includes('Antwortbrief') && JSON.stringify(parsed.contents).includes('Änderungswunsch')) {
+        result = { subject: 'Ratenzahlung – KFZ-002', body: 'Sehr geehrte Frau Müller,\n\nich bitte um Ratenzahlung.\n\nMit freundlichen Grüßen' };
       } else if (system.includes('Antwortbrief') && JSON.stringify(parsed.contents).includes('Alternativen')) {
         result = { drafts: ['kurz', 'ausführlich', 'bestimmt'].map((v) => ({ subject: `Ratenzahlung (${v})`, body: `Sehr geehrte Damen und Herren,\n\n${v}.\n\nMit freundlichen Grüßen` })) };
       } else if (system.includes('Antwortbrief')) {
@@ -317,6 +319,13 @@ test('Kostenlose KI (Gemini, nachgebaut): Auswertung, Rückfrage mit Antwortentw
     assert.equal(variants.data.replies.length, 3);
     assert.match(variants.data.replies[2].subject, /bestimmt/);
     assert.equal(variants.data.replies[0].status, 'entwurf');
+    // Entwurf per Wunsch ändern
+    const revised = await c.post(`/api/replies/${r.data.reply.id}/revise`, { instruction: 'Der Name ist falsch, es ist Frau Müller.' });
+    assert.equal(revised.status, 200, JSON.stringify(revised.data));
+    assert.match(revised.data.reply.body, /Müller/);
+    assert.equal(revised.data.reply.id, r.data.reply.id, 'derselbe Entwurf wird geändert');
+    assert.match(JSON.stringify(requests.at(-1).body.contents), /Der Name ist falsch/);
+    assert.equal((await c.post(`/api/replies/${r.data.reply.id}/revise`, { instruction: '' })).status, 400);
 
     // Kontingent erschöpft: Rückfrage → 429 mit Erklärung; Auswertung eines PDFs → einfache Erkennung mit Hinweis
     mode = 'quota';

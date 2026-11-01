@@ -4,7 +4,7 @@ import { html, mount } from '../html.js';
 import { api, download } from '../api.js';
 import {
   icon, dateTile, whenLabel, categoryTile, statusBadge, taskKindLabel, toast, confirmDialog, openDialog,
-  formValues, showError, clearErrors, busy, formatUploaded,
+  formValues, showError, clearErrors, busy, formatUploaded, scroller,
 } from '../ui.js';
 import {
   CATEGORIES, REMINDER_OFFSETS, ANALYSIS_SOURCE_LABELS, TASK_KINDS, categoryLabel,
@@ -563,9 +563,9 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     if (!pick || !split) return;
     if (pick.checked) split.add(pick.dataset.splitPage);
     else split.delete(pick.dataset.splitPage);
-    const y = window.scrollY;
+    const y = scroller().scrollTop;
     draw();
-    window.scrollTo(0, y);
+    scroller().scrollTop = y;
     root.querySelector(`[data-split-page="${pick.dataset.splitPage}"]`)?.focus({ preventScroll: true });
   });
 

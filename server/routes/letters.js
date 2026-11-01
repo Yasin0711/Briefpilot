@@ -89,7 +89,7 @@ export function registerLetterRoutes(router, ctx) {
         }
         const after = result ? inspectPdf(result.pdf) : null;
         if (!result || !after.valid || after.activeContent || after.pageCount !== pagesBefore || hasActiveObjects(result.pdf)) {
-          throw badRequest('Diese PDF-Datei enthält ausführbare Inhalte (z. B. JavaScript), die sich nicht sicher entfernen ließen. Bitte drucken Sie die Datei als neue PDF („Als PDF drucken“) und laden Sie diese hoch.');
+          throw badRequest('Enthält Skripte, die nicht sicher entfernt werden konnten. Bitte als neue PDF drucken.');
         }
         if (result.pdf.length > config.limits.maxFileBytes) throw new HttpError(413, 'Die PDF-Datei ist zu groß.');
         data = result.pdf;

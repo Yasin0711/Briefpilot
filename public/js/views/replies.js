@@ -2,7 +2,7 @@
 // und Rückfragen an die KI zum Brief. Grundsatz: Nichts wird ohne ausdrückliche Freigabe verschickt.
 import { html, mount } from '../html.js';
 import { api, download } from '../api.js';
-import { icon, toast, openDialog, showError, clearErrors, busy, confirmDialog, naStar } from '../ui.js';
+import { icon, toast, openDialog, showError, clearErrors, busy, confirmDialog, naStar, scroller } from '../ui.js';
 import { formatDate } from '../shared/dates.js';
 
 const SENT_VIA = { email: 'per E-Mail aus BriefPilot', post: 'per Post', eigenes_programm: 'mit eigenem E-Mail-Programm', kopiert: 'Text kopiert' };
@@ -347,9 +347,9 @@ export function bindAssistant(root, ctx) {
       try {
         const res = await api.post(`/api/letters/${letterId}/ask`, { question });
         getData().messages = res.messages;
-        const y = window.scrollY;
+        const y = scroller().scrollTop;
         await reload();
-        window.scrollTo(0, y);
+        scroller().scrollTop = y;
         const last = root.querySelector('[data-chat-list] .chat-msg:last-child');
         last?.scrollIntoView({ block: 'nearest' });
         root.querySelector('#ask-q')?.focus({ preventScroll: true });

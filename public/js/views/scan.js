@@ -486,7 +486,14 @@ export async function render({ root, query, state, navigate, refreshMe }) {
           };
           if (role === 'seite' && !p.fileId) {
             text.textContent = `Seite ${i + 1} von ${pages.length} wird sicher übertragen …`;
-            const res = await api.upload(p.blob, onProgress);
+            let res;
+            try {
+              res = await api.upload(p.blob, onProgress);
+            } catch (err) {
+              // Bei vielen Dateien sagen, welche nicht geklappt hat
+              err.message = `${p.kind === 'pdf' && p.name ? `„${p.name}“` : `Seite ${i + 1}`}: ${err.message}`;
+              throw err;
+            }
             p.fileId = res.id;
             p.duplicate = res.duplicateOf || null;
             if (res.sanitized) toast(res.sanitized.message);
@@ -520,7 +527,7 @@ export async function render({ root, query, state, navigate, refreshMe }) {
         toast('Brief gespeichert. Er wird jetzt gelesen.');
         navigate(`/briefe/${id}`);
       } catch (err) {
-        text.textContent = `${err.message} Sie können es erneut versuchen – bereits übertragene Seiten werden nicht doppelt gesendet.`;
+        text.textContent = err.message;
         toast(err.message, { error: true });
       } finally {
         uploading = false;

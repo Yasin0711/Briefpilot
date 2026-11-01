@@ -95,6 +95,11 @@ const PATHS = {
 const CATEGORY_ICON = { building: 'building', shield: 'shieldCat', heart: 'heart', house: 'house', briefcase: 'briefcase', pen: 'pen', receipt: 'receipt', bank: 'bank', folder: 'folder' };
 const KIND_ICON = { zahlung: 'euro', frist: 'hourglass', termin: 'calendar', aufgabe: 'tasks' };
 
+/** Der Bereich, der scrollt (die Seite selbst scrollt nicht – siehe .main-wrap im CSS). */
+export function scroller() {
+  return document.querySelector('.main-wrap') || document.scrollingElement;
+}
+
 export function icon(name, className = '') {
   const paths = PATHS[name] || PATHS.circle;
   return trusted(

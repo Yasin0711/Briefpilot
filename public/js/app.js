@@ -1,7 +1,7 @@
 // Einstiegspunkt der Oberfläche: Seitenwechsel (Router), Navigation, Anmeldestatus.
 import { html, mount } from './html.js';
 import { api, setUnauthorizedHandler } from './api.js';
-import { icon, LOGO } from './ui.js';
+import { icon, LOGO, scroller } from './ui.js';
 import * as auth from './views/auth.js';
 import * as overview from './views/overview.js';
 import * as letters from './views/letters.js';
@@ -152,7 +152,7 @@ async function route() {
   main.classList.toggle('wide', Boolean(match.wide));
   const root = document.createElement('div');
   main.replaceChildren(root);
-  window.scrollTo(0, 0);
+  scroller().scrollTop = 0;
   try {
     const result = await match.view({ root, params, query, state, navigate, refreshMe, isCurrent: () => token === renderToken });
     if (token === renderToken && typeof result === 'function') cleanup = result;

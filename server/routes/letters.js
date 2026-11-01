@@ -26,7 +26,8 @@ const LIST_SELECT = `
     (SELECT COUNT(*) FROM tasks t WHERE t.letter_id = l.id AND t.status = 'offen') AS open_tasks,
     (SELECT COUNT(*) FROM tasks t WHERE t.letter_id = l.id AND t.status = 'zu_pruefen') AS review_tasks,
     (SELECT MIN(t.due_date) FROM tasks t WHERE t.letter_id = l.id AND t.status = 'offen' AND t.due_date IS NOT NULL) AS next_due,
-    (SELECT COALESCE(SUM(f.page_count), 0) FROM files f WHERE f.letter_id = l.id AND f.role = 'seite') AS page_count
+    (SELECT COALESCE(SUM(f.page_count), 0) FROM files f WHERE f.letter_id = l.id AND f.role = 'seite') AS page_count,
+    (SELECT f.id || ':' || f.kind || ':' || f.size FROM files f WHERE f.letter_id = l.id AND f.role = 'seite' ORDER BY f.position LIMIT 1) AS first_file
   FROM letters l`;
 
 const parseJson = (value, fallback) => {

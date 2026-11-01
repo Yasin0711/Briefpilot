@@ -2,6 +2,7 @@
 import { html, mount } from './html.js';
 import { api, setUnauthorizedHandler } from './api.js';
 import { icon, LOGO, scroller } from './ui.js';
+import { installLetterThumbs } from './pdfview.js';
 import * as auth from './views/auth.js';
 import * as overview from './views/overview.js';
 import * as letters from './views/letters.js';
@@ -227,4 +228,5 @@ async function start() {
 }
 
 export { applyTextSize, applyTheme };
+installLetterThumbs();
 start();

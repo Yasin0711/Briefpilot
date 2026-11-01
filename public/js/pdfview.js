@@ -137,3 +137,63 @@ export function hydratePdfViews(root) {
     });
   }
 }
+
+// ---------- Kleine Vorschau der ersten Seite (Briefliste) ----------
+// Erst versucht der Server ein Vorschaubild (Foto bzw. eingebettetes Scan-Bild). Gibt es keins
+// (z. B. digital erstelltes PDF), zeichnet pdf.js die erste Seite – nur bei nicht zu großen Dateien.
+const THUMB_MAX_BYTES = 8 * 1024 * 1024;
+const thumbCache = new Map(); // fileId → dataURL
+let thumbQueue = Promise.resolve();
+
+function renderPdfThumb(fileId, width = 160) {
+  if (thumbCache.has(fileId)) return Promise.resolve(thumbCache.get(fileId));
+  // nacheinander, damit das Telefon nicht mehrere PDFs gleichzeitig lädt
+  const job = thumbQueue.then(async () => {
+    const m = await lib();
+    const doc = await m.getDocument({
+      url: `/api/files/${fileId}`, withCredentials: true, isEvalSupported: false, enableXfa: false,
+      disableRange: true, disableStream: true, disableAutoFetch: true, standardFontDataUrl: `${BASE}standard_fonts/`,
+    }).promise;
+    try {
+      const page = await doc.getPage(1);
+      const base = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: (width * Math.min(window.devicePixelRatio || 1, 2)) / base.width });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      const url = canvas.toDataURL('image/jpeg', 0.8);
+      thumbCache.set(fileId, url);
+      return url;
+    } finally {
+      doc.destroy();
+    }
+  });
+  thumbQueue = job.catch(() => {});
+  return job;
+}
+
+/**
+ * Einmal beim Start: Vorschaubilder [data-letter-thumb] überall in der App behandeln.
+ * Fehlt das Server-Vorschaubild, zeichnet pdf.js die erste Seite (nur PDFs bis 8 MB).
+ */
+export function installLetterThumbs() {
+  document.addEventListener('load', (e) => {
+    if (e.target.matches?.('img[data-letter-thumb]')) e.target.closest('.letter-thumb')?.classList.add('is-loaded');
+  }, true);
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (!img.matches?.('img[data-letter-thumb]') || img.dataset.fallback) return;
+    img.dataset.fallback = '1';
+    const { fileId, kind, size } = img.dataset;
+    if (kind !== 'pdf' || Number(size) > THUMB_MAX_BYTES) return;
+    renderPdfThumb(fileId).then((url) => {
+      if (img.isConnected) img.src = url;
+    }).catch(() => {});
+  }, true);
+}
+
+/** Bereits gezeichnete Vorschau sofort verwenden (kein erneuter Server-Versuch). */
+export function cachedThumb(fileId) {
+  return thumbCache.get(fileId) || null;
+}

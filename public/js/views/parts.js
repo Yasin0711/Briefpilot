@@ -1,9 +1,10 @@
 // Gemeinsame Bausteine für Briefe, Zuordnung und Akten (ohne Abhängigkeit zu anderen Ansichten).
 import { html } from '../html.js';
-import { icon, categoryTile } from '../ui.js';
+import { icon } from '../ui.js';
 import { objectType } from '../shared/constants.js';
 import { identifierKindLabel } from '../shared/identifiers.js';
 import { formatDate } from '../shared/dates.js';
+import { cachedThumb } from '../pdfview.js';
 
 export function objectIconName(type) {
   return objectType(type).icon || 'folder';
@@ -13,6 +14,16 @@ export function objectIconName(type) {
 export function objectTile(type, { large = false } = {}) {
   const t = objectType(type);
   return html`<span class="cat-tile obj-tile ${large ? 'is-large' : ''}" title="${t.label}">${icon(objectIconName(type))}<span class="visually-hidden">${t.label}</span></span>`;
+}
+
+/** Kleine Vorschau der ersten Seite (statt Symbol-Kachel). */
+export function letterThumb(l) {
+  const f = l.firstFile;
+  const showable = f && (f.kind === 'image' || f.kind === 'pdf');
+  const src = showable ? (cachedThumb(f.id) || `/api/files/${f.id}/thumb`) : null;
+  return html`<span class="letter-thumb" aria-hidden="true">${src
+    ? html`<img src="${src}" alt="" loading="lazy" data-letter-thumb data-file-id="${f.id}" data-kind="${f.kind}" data-size="${f.size}">`
+    : ''}</span>`;
 }
 
 /** Kleine Kennzeichnungen der Akten eines Briefes. In Listenzeilen ohne Link (keine Links in Links). */
@@ -46,10 +57,10 @@ export function letterRow(l, { note = null } = {}) {
   if (l.assignmentStatus === 'neue_akte') badges.push(html`<span class="badge badge-review">${icon('folder')}Neue Akte?</span>`);
   if (l.duplicateStatus === 'verdacht') badges.push(html`<span class="badge badge-review">${icon('copy')}Doppelt?</span>`);
   return html`<li><a class="list-row" href="#/briefe/${l.id}">
-    ${categoryTile(l.category)}
+    ${letterThumb(l)}
     <span class="grow"><span class="row-title">${l.subject || 'Brief ohne Betreff'}</span>
       <span class="row-sub">${l.sender || 'Absender unbekannt'}</span><span class="row-sub">${dateText}</span>
-      ${l.objects?.length || badges.length || l.tags?.length ? html`<span class="row-meta">${objectChips(l.objects)}${(l.tags || []).slice(0, 3).map((t) => html`<span class="tag">#${t}</span>`)}${badges}</span>` : ''}
+      ${l.objects?.length || badges.length ? html`<span class="row-meta">${objectChips(l.objects)}${badges}</span>` : ''}
       ${note ? html`<span class="row-sub">${note}</span>` : ''}</span>
     ${icon('chevronRight', 'chev')}</a></li>`;
 }

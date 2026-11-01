@@ -1015,3 +1015,15 @@ a.tag:hover { color: var(--ink); }
 .scan-start { display: flex; flex-direction: column; gap: 12px; padding-top: 6vh; }
 .scan-start-main { min-height: 132px; flex-direction: column; gap: 8px; font-size: 1.25rem; }
 .scan-start-main svg { width: 40px; height: 40px; }
+
+/* Keine bunten Symbol-Kacheln (Kategorie/Akte) – wirkt ruhiger und weniger „KI-haft“ */
+.cat-tile { display: none !important; }
+.pro-list li { grid-template-columns: 1fr; }
+
+/* Briefliste: kleine Vorschau der ersten Seite */
+.letter-thumb {
+  flex: none; width: 44px; height: 58px; border-radius: 6px; overflow: hidden;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.letter-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; opacity: 0; transition: opacity 0.15s; }
+.letter-thumb.is-loaded img, .letter-thumb img[src^="data:"] { opacity: 1; }

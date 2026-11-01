@@ -55,7 +55,15 @@ export function serializeLetterSummary(row) {
     duplicateStatus: row.duplicate_status || null,
     personId: row.person_id || null,
     tags: parseJson(row.tags_json, []),
+    firstFile: firstFileOf(row.first_file),
   };
+}
+
+/** Erste Seite eines Briefes für Vorschauen: „id:kind:size“ → { id, kind, size } */
+function firstFileOf(value) {
+  if (!value) return undefined;
+  const [id, kind, size] = String(value).split(':');
+  return id ? { id, kind, size: Number(size) || 0 } : undefined;
 }
 
 export function serializeLetter(row) {

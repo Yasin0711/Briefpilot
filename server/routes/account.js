@@ -48,6 +48,7 @@ export function registerAccountRoutes(router, ctx) {
       }
       if (s.emailReminders !== undefined) next.emailReminders = s.emailReminders === true;
       if (s.notificationDetails !== undefined) next.notificationDetails = s.notificationDetails === true;
+      if (s.autoConfirmFacts !== undefined) next.autoConfirmFacts = s.autoConfirmFacts === true;
       updates.settings = JSON.stringify(next);
     }
     const keys = Object.keys(updates);
@@ -152,7 +153,7 @@ export function registerAccountRoutes(router, ctx) {
     entries.unshift({ name: 'daten.json', data: JSON.stringify(data, null, 2) });
     entries.unshift({
       name: 'LIESMICH.txt',
-      data: 'BriefPilot – Datenexport\n\ndaten.json enthält alle gespeicherten Angaben (Konto, Briefe, Erklärungen, Aufgaben, Erinnerungen, Akten mit Nummern, Zuordnungen, Personen, Adressen, Antwortbriefe, Fragen an die KI und Verlauf).\nIm Ordner „briefe“ liegen Ihre Originaldokumente, je Brief ein Unterordner.\n',
+      data: 'BriefPilot – Datenexport\n\ndaten.json enthält alle gespeicherten Angaben (Konto, Briefe, Erklärungen, Aufgaben, Erinnerungen, Ordner mit Nummern, Zuordnungen, Personen, Adressen, Antwortbriefe, Fragen an die KI und Verlauf).\nIm Ordner „briefe“ liegen Ihre Originaldokumente, je Brief ein Unterordner.\n',
     });
     const zip = createZip(entries);
     logSecurityEvent(db, user.id, 'daten_exportiert');

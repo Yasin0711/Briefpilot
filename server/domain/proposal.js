@@ -1,5 +1,5 @@
-// Vorschlag für eine neue Akte („Ordner“), wenn ein Brief zu keiner vorhandenen Akte passt.
-// Der Vorschlag wird nur angezeigt – angelegt wird die Akte erst, wenn der Nutzer zustimmt.
+// Vorschlag für eine neuer Ordner („Ordner“), wenn ein Brief zu keiner vorhandenen Ordner passt.
+// Der Vorschlag wird nur angezeigt – angelegt wird den Ordner erst, wenn der Nutzer zustimmt.
 import { objectType } from '../../public/js/shared/constants.js';
 import { identifierKind } from '../../public/js/shared/identifiers.js';
 
@@ -25,7 +25,7 @@ function find(ids, ...kinds) {
   return ids.find((i) => kinds.includes(i.kind));
 }
 
-/** Leitet Art und Namen der Akte aus dem Brief ab. Gibt null zurück, wenn kein sinnvoller Vorschlag möglich ist. */
+/** Leitet Art und Namen des Ordners aus dem Brief ab. Gibt null zurück, wenn kein sinnvoller Vorschlag möglich ist. */
 export function proposeObject(letter, identifiers = []) {
   const summary = parseJson(letter.summary_json, {}) || {};
   if (letter.injection_warning || /unseriös|betrug|gewinnspiel|fake/i.test(`${summary.what || ''} ${(summary.toCheck || []).join(' ')}`)) return null;
@@ -95,7 +95,7 @@ export function proposeObject(letter, identifiers = []) {
   }
   if (!name) return null;
 
-  // Nummern, die sich die neue Akte merken soll (nur passende Arten, keine Vorgangsnummern)
+  // Nummern, die sich die neuer Ordner merken soll (nur passende Arten, keine Vorgangsnummern)
   const hints = objectType(type).hints || [];
   const learn = ids
     .filter((i) => identifierKind(i.kind).level === 'objekt' && (hints.includes(i.kind) || ['kundennummer', 'vertragsnummer'].includes(i.kind)))

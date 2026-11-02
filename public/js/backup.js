@@ -1,4 +1,4 @@
-// Sicherung auf diesem Gerät (IndexedDB): Konto, Einstellungen, Briefe, Akten – und alle Dateien.
+// Sicherung auf diesem Gerät (IndexedDB): Konto, Einstellungen, Briefe, Ordner – und alle Dateien.
 // Der kostenlose Server verliert bei jedem Neustart seine Daten. Fehlt das Konto dort, spielt die
 // App diese Kopie automatisch wieder ein (siehe restoreFromDevice).
 import { api } from './api.js';

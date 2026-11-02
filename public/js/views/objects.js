@@ -1,4 +1,4 @@
-// Akten: Liste (gruppiert nach Art) und Detailansicht mit Nummern, Vorgängen, Briefen und Aufgaben.
+// Ordner: Liste (gruppiert nach Art) und Detailansicht mit Nummern, Vorgängen, Briefen und Aufgaben.
 import { html, mount, trusted } from '../html.js';
 import { api } from '../api.js';
 import { icon, toast, confirmDialog, openDialog, showError, clearErrors, busy } from '../ui.js';
@@ -16,7 +16,7 @@ function idSummary(identifiers = []) {
   return current.map((i) => i.value).join(' · ');
 }
 
-// ---------- Liste (wie „Dateien“: Ordner und Akten als Kacheln) ----------
+// ---------- Liste (wie „Dateien“: Ordner und Ordner als Kacheln) ----------
 
 const SORTS = [
   { id: 'name', label: 'Name' },
@@ -25,9 +25,9 @@ const SORTS = [
 ];
 const SORT_KEY = 'bp-akten-sort';
 
-/** Ordner-Symbol wie in „Dateien“ (Ordner kräftiger, Akte heller). */
-function folderSvg(kind) {
-  return trusted(`<svg class="files-icon is-${kind}" viewBox="0 0 64 50" aria-hidden="true"><path class="back" d="M4 7a4 4 0 0 1 4-4h15.5a4 4 0 0 1 3 1.3L31 9h25a4 4 0 0 1 4 4v29a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z"/><path class="front" d="M4 17a4 4 0 0 1 4-4h48a4 4 0 0 1 4 4v25a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z"/></svg>`);
+/** Ordner-Symbol wie in „Dateien“. */
+function folderSvg() {
+  return trusted(`<svg class="files-icon" viewBox="0 0 64 50" aria-hidden="true"><path class="back" d="M4 7a4 4 0 0 1 4-4h15.5a4 4 0 0 1 3 1.3L31 9h25a4 4 0 0 1 4 4v29a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z"/><path class="front" d="M4 17a4 4 0 0 1 4-4h48a4 4 0 0 1 4 4v25a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z"/></svg>`);
 }
 
 function sortObjects(list, sort) {
@@ -40,7 +40,6 @@ function sortObjects(list, sort) {
 
 export async function renderList({ root, query, navigate, isCurrent }) {
   let q = query.get('q') || '';
-  let folderId = query.get('ordner') || '';
   let sort = 'name';
   try {
     sort = localStorage.getItem(SORT_KEY) || 'name';
@@ -51,16 +50,13 @@ export async function renderList({ root, query, navigate, isCurrent }) {
   let data = null;
 
   mount(root, html`<div class="stack-l">
-    <div class="page-head"><div><h1>Akten</h1></div>
-      <div class="row">
-        <button class="btn btn-small btn-secondary" type="button" data-new-folder>${icon('plus')}Ordner</button>
-        <button class="btn btn-small" type="button" data-new>${icon('plus')}Akte</button>
-      </div></div>
+    <div class="page-head"><div><h1>Ordner</h1></div>
+      <button class="btn btn-small" type="button" data-new>${icon('folderPlus')}Neuer Ordner</button></div>
     <div data-tabs>${briefeTabs('akten')}</div>
     <div class="search-row">
       <form class="search-box grow" role="search" data-search>
         ${icon('search')}
-        <label class="visually-hidden" for="oq">Akten durchsuchen</label>
+        <label class="visually-hidden" for="oq">Ordner durchsuchen</label>
         <input class="input" id="oq" name="q" type="search" placeholder="Suchen …" value="${q}" autocomplete="off">
       </form>
       <label class="visually-hidden" for="osort">Sortieren</label>
@@ -77,106 +73,28 @@ export async function renderList({ root, query, navigate, isCurrent }) {
     if (id !== requestId || !isCurrent()) return;
     setInboxCount(data.inbox);
     mount(root.querySelector('[data-tabs]'), briefeTabs('akten', { inbox: data.inbox }));
-    const params = new URLSearchParams();
-    if (q) params.set('q', q);
-    if (folderId) params.set('ordner', folderId);
-    const hash = `#/akten${params.toString() ? `?${params}` : ''}`;
+    const hash = `#/akten${q ? `?q=${encodeURIComponent(q)}` : ''}`;
     if (location.hash !== hash) history.replaceState(history.state, '', hash);
     draw();
   }
 
   function draw() {
-    const folders = data.folders || [];
-    const folder = folders.find((f) => f.id === folderId) || null;
-    if (folderId && !folder) folderId = '';
     const active = data.objects.filter((o) => o.status !== 'beendet');
     const ended = data.objects.filter((o) => o.status === 'beendet');
-    if (!data.objects.length && !folders.length) {
+    if (!data.objects.length) {
       mount(results, q
         ? html`<div class="empty">${icon('search')}<h2>Nichts gefunden</h2></div>`
-        : html`<div class="empty">${icon('folder')}<h2>Noch keine Akten</h2>
-          <button class="btn" type="button" data-new>${icon('plus')}Erste Akte anlegen</button></div>`);
+        : html`<div class="empty">${icon('folder')}<h2>Noch keine Ordner</h2>
+          <button class="btn" type="button" data-new>${icon('folderPlus')}Ersten Ordner anlegen</button></div>`);
       return;
     }
-    // Suche: alle Treffer; im Ordner: dessen Akten; sonst Ordner + Akten ohne Ordner
-    const shownFolders = q || folder ? [] : sortFolders(folders);
-    const objects = sortObjects(q ? active : active.filter((o) => (o.folderId || '') === (folder ? folder.id : '')), sort);
+    const tile = (o, extra = '') => html`<li><a class="files-item ${extra}" href="#/akten/${o.id}" data-ctx="folder" data-id="${o.id}" data-name="${o.name}">
+      ${folderSvg()}<span class="files-name">${o.name}</span>
+      <span class="files-sub">${o.status === 'beendet' ? 'beendet' : html`${o.letterCount === 1 ? '1 Brief' : `${o.letterCount || 0} Briefe`}${o.openTasks ? html` · <span class="files-open">${o.openTasks} offen</span>` : ''}`}</span></a></li>`;
     mount(results, html`
-      ${folder ? html`<div class="files-crumb row">
-        <button class="btn btn-ghost btn-small" type="button" data-open-folder="">${icon('chevronLeft')}Akten</button>
-        <h2 class="grow">${folder.name}</h2>
-        <button class="icon-btn" type="button" data-folder-edit aria-label="Ordner bearbeiten" title="Bearbeiten">${icon('edit')}</button>
-      </div>` : ''}
-      ${shownFolders.length || objects.length ? html`<ul class="files-grid">
-        ${shownFolders.map((f) => html`<li><button class="files-item" type="button" data-open-folder="${f.id}">
-          ${folderSvg('ordner')}<span class="files-name">${f.name}</span>
-          <span class="files-sub">${f.objectCount === 1 ? '1 Akte' : `${f.objectCount} Akten`}</span></button></li>`)}
-        ${objects.map((o) => html`<li><a class="files-item" href="#/akten/${o.id}">
-          ${folderSvg('akte')}<span class="files-name">${o.name}</span>
-          <span class="files-sub">${o.letterCount === 1 ? '1 Brief' : `${o.letterCount || 0} Briefe`}${o.openTasks ? html` · <span class="files-open">${o.openTasks} offen</span>` : ''}</span></a></li>`)}
-      </ul>` : html`<p class="muted">${folder ? 'Noch leer.' : 'Keine Akten.'}</p>`}
-      ${folder ? html`<p><button class="btn btn-small btn-secondary" type="button" data-folder-add>${icon('plus')}Akten hineinlegen</button></p>` : ''}
-      ${ended.length && !folder ? html`<details class="ended"><summary class="month-head">Beendete Akten (${ended.length})</summary>
-        <ul class="files-grid">${sortObjects(ended, sort).map((o) => html`<li><a class="files-item is-ended" href="#/akten/${o.id}">
-          ${folderSvg('akte')}<span class="files-name">${o.name}</span><span class="files-sub">beendet</span></a></li>`)}</ul></details>` : ''}`);
-  }
-
-  function sortFolders(folders) {
-    const byName = (a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' });
-    return sort === 'anzahl' ? [...folders].sort((a, b) => b.objectCount - a.objectCount || byName(a, b)) : [...folders].sort(byName);
-  }
-
-  /** Ordner anlegen oder bearbeiten: Name und welche Akten hineingehören. */
-  function folderDialog(folder = null) {
-    const all = sortObjects(data.objects, 'name');
-    const inFolder = new Set(all.filter((o) => folder && o.folderId === folder.id).map((o) => o.id));
-    openDialog(html`<form class="dialog-body stack" novalidate>
-      <h2>${folder ? 'Ordner bearbeiten' : 'Neuer Ordner'}</h2>
-      <div class="field"><label for="fd-name">Name</label>
-        <input class="input" id="fd-name" name="name" maxlength="80" required value="${folder?.name || ''}" placeholder="z. B. Familie, Haus, Arbeit"></div>
-      ${all.length ? html`<fieldset class="field"><legend class="field-label">Akten in diesem Ordner</legend>
-        <div class="folder-pick">${all.map((o) => html`<label class="check"><input type="checkbox" name="obj" value="${o.id}" ${inFolder.has(o.id) ? 'checked' : ''}><span>${o.name}</span></label>`)}</div>
-      </fieldset>` : ''}
-      <div class="row"><button class="btn" type="submit">${icon('check')}Speichern</button>
-        <button class="btn btn-secondary" type="button" data-close>Abbrechen</button>
-        ${folder ? html`<button class="btn btn-ghost" type="button" data-delete-folder>${icon('trash')}Ordner löschen</button>` : ''}</div>
-    </form>`, (dialog, close) => {
-      const form = dialog.querySelector('form');
-      dialog.querySelector('[data-close]').addEventListener('click', () => close());
-      dialog.querySelector('[data-delete-folder]')?.addEventListener('click', async () => {
-        try {
-          await api.del(`/api/folders/${folder.id}`);
-          close();
-          toast('Ordner gelöscht. Die Akten bleiben erhalten.');
-          folderId = '';
-          await load();
-        } catch (err) {
-          toast(err.message, { error: true });
-        }
-      });
-      form.addEventListener('submit', async (ev) => {
-        ev.preventDefault();
-        clearErrors(form);
-        const name = form.querySelector('[name=name]').value.trim();
-        const chosen = [...form.querySelectorAll('[name=obj]:checked')].map((c) => c.value);
-        const removed = [...inFolder].filter((oid) => !chosen.includes(oid));
-        await busy(form.querySelector('[type=submit]'), async () => {
-          try {
-            const res = folder
-              ? await api.patch(`/api/folders/${folder.id}`, { name, objectIds: chosen })
-              : await api.post('/api/folders', { name, objectIds: chosen });
-            for (const oid of removed) await api.patch(`/api/objects/${oid}`, { folderId: null });
-            close();
-            toast(folder ? 'Ordner gespeichert.' : 'Ordner angelegt.');
-            folderId = res.folder.id;
-            forgetObjects();
-            await load();
-          } catch (err) {
-            showError(form, err);
-          }
-        });
-      });
-    });
+      ${active.length ? html`<ul class="files-grid">${sortObjects(active, sort).map((o) => tile(o))}</ul>` : html`<p class="muted">Keine Ordner.</p>`}
+      ${ended.length ? html`<details class="ended"><summary class="month-head">Beendete Ordner (${ended.length})</summary>
+        <ul class="files-grid">${sortObjects(ended, sort).map((o) => tile(o, 'is-ended'))}</ul></details>` : ''}`);
   }
 
   let debounce = null;
@@ -203,23 +121,8 @@ export async function renderList({ root, query, navigate, isCurrent }) {
     draw();
   });
   root.addEventListener('click', (e) => {
-    const open = e.target.closest('[data-open-folder]');
-    if (open) {
-      folderId = open.dataset.openFolder;
-      load().catch((err) => toast(err.message, { error: true }));
-      return;
-    }
-    if (e.target.closest('[data-new-folder]')) {
-      folderDialog();
-      return;
-    }
-    if (e.target.closest('[data-folder-edit], [data-folder-add]')) {
-      folderDialog((data.folders || []).find((f) => f.id === folderId));
-      return;
-    }
     if (e.target.closest('[data-new]')) {
       openObjectDialog({
-        prefill: { folderId },
         onSaved: (res) => {
           forgetObjects();
           navigate(`/akten/${res.object.id}`);
@@ -227,6 +130,8 @@ export async function renderList({ root, query, navigate, isCurrent }) {
       });
     }
   });
+  // Kontextmenü (langes Drücken) hat Änderungen gemacht → neu laden
+  root.addEventListener('bp:changed', () => load().catch(() => {}));
   await load();
   return () => clearTimeout(debounce);
 }
@@ -251,7 +156,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
     const objectIds = identifiers.filter((i) => !i.caseId);
     const t = objectType(o.type);
     mount(root, html`<div class="stack-l">
-      <p><a class="btn btn-ghost btn-small" href="#/akten">${icon('chevronLeft')}Alle Akten</a></p>
+      <p><a class="btn btn-ghost btn-small" href="#/akten">${icon('chevronLeft')}Alle Ordner</a></p>
       <header class="letter-head">
         ${objectTile(o.type, { large: true })}
         <div class="grow">
@@ -346,7 +251,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
   async function endObject() {
     const select = await otherObjectsSelect('successorId', 'Nachfolger (freiwillig)');
     openDialog(html`<form class="dialog-body stack" novalidate>
-      <h2>Akte beenden</h2>
+      <h2>Ordner beenden</h2>
       <p class="muted">Z. B. Auto verkauft oder Vertrag gekündigt. Die Briefe bleiben.</p>
       <div class="field"><label for="end-date">Beendet am</label><input class="input" type="date" id="end-date" name="endedAt" value="${today}" max="${today}"></div>
       ${select}
@@ -363,7 +268,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
           try {
             await api.patch(`/api/objects/${id}`, { status: 'beendet', endedAt: v.endedAt || null, successorId: v.successorId || null });
             close();
-            toast('Akte beendet.');
+            toast('Ordner beendet.');
             forgetObjects();
             await load();
           } catch (err) {
@@ -377,8 +282,8 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
   async function mergeObject() {
     const select = await otherObjectsSelect('targetId', 'Zusammenführen mit', { allowEmpty: false });
     openDialog(html`<form class="dialog-body stack" novalidate>
-      <h2>Akten zusammenführen</h2>
-      <p class="muted">Alle Briefe, Nummern und Vorgänge von „${data.object.name}“ wandern in die gewählte Akte. Danach gibt es „${data.object.name}“ nicht mehr. Briefe werden dabei nicht gelöscht.</p>
+      <h2>Ordner zusammenführen</h2>
+      <p class="muted">Alle Briefe, Nummern und Vorgänge von „${data.object.name}“ wandern in den gewählten Ordner. Danach gibt es „${data.object.name}“ nicht mehr. Briefe werden dabei nicht gelöscht.</p>
       ${select}
       <div class="row"><button class="btn" type="submit">${icon('merge')}Zusammenführen</button><button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
     </form>`, (dialog, close) => {
@@ -392,7 +297,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
           try {
             await api.post(`/api/objects/${id}/merge`, { targetId });
             close();
-            toast('Akten zusammengeführt.');
+            toast('Ordner zusammengeführt.');
             forgetObjects();
             navigate(`/akten/${targetId}`);
           } catch (err) {
@@ -474,20 +379,20 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
         await endObject();
       } else if (act === 'reactivate') {
         await api.patch(`/api/objects/${id}`, { status: 'aktiv' });
-        toast('Akte ist wieder aktiv.');
+        toast('Ordner ist wieder aktiv.');
         forgetObjects();
         await load();
       } else if (act === 'merge') {
         await mergeObject();
       } else if (act === 'delete') {
         if (await confirmDialog({
-          title: 'Akte löschen?',
-          body: `Die Akte „${data.object.name}“ mit ihren Nummern und Vorgängen wird gelöscht. ${data.letters.length === 1 ? 'Der zugehörige Brief bleibt erhalten und wird' : data.letters.length ? `Die ${data.letters.length} zugehörigen Briefe bleiben erhalten und werden` : 'Briefe werden'} – wenn möglich – anderen Akten zugeordnet.`,
-          confirmLabel: 'Akte löschen', danger: true,
+          title: 'Ordner löschen?',
+          body: `Der Ordner „${data.object.name}“ mit seinen Nummern und Vorgängen wird gelöscht. ${data.letters.length === 1 ? 'Der zugehörige Brief bleibt erhalten und wird' : data.letters.length ? `Die ${data.letters.length} zugehörigen Briefe bleiben erhalten und werden` : 'Briefe werden'} – wenn möglich – anderen Ordnern zugeordnet.`,
+          confirmLabel: 'Ordner löschen', danger: true,
         })) {
           await api.del(`/api/objects/${id}`);
           forgetObjects();
-          toast('Akte gelöscht. Die Briefe sind weiterhin gespeichert.');
+          toast('Ordner gelöscht. Die Briefe sind weiterhin gespeichert.');
           navigate('/akten');
         }
       }
@@ -496,7 +401,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
       const idDel = e.target.closest('[data-id-delete]');
       if (idDel) {
         const item = data.identifiers.find((i) => i.id === idDel.dataset.idDelete);
-        if (await confirmDialog({ title: 'Nummer entfernen?', body: `${identifierKindLabel(item.kind)} „${item.value}“ wird aus der Akte entfernt. Bereits zugeordnete Briefe bleiben zugeordnet.`, confirmLabel: 'Entfernen', danger: true })) {
+        if (await confirmDialog({ title: 'Nummer entfernen?', body: `${identifierKindLabel(item.kind)} „${item.value}“ wird aus dem Ordner entfernt. Bereits zugeordnete Briefe bleiben zugeordnet.`, confirmLabel: 'Entfernen', danger: true })) {
           await api.del(`/api/identifiers/${item.id}`);
           forgetObjects();
           toast('Nummer entfernt.');
@@ -510,7 +415,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
       }
       const caseDel = e.target.closest('[data-case-delete]');
       if (caseDel) {
-        if (await confirmDialog({ title: 'Vorgang löschen?', body: 'Die Briefe bleiben in der Akte, nur die Bündelung als Vorgang entfällt.', confirmLabel: 'Löschen', danger: true })) {
+        if (await confirmDialog({ title: 'Vorgang löschen?', body: 'Die Briefe bleiben im Ordner, nur die Bündelung als Vorgang entfällt.', confirmLabel: 'Löschen', danger: true })) {
           await api.del(`/api/cases/${caseDel.dataset.caseDelete}`);
           await load();
         }

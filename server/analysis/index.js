@@ -1,6 +1,6 @@
 // Warteschlange für die Auswertung hochgeladener Briefe.
 // Ablauf: Dateien entschlüsseln → KI (falls eingerichtet und erlaubt) oder
-// Regel-Erkennung → Ergebnis prüfen (validate.js) → speichern → Akte zuordnen,
+// Regel-Erkennung → Ergebnis prüfen (validate.js) → speichern → Ordner zuordnen,
 // Duplikate prüfen, Verlauf schreiben.
 import { AiError } from './ai.js';
 import { prepareForAi, preparationNote } from './prepare.js';
@@ -9,6 +9,7 @@ import { analyzeWithRules } from './rules.js';
 import { normalizeAnalysis } from './validate.js';
 import { extractPdfText } from '../pdf/extract.js';
 import { saveAnalysis, markAnalysis } from '../domain/letters.js';
+import { userSettings } from '../domain/reminders.js';
 import { assignLetter, detectPerson } from '../domain/assignment.js';
 import { checkDuplicate } from '../domain/duplicates.js';
 import { logLetterEvent } from '../domain/events.js';
@@ -71,7 +72,7 @@ export function createAnalyzer({ db, storage, config, ai, log = console }) {
     return true;
   }
 
-  /** Nach jeder Auswertung: betroffene Person, Akte, Duplikate, Verlauf. */
+  /** Nach jeder Auswertung: betroffene Person, Ordner, Duplikate, Verlauf. */
   function afterAnalysis(letterId, { source, model }) {
     const letter = db.get('SELECT * FROM letters WHERE id = ?', letterId);
     if (!letter) return;
@@ -120,6 +121,7 @@ export function createAnalyzer({ db, storage, config, ai, log = console }) {
         result.full_text = fullText;
         const analysis = normalizeAnalysis(result, { fullText, today, source: 'ki' });
         saveAnalysis(db, letterId, analysis, { source: 'ki', model });
+        autoConfirm(letterId, user, analysis);
         afterAnalysis(letterId, { source: 'ki', model });
         log.info(`[Auswertung] Brief ausgewertet · Quelle=ki · Dateien=${files.length} · Aufgaben=${analysis.actions.length} · ${Date.now() - started} ms`);
         return;
@@ -159,14 +161,14 @@ export function createAnalyzer({ db, storage, config, ai, log = console }) {
     const fullText = texts.join('\n\n').trim();
     if (fullText.replace(/\s|-|Seite \d+/g, '').length < 40) {
       let reason;
-      if (encrypted) reason = 'Dieses PDF ist verschlüsselt. Der Text kann nicht gelesen werden.';
+      if (encrypted) reason = 'PDF ist verschlüsselt – nicht lesbar.';
       else if (quotaNote) reason = photos
-        ? `${quotaNote.split(' Dieser Brief')[0]} Fotos können ohne KI nicht gelesen werden. Der Brief ist gespeichert – Sie können ihn später erneut auswerten lassen oder die Angaben selbst eintragen.`
+        ? `${quotaNote.split(' Dieser Brief')[0]} Später erneut auswerten oder Angaben selbst eintragen.`
         : quotaNote;
       else if (!config.ai.enabled) reason = photos
-        ? 'Fotos können nur mit KI-Texterkennung gelesen werden. Diese ist auf diesem Server nicht eingerichtet. Der Brief ist gespeichert – Sie können Absender, Datum und Aufgaben selbst eintragen.'
-        : 'Dieses PDF enthält keinen lesbaren Text (vermutlich ein Scan). Dafür wird die KI-Texterkennung benötigt, die auf diesem Server nicht eingerichtet ist. Sie können die Angaben selbst eintragen.';
-      else if (user.ai_consent !== 'ja') reason = 'Sie haben die KI-Auswertung nicht freigegeben. Ohne KI können Fotos und gescannte PDFs nicht gelesen werden. Sie können die KI in den Einstellungen freigeben oder die Angaben selbst eintragen.';
+        ? 'Fotos lesen braucht KI – Angaben bitte selbst eintragen.'
+        : 'Gescanntes PDF ohne Text – Angaben bitte selbst eintragen.';
+      else if (user.ai_consent !== 'ja') reason = 'KI nicht freigegeben (Einstellungen) – Angaben bitte selbst eintragen.';
       else reason = 'Der Brief konnte nicht gelesen werden.';
       markAnalysis(db, letterId, 'nicht_moeglich', reason);
       try {
@@ -194,8 +196,20 @@ export function createAnalyzer({ db, storage, config, ai, log = console }) {
     }
     const analysis = normalizeAnalysis(raw, { fullText, today, source: 'regeln' });
     saveAnalysis(db, letterId, analysis, { source: 'regeln', model: null });
+    autoConfirm(letterId, user, analysis);
     afterAnalysis(letterId, { source: 'regeln', model: null });
     log.info(`[Auswertung] Brief ausgewertet · Quelle=regeln · Dateien=${files.length} · Aufgaben=${analysis.actions.length} · ${Date.now() - started} ms`);
+  }
+
+  /**
+   * Einstellung „Erkannte Angaben automatisch übernehmen“: nur eindeutige Angaben (Absender,
+   * Briefdatum mit passender Textstelle). Fristen, Termine und Zustelldatum bleiben immer zu prüfen.
+   */
+  function autoConfirm(letterId, user, analysis) {
+    if (!userSettings(user).autoConfirmFacts) return;
+    if (analysis.injection || !analysis.sender || analysis.letterDateStatus !== 'erkannt') return;
+    const now = new Date().toISOString();
+    db.run("UPDATE letters SET reviewed_at = ?, letter_date_status = 'bestaetigt', updated_at = ? WHERE id = ? AND reviewed_at IS NULL", now, now, letterId);
   }
 
   return {

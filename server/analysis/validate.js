@@ -108,6 +108,16 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
     toCheck.push('Kein Briefdatum gefunden.');
   }
 
+  // Zustelldatum (gelber Brief): nur als Vorschlag, und nur wenn es wörtlich so im Brief steht
+  let deliveryDate = isValidIsoDate(r.delivery_date) ? r.delivery_date : null;
+  const deliveryQuote = strOrNull(r.delivery_quote, 300);
+  if (deliveryDate) {
+    const inQuote = parseGermanDates(deliveryQuote || '').map((d) => d.date).includes(deliveryDate);
+    const found = ['gefunden', 'aehnlich'].includes(verifyQuote(deliveryQuote, fullText));
+    const plausible = (!today || daysBetween(today, deliveryDate) <= 0) && (!letterDate || daysBetween(letterDate, deliveryDate) >= 0);
+    if (!inQuote || !found || !plausible || deliveryDate === letterDate) deliveryDate = null;
+  }
+
   const references = cleanList(r.references, (ref) => {
     const label = str(ref?.label, 80);
     const value = str(ref?.value, 120);
@@ -224,6 +234,8 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
     letterDate,
     letterDateStatus,
     letterDateQuote,
+    deliveryDate,
+    deliveryQuote: deliveryDate ? deliveryQuote : null,
     references,
     amounts,
     summary: {
@@ -252,7 +264,7 @@ function validEmail(value) {
 /**
  * Kennungen für die Zuordnung: Angaben der KI bzw. Regel-Erkennung plus eigene Suche im
  * Brieftext. Eine Nummer zählt nur, wenn sie im erkannten Text tatsächlich vorkommt –
- * so kann eine erfundene Nummer keinen Brief einer falschen Akte zuordnen.
+ * so kann eine erfundene Nummer keinen Brief einer falschen Ordner zuordnen.
  */
 export function buildIdentifiers(references, fullText, refSource = 'ki') {
   const compactText = normalizeIdentifier('sonstiges', fullText);

@@ -13,7 +13,7 @@ test('Sicherung holen, Server „verliert“ alles, Sicherung einspielen', async
   const up = await c.upload(pdf, 'application/pdf');
   const letter = (await c.post('/api/letters', { fileIds: [up.data.id] })).data;
   await a.app.ctx.analyzer.idle();
-  await c.post('/api/folders', { name: 'Haus' });
+  await c.post('/api/objects', { type: 'sonstiges', name: 'Haus', identifiers: [] });
   await c.patch('/api/me', { name: 'Onkel' }).catch(() => {});
   const { data: b } = await c.get('/api/backup');
   assert.ok(b.backup && b.sig);
@@ -45,7 +45,7 @@ test('Sicherung holen, Server „verliert“ alles, Sicherung einspielen', async
   const detail = (await d.get(`/api/letters/${letter.id}`)).data;
   assert.equal(detail.letter.id, letter.id);
   assert.equal((await d.get(`/api/files/${up.data.id}`)).status, 200);
-  assert.equal((await d.get('/api/folders')).data.folders[0].name, 'Haus');
+  assert.ok((await d.get('/api/objects')).data.objects.some((o) => o.name === 'Haus'));
   // Passwort gilt weiterhin
   const e = fresh.client();
   assert.equal((await e.post('/api/auth/login', { email, password: 'ein langes sicheres Passwort' })).status, 200);

@@ -26,7 +26,7 @@ function reviewRow(t, date, href) {
   const dateText = relative ? (t.relativeText || 'Frist ab Zugang') : date ? formatDate(date, { short: true }) : 'ohne Datum';
   const pickLabel = relative ? 'Zugang' : 'Frist';
   const pickValue = relative ? '' : (date || '');
-  return html`<li class="review-row">
+  return html`<li class="review-row" data-ctx="task" data-id="${t.id}" data-name="${t.title}">
     ${thumb(t)}
     <span class="grow review-main">
       ${href ? html`<a class="row-title" href="${href}">${t.title}</a>` : html`<span class="row-title">${t.title}</span>`}
@@ -38,6 +38,22 @@ function reviewRow(t, date, href) {
         <input type="date" data-pick="${t.id}" data-relative="${relative ? '1' : ''}" value="${pickValue}" aria-label="${relative ? 'Zugangsdatum wählen' : 'Datum ändern'}: ${t.title}">
       </label>
       <button class="btn btn-small" type="button" data-confirm="${t.id}" data-date="${relative ? '' : (date || '')}" data-received="" data-relative="${relative ? '1' : ''}">${icon('check')}Bestätigen</button>
+    </span>
+  </li>`;
+}
+
+/** Zustelldatum (gelber Brief) als Vorschlag: bestätigen oder anderes Datum wählen. */
+function deliveryRow(d) {
+  return html`<li class="review-row">
+    ${thumb({ letterId: d.letterId, letterFile: d.letterFile })}
+    <span class="grow review-main">
+      <a class="row-title" href="#/briefe/${d.letterId}">Zugestellt am ${formatDate(d.date, { short: true })}?</a>
+      <span class="row-sub">${d.subject || 'Brief'}${d.sender ? ` · ${d.sender}` : ''}</span>
+    </span>
+    <span class="review-actions">
+      <label class="date-pick" title="Anderes Datum">${icon('calendar')}<span>Datum</span>
+        <input type="date" data-delivery-pick="${d.letterId}" value="${d.date}" aria-label="Zustelldatum ändern"></label>
+      <button class="btn btn-small" type="button" data-delivery="${d.letterId}" data-date="${d.date}">${icon('check')}Bestätigen</button>
     </span>
   </li>`;
 }
@@ -67,11 +83,11 @@ export async function render({ root, query, isCurrent }) {
       <div class="tabs" role="tablist" aria-label="Status">
         ${TABS.map((t) => html`<button class="tab" role="tab" type="button" data-status="${t.id}" aria-selected="${t.id === status}">${t.label}${data.counts[t.id] ? ` (${data.counts[t.id]})` : ''}</button>`)}
       </div>
-      ${data.tasks.length ? html`<div class="panel panel-plain"><ul class="list">${data.tasks.map((t) => {
+      ${data.tasks.length || data.deliveries?.length ? html`<div class="panel panel-plain"><ul class="list">${status === 'zu_pruefen' ? (data.deliveries || []).map(deliveryRow) : ''}${data.tasks.map((t) => {
         const date = t.status === 'zu_pruefen' ? (t.isRelative ? null : t.suggestedDate) : t.dueDate;
         const href = t.letterId ? `#/briefe/${t.letterId}?aufgabe=${t.id}` : null;
         if (t.status === 'zu_pruefen') return reviewRow(t, date, href);
-        return html`<li class="deadline-row">
+        return html`<li class="deadline-row" data-ctx="task" data-id="${t.id}" data-name="${t.title}">
           ${thumb(t)}
           <span class="grow">
             ${href ? html`<a class="row-title" href="${href}">${t.title}</a>` : html`<span class="row-title">${t.title}</span>`}
@@ -93,6 +109,12 @@ export async function render({ root, query, isCurrent }) {
     </div>`);
   }
 
+  async function confirmDelivery(letterId, date) {
+    await api.patch(`/api/letters/${letterId}`, { receivedDate: date });
+    toast(`Zustellung: ${formatDate(date, { short: true })}`);
+    await load();
+  }
+
   async function confirmTask(taskId, { dueDate = null, receivedDate = null } = {}) {
     const body = { checked: true };
     if (receivedDate) body.receivedDate = receivedDate;
@@ -112,6 +134,14 @@ export async function render({ root, query, isCurrent }) {
   // Datum im Kalender gewählt: nur vormerken – bestätigt wird erst mit „Bestätigen“.
   // (Auf dem iPhone feuert die Datumsauswahl schon beim Drehen am Rad.)
   root.addEventListener('change', (e) => {
+    const dp = e.target.closest('[data-delivery-pick]');
+    if (dp?.value) {
+      const btn = root.querySelector(`[data-delivery="${dp.dataset.deliveryPick}"]`);
+      btn.dataset.date = dp.value;
+      btn.closest('li').querySelector('.row-title').textContent = `Zugestellt am ${formatDate(dp.value, { short: true })}?`;
+      btn.classList.add('is-ready');
+      return;
+    }
     const pick = e.target.closest('[data-pick]');
     if (!pick || !pick.value) return;
     const id = pick.dataset.pick;
@@ -136,6 +166,9 @@ export async function render({ root, query, isCurrent }) {
         status = tab.dataset.status;
         await load();
         root.querySelector(`[data-status="${status}"]`)?.focus();
+      } else if (e.target.closest('[data-delivery]')) {
+        const btn = e.target.closest('[data-delivery]');
+        await confirmDelivery(btn.dataset.delivery, btn.dataset.date);
       } else if (e.target.closest('[data-confirm]')) {
         const btn = e.target.closest('[data-confirm]');
         if (btn.dataset.relative && btn.dataset.received) {

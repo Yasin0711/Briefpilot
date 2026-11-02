@@ -177,7 +177,7 @@ export function featureStatus(config) {
     },
     {
       id: 'akten', label: 'Objektakten und automatische Zuordnung', state: 'echt',
-      detail: 'Echt: Briefe werden anhand eindeutiger Nummern (Kennzeichen, Vertrags-, Zählernummer …) Akten zugeordnet. Unklare Fälle landen zur Prüfung im Eingang.',
+      detail: 'Echt: Briefe werden anhand eindeutiger Nummern (Kennzeichen, Vertrags-, Zählernummer …) Ordner zugeordnet. Unklare Fälle landen zur Prüfung im Eingang.',
     },
     config.smtp.enabled
       ? { id: 'email', label: 'E-Mail-Versand', state: 'echt', detail: 'Echt: Versand über den eingerichteten SMTP-Server.' }

@@ -15,6 +15,11 @@ const EVENT_LABELS = {
   daten_exportiert: 'Daten exportiert', andere_geraete_abgemeldet: 'Andere Geräte abgemeldet',
 };
 
+function calendarUrl(token, scheme) {
+  const url = `${location.host}/api/calendar/${token}.ics`;
+  return scheme === 'webcal' ? `webcal://${url}` : `${location.protocol}//${url}`;
+}
+
 function b64ToUint8(base64) {
   const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
   return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
@@ -230,6 +235,25 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         </form>
       </section>
 
+      <section class="panel stack settings-section" aria-labelledby="s-pruefen">
+        <h2 id="s-pruefen">Prüfen</h2>
+        <label class="check"><input type="checkbox" name="autoConfirmFacts" ${s.autoConfirmFacts ? 'checked' : ''}>
+          <span>Erkannte Angaben automatisch als korrekt übernehmen<br><span class="small muted">Fristen und Zustelldatum bleiben immer zu prüfen.</span></span></label>
+      </section>
+
+      <section class="panel stack settings-section" aria-labelledby="s-kalender">
+        <h2 id="s-kalender">Kalender</h2>
+        ${me.isDemo ? html`<p class="small na-row">Kalender-Abo${naStar('Im Demomodus nicht verfügbar')}</p>` : s.calendarToken ? html`
+          <p class="muted">Bestätigte Fristen erscheinen im iPhone-Kalender.</p>
+          <div class="row">
+            <a class="btn" href="${calendarUrl(s.calendarToken, 'webcal')}">${icon('calendar')}Im Kalender abonnieren</a>
+            <button class="btn btn-secondary" type="button" data-action="cal-copy">${icon('copy')}Link kopieren</button>
+            <button class="btn btn-ghost" type="button" data-action="cal-off">Beenden</button>
+          </div>` : html`
+          <p class="muted">Bestätigte Fristen automatisch im iPhone-Kalender.</p>
+          <p><button class="btn btn-secondary" type="button" data-action="cal-on">${icon('calendar')}Kalender verbinden</button></p>`}
+      </section>
+
       <section class="panel stack settings-section" aria-labelledby="s-push">
         <h2 id="s-push">Benachrichtigungen auf diesem Gerät</h2>
         <p class="muted">Zusätzlich zur Startseite.</p>
@@ -300,7 +324,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
 
       <section class="panel stack settings-section" aria-labelledby="s-pro">
         <h2 id="s-pro">BriefPilot Pro</h2>
-        <p class="muted">Kalender-Abgleich, Familienprofile mit Freigaben und mehr – als Vorschau.</p>
+        <p class="muted">Familienprofile mit Freigaben und mehr – als Vorschau.</p>
         <p><a class="btn btn-secondary" href="#/pro">${icon('star')}Pro-Vorschau ansehen</a></p>
       </section>
 
@@ -309,7 +333,37 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
     showBackupInfo();
   }
 
-  root.addEventListener('change', (e) => {
+  root.addEventListener('change', async (e) => {
+    if (e.target.name === 'autoConfirmFacts') {
+      const on = e.target.checked;
+      let hinted = false;
+      try {
+        hinted = localStorage.getItem('bp-autoconfirm-hint') === '1';
+      } catch {
+        hinted = false;
+      }
+      if (on && !hinted) {
+        const ok = await confirmDialog({ title: 'Automatisch übernehmen?', body: 'Eindeutig erkannte Angaben gelten dann ohne Prüfung. Fristen und Zustelldatum prüfen Sie weiter selbst.', confirmLabel: 'Einschalten' });
+        if (!ok) {
+          e.target.checked = false;
+          return;
+        }
+        try {
+          localStorage.setItem('bp-autoconfirm-hint', '1');
+        } catch {
+          /* Speicher nicht verfügbar */
+        }
+      }
+      try {
+        await api.patch('/api/me', { settings: { autoConfirmFacts: on } });
+        await refreshMe();
+        toast(on ? 'Eingeschaltet.' : 'Ausgeschaltet.');
+      } catch (err) {
+        e.target.checked = !on;
+        toast(err.message, { error: true });
+      }
+      return;
+    }
     if (e.target.name === 'textsize') {
       try {
         localStorage.setItem('bp-textsize', e.target.value);
@@ -366,7 +420,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         const item = isPerson ? persons.find((x) => x.id === el.dataset.personDelete) : addresses.find((x) => x.id === el.dataset.addressDelete);
         if (await confirmDialog({
           title: isPerson ? 'Person entfernen?' : 'Adresse entfernen?',
-          body: `„${isPerson ? item.name : item.label}“ wird aus dem Haushalt entfernt. Briefe und Akten bleiben erhalten.`,
+          body: `„${isPerson ? item.name : item.label}“ wird aus dem Haushalt entfernt. Briefe und Ordner bleiben erhalten.`,
           confirmLabel: 'Entfernen', danger: true,
         })) {
           await api.del(isPerson ? `/api/persons/${item.id}` : `/api/addresses/${item.id}`);
@@ -390,6 +444,24 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         return;
       }
       const action = el.dataset.action;
+      if (action === 'cal-on' || action === 'cal-off') {
+        if (action === 'cal-off' && !(await confirmDialog({ title: 'Kalender-Abo beenden?', body: 'Der bisherige Link funktioniert dann nicht mehr.', confirmLabel: 'Beenden', danger: true }))) return;
+        await busy(el, async () => {
+          await api.post('/api/me/calendar', { off: action === 'cal-off' });
+          await refreshMe();
+          await draw();
+        });
+        return;
+      }
+      if (action === 'cal-copy') {
+        try {
+          await navigator.clipboard.writeText(calendarUrl(state.me.settings.calendarToken, 'https'));
+          toast('Link kopiert.');
+        } catch {
+          toast('Kopieren hat nicht geklappt.', { error: true });
+        }
+        return;
+      }
       if (action === 'backup-now') {
         await busy(el, async () => {
           const ok = await syncBackup(state.me, { force: true });

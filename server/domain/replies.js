@@ -219,6 +219,7 @@ export function serializeReply(row) {
     template: row.template,
     status: row.status,
     sentVia: row.sent_via,
+    savedLetterId: row.saved_letter_id || null,
     sentTo: row.sent_to,
     sentAt: row.sent_at,
     placeholders: (body.match(/\[[^\]\n]{2,80}\]/g) || []).length + ((row.subject || '').match(/\[[^\]\n]{2,80}\]/g) || []).length,

@@ -1113,3 +1113,58 @@ body.viewer-open { overflow: hidden; }
 /* Wiederherstellen vom Gerät */
 .restore-screen { min-height: 60vh; display: grid; place-content: center; justify-items: center; gap: 12px; text-align: center; }
 .restore-screen h1 { font-size: 1.3rem; }
+
+/* ---------- Briefansicht: erkannte Angaben links, Vorschau rechts ---------- */
+.facts-preview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (min-width: 760px) { .facts-preview { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.facts-actions { display: inline-flex; gap: 6px; }
+.icon-btn-primary { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.icon-btn-primary:hover:not(:disabled) { background: var(--ink); filter: brightness(1.08); }
+.icon-btn.is-done { display: inline-grid; place-items: center; background: var(--done-bg); border-color: transparent; color: var(--done); }
+.preview-panel { padding: 10px; }
+.pager-stage { display: flex; justify-content: center; background: var(--surface-2); border-radius: 10px; min-height: 220px; align-items: center; cursor: zoom-in; overflow: hidden; }
+.pager-stage canvas, .pager-stage img { display: block; width: 100%; height: auto; background: #fff; }
+.pager-bar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.pager-label { min-width: 6.5em; text-align: center; }
+.upload-note { font-size: 0.75rem; color: var(--muted); text-align: center; margin-top: 8px; }
+.folder-pick-btn { min-height: 34px; }
+
+/* Erklärung · Aufgaben · Antwort als getrennte Schaltflächen */
+.letter-tabs { background: var(--paper); padding: 4px 0; gap: 8px; border-radius: 0; }
+.letter-tabs .tab { border: 1.5px solid var(--line-strong); background: var(--surface); border-radius: 12px; color: var(--ink-strong); }
+.letter-tabs .tab[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: var(--on-ink); box-shadow: none; }
+.letter-tabs .tab[aria-selected="true"] .tab-count { background: var(--on-ink); color: var(--ink); }
+
+/* Ordnerauswahl */
+.pick-list { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow-y: auto; display: grid; gap: 4px; }
+.pick-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 8px 12px; border: 0; border-radius: 10px; background: var(--surface-2); color: var(--ink-strong); font: inherit; text-align: left; cursor: pointer; }
+.pick-item svg { width: 20px; height: 20px; flex: none; color: var(--ink); }
+.pick-item.is-on { background: var(--open-bg); }
+.inbox-pager { margin-top: 10px; max-width: 420px; }
+.inbox-pager .pager-stage { min-height: 160px; max-height: 320px; align-items: flex-start; }
+.title-link { color: inherit; text-decoration: none; }
+
+/* Auswahlblatt wie iOS (Plus-Menü, Kontextmenü) */
+dialog.sheet {
+  margin: auto auto 0; width: min(560px, 100vw); max-width: 100vw; max-height: 80vh; padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
+  border: 0; border-radius: 18px 18px 0 0; background: transparent; box-shadow: none;
+}
+dialog.sheet::backdrop { background: rgba(10, 16, 24, 0.35); }
+.sheet-body { display: grid; gap: 8px; }
+.sheet-title { text-align: center; font-size: 0.8rem; color: var(--muted); padding: 4px 0 0; background: var(--surface); border-radius: 14px 14px 0 0; margin-bottom: -8px; padding-bottom: 6px; }
+.sheet-group { display: grid; background: var(--surface); border-radius: 14px; overflow: hidden; }
+.sheet-title + .sheet-group { border-radius: 0 0 14px 14px; }
+.sheet-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 54px; padding: 0 18px; border: 0; background: var(--surface);
+  color: var(--ink); font: inherit; font-size: 1.02rem; text-align: left; cursor: pointer; border-top: 1px solid var(--line);
+}
+.sheet-group > .sheet-item:first-child { border-top: 0; }
+.sheet-item svg { width: 22px; height: 22px; flex: none; }
+.sheet-item.is-danger { color: var(--danger); }
+.sheet-cancel { justify-content: center; font-weight: 600; border-radius: 14px; border-top: 0; }
+@media (min-width: 960px) { dialog.sheet { margin: auto; border-radius: 18px; } }
+/* Langes Drücken: kein Text-Markieren / iOS-Vorschau auf Briefen, Ordnern, Aufgaben */
+[data-ctx] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+
+.reply-actions { display: flex; gap: .25rem; justify-content: flex-end; }
+.suggest-row { display: inline-flex; align-items: center; gap: .4rem; flex-wrap: wrap; }

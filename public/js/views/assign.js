@@ -1,4 +1,4 @@
-// Zuordnung eines Briefes zu Akten: Auswahl mit Nachweisen, Nummern merken, neue Akte, keine Akte.
+// Zuordnung eines Briefes zu Ordner: Auswahl mit Nachweisen, Nummern merken, neuer Ordner, kein Ordner.
 // Wird im Eingang „Zuordnen“ und in der Brief-Ansicht verwendet.
 import { html, mount } from '../html.js';
 import { api } from '../api.js';
@@ -9,7 +9,7 @@ import { objectTile, evidenceList, identifierStatusBadge } from './parts.js';
 import { openObjectDialog, guessType, objectLevelIdentifiers } from './objectDialog.js';
 
 let objectsCache = null;
-/** Alle Akten (für „andere Akte wählen“); wird nach Änderungen neu geladen. */
+/** Alle Ordner (für „anderen Ordner wählen“); wird nach Änderungen neu geladen. */
 export async function loadObjects({ fresh = false } = {}) {
   if (!objectsCache || fresh) objectsCache = (await api.get('/api/objects')).objects;
   return objectsCache;
@@ -23,7 +23,7 @@ function reassignedText(r) {
   return r.zugeordnet === 1 ? ' Ein weiterer Brief wurde dadurch zugeordnet.' : ` ${r.zugeordnet} weitere Briefe wurden dadurch zugeordnet.`;
 }
 
-/** Nummern aus dem Brief, die sich eine Akte merken kann (nicht schon als Treffer genutzt). */
+/** Nummern aus dem Brief, die sich einen Ordner merken kann (nicht schon als Treffer genutzt). */
 function learnable(identifiers, candidate) {
   const matched = new Set((candidate?.evidence || [])
     .filter((e) => e.type === 'kennung' && e.match !== 'aehnlich')
@@ -42,7 +42,11 @@ function learnable(identifiers, candidate) {
 export function mountDecision(container, { letter, assignment, current = [], onDone, onCancel }) {
   const info = assignment || {};
   const identifiers = info.identifiers || [];
-  const candidates = [...(info.candidates || [])];
+  // Höchstens EINE Empfehlung (die beste); bereits zugeordnete Ordner bleiben sichtbar.
+  // Weitere Ordner lassen sich über „Anderen Ordner wählen“ hinzufügen.
+  const allCandidates = [...(info.candidates || [])];
+  const best = allCandidates.find((c) => !current.includes(c.objectId));
+  const candidates = [...allCandidates.filter((c) => current.includes(c.objectId)), ...(best ? [best] : [])];
   const selected = new Set(current.length ? current : candidates.filter((c) => c.preselected).map((c) => c.objectId));
   let learnChecked = null; // Set der gewählten Nummern (Schlüssel = value); null = Vorgabe
   let allObjects = null;
@@ -56,12 +60,12 @@ export function mountDecision(container, { letter, assignment, current = [], onD
     const others = (allObjects || []).filter((o) => !candidates.some((c) => c.objectId === o.id));
     mount(container, html`<div class="decision stack">
       ${info.proposal && !candidates.length && !current.length ? html`<div class="proposal panel stack">
-        <div class="field"><label for="proposal-${letter.id}">Neue Akte (${info.proposal.typeLabel})</label>
+        <div class="field"><label for="proposal-${letter.id}">Neuer Ordner (${info.proposal.typeLabel})</label>
           <input class="input" id="proposal-${letter.id}" data-proposal-name maxlength="120" value="${info.proposal.name}"></div>
-        <div class="row"><button class="btn" type="button" data-accept-proposal>${icon('check')}Akte anlegen und Brief ablegen</button></div>
+        <div class="row"><button class="btn" type="button" data-accept-proposal>${icon('check')}Ordner anlegen und Brief ablegen</button></div>
       </div>` : ''}
       ${candidates.length ? html`<fieldset class="choices">
-        <legend class="visually-hidden">Mögliche Akten</legend>
+        <legend class="visually-hidden">Mögliche Ordner</legend>
         ${candidates.map((c) => html`<label class="choice ${selected.has(c.objectId) ? 'is-on' : ''}">
           <input type="checkbox" value="${c.objectId}" data-choice ${selected.has(c.objectId) ? 'checked' : ''}>
           <span class="choice-check" aria-hidden="true">${icon('check')}</span>
@@ -71,20 +75,20 @@ export function mountDecision(container, { letter, assignment, current = [], onD
           ${c.evidence?.length ? html`<span class="choice-evidence">${evidenceList(c.evidence)}</span>` : ''}
         </label>`)}
       </fieldset>
-      ${candidates.length > 1 ? html`<p class="small muted">Mehrere Akten möglich.</p>` : ''}`
-        : html`<p class="muted">${current.length ? '' : 'BriefPilot hat keine passende Akte gefunden.'}</p>`}
+`
+        : html`<p class="muted">${current.length ? '' : 'BriefPilot hat keinen passenden Ordner gefunden.'}</p>`}
 
       <div class="field decision-other">
-        <label for="other-${letter.id}">${candidates.length ? 'Andere Akte wählen' : 'Akte wählen'}</label>
+        <label for="other-${letter.id}">${candidates.length ? 'Anderen Ordner wählen' : 'Ordner wählen'}</label>
         ${allObjects === null
-          ? html`<button class="btn btn-secondary btn-small" type="button" data-load-objects>${icon('folder')}Alle Akten anzeigen</button>`
+          ? html`<button class="btn btn-secondary btn-small" type="button" data-load-objects>${icon('folder')}Alle Ordner anzeigen</button>`
           : others.length
             ? html`<select class="input" id="other-${letter.id}" data-other>
-                <option value="">Akte auswählen …</option>
+                <option value="">Ordner auswählen …</option>
                 ${OBJECT_TYPES.filter((t) => others.some((o) => o.type === t.id)).map((t) => html`<optgroup label="${t.plural}">
                   ${others.filter((o) => o.type === t.id).map((o) => html`<option value="${o.id}">${o.name}${o.status === 'beendet' ? ' (beendet)' : ''}</option>`)}</optgroup>`)}
               </select>`
-            : html`<p class="small muted">Keine weiteren Akten vorhanden.</p>`}
+            : html`<p class="small muted">Keine weiteren Ordner vorhanden.</p>`}
       </div>
 
       ${toLearn.length ? html`<fieldset class="learn">
@@ -96,9 +100,9 @@ export function mountDecision(container, { letter, assignment, current = [], onD
       </fieldset>` : ''}
 
       <div class="row">
-        <button class="btn" type="button" data-save ${selected.size ? '' : 'disabled'}>${icon('check')}${selected.size > 1 ? `${selected.size} Akten zuordnen` : 'Zuordnen'}</button>
-        <button class="btn btn-secondary" type="button" data-new>${icon('plus')}Neue Akte</button>
-        <button class="btn btn-ghost" type="button" data-none>Gehört zu keiner Akte</button>
+        <button class="btn" type="button" data-save ${selected.size ? '' : 'disabled'}>${icon('check')}${selected.size > 1 ? `${selected.size} Ordner zuordnen` : 'Zuordnen'}</button>
+        <button class="btn btn-secondary" type="button" data-new>${icon('plus')}Neuer Ordner</button>
+        <button class="btn btn-ghost" type="button" data-none>Gehört zu keinem Ordner</button>
         ${onCancel ? html`<button class="btn btn-ghost" type="button" data-cancel>Abbrechen</button>` : ''}
       </div>
     </div>`);
@@ -172,7 +176,7 @@ export function mountDecision(container, { letter, assignment, current = [], onD
     }
     const noneBtn = e.target.closest('[data-none]');
     if (noneBtn) {
-      await save(noneBtn, { objectIds: [], none: true }, 'Gespeichert: Der Brief gehört zu keiner Akte.');
+      await save(noneBtn, { objectIds: [], none: true }, 'Gespeichert: Der Brief gehört zu keinem Ordner.');
       return;
     }
     const acceptBtn = e.target.closest('[data-accept-proposal]');
@@ -185,7 +189,7 @@ export function mountDecision(container, { letter, assignment, current = [], onD
             identifiers: (info.proposal.identifiers || []).map((i) => ({ kind: i.kind, value: i.value, status: 'aktuell' })),
           });
           forgetObjects();
-          toast(`Akte „${name}“ angelegt – der Brief liegt jetzt dort.${reassignedText(res.reassigned)}`);
+          toast(`Ordner „${name}“ angelegt – der Brief liegt jetzt dort.${reassignedText(res.reassigned)}`);
           onDone?.(res);
         } catch (err) {
           toast(err.message, { error: true });

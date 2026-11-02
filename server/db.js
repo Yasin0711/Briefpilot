@@ -218,7 +218,7 @@ const MIGRATIONS = [
   );
   CREATE INDEX idx_objects_user ON objects(user_id);
 
-  -- Vorgänge innerhalb einer Akte (eine Rechnung, ein Schadenfall, ein Antrag …)
+  -- Vorgänge innerhalb einem Ordner (eine Rechnung, ein Schadenfall, ein Antrag …)
   CREATE TABLE cases (
     id          TEXT PRIMARY KEY,
     user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -231,7 +231,7 @@ const MIGRATIONS = [
   );
   CREATE INDEX idx_cases_object ON cases(object_id);
 
-  -- Kennungen einer Akte oder eines Vorgangs (Kennzeichen, Vertrags-, Zählernummer …)
+  -- Kennungen einem Ordner oder eines Vorgangs (Kennzeichen, Vertrags-, Zählernummer …)
   -- status/valid_*: alte und neue Nummern, Fahrzeug- und Zählerwechsel, Vertragsverlängerung
   CREATE TABLE identifiers (
     id                TEXT PRIMARY KEY,
@@ -252,7 +252,7 @@ const MIGRATIONS = [
   CREATE INDEX idx_identifiers_lookup ON identifiers(user_id, normalized);
   CREATE INDEX idx_identifiers_object ON identifiers(object_id);
 
-  -- Verknüpfung Brief ↔ Akte (ein Brief kann mehrere Akten betreffen) mit Nachweis
+  -- Verknüpfung Brief ↔ Ordner (ein Brief kann mehrere Ordner betreffen) mit Nachweis
   CREATE TABLE letter_links (
     id             TEXT PRIMARY KEY,
     user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -332,7 +332,7 @@ const MIGRATIONS = [
   ALTER TABLE letters ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';
   `,
   `
-  -- Eigene Ordner für Akten (wie Ordner in „Dateien“)
+  -- Eigene Ordner für Ordner (wie Ordner in „Dateien“)
   CREATE TABLE folders (
     id          TEXT PRIMARY KEY,
     user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -341,6 +341,19 @@ const MIGRATIONS = [
   );
   CREATE INDEX idx_folders_user ON folders(user_id);
   ALTER TABLE objects ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL;
+  `,
+  `
+  -- Vereinfachung: Es gibt nur noch Ordner (bisher „Akten“) und Briefe.
+  -- Die übergeordneten Sammel-Ordner entfallen; die Akten selbst bleiben als Ordner erhalten.
+  UPDATE objects SET folder_id = NULL;
+  DELETE FROM folders;
+  `,
+  `
+  -- Antwort als Dokument im Ordner gespeichert (damit erneutes Speichern ersetzt statt verdoppelt)
+  ALTER TABLE replies ADD COLUMN saved_letter_id TEXT;
+  -- Zustelldatum (gelber Brief): Vorschlag der KI, erst nach Bestätigung gültig
+  ALTER TABLE letters ADD COLUMN received_suggested TEXT;
+  ALTER TABLE letters ADD COLUMN received_suggested_quote TEXT;
   `,
 ];
 

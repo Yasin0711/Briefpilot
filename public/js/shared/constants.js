@@ -46,6 +46,7 @@ export const DEFAULT_SETTINGS = {
   reminderTime: '08:00',
   emailReminders: false,
   notificationDetails: false,
+  autoConfirmFacts: false,
 };
 
 export const ANALYSIS_SOURCE_LABELS = {
@@ -71,10 +72,10 @@ export const OBJECT_TYPES = [
   { id: 'bank', label: 'Bankkonto', plural: 'Konten', pick: 'das richtige', icon: 'bank', category: 'bank', hints: ['iban', 'kundennummer', 'vertragsnummer'] },
   { id: 'kredit', label: 'Kredit / Darlehen', plural: 'Verträge', pick: 'den richtigen', icon: 'bank', category: 'bank', hints: ['darlehensnummer', 'vertragsnummer'] },
   { id: 'wohnen', label: 'Wohnung / Immobilie', plural: 'Objekte', pick: 'das richtige', icon: 'house', category: 'wohnen', hints: ['objektadresse', 'wohnungsnummer', 'mietvertragsnummer'] },
-  { id: 'behoerde', label: 'Behörde / Amt', plural: 'Akten', pick: 'die richtige', icon: 'building', category: 'behoerden', hints: ['aktenzeichen', 'steuernummer'] },
+  { id: 'behoerde', label: 'Behörde / Amt', plural: 'Ordner', pick: 'den richtigen', icon: 'building', category: 'behoerden', hints: ['aktenzeichen', 'steuernummer'] },
   { id: 'bestellung', label: 'Bestellung / Händler', plural: 'Bestellungen', pick: 'die richtige', icon: 'receipt', category: 'rechnungen', hints: ['bestellnummer', 'kundennummer', 'rechnungsnummer'] },
   { id: 'vertrag', label: 'Sonstiger Vertrag', plural: 'Verträge', pick: 'den richtigen', icon: 'pen', category: 'vertraege', hints: ['vertragsnummer', 'kundennummer'] },
-  { id: 'sonstiges', label: 'Sonstiges', plural: 'Akten', pick: 'die richtige', icon: 'folder', category: 'sonstiges', hints: ['sonstiges'] },
+  { id: 'sonstiges', label: 'Sonstiges', plural: 'Ordner', pick: 'den richtigen', icon: 'folder', category: 'sonstiges', hints: ['sonstiges'] },
 ];
 export const OBJECT_TYPE_IDS = OBJECT_TYPES.map((t) => t.id);
 export function objectType(id) {
@@ -112,6 +113,6 @@ export const ASSIGNMENT_STATUS = {
   zugeordnet: 'Zugeordnet',
   pruefen: 'Zuordnung prüfen',
   vorschlag: 'Vorschlag prüfen',
-  keine: 'Keine passende Akte',
-  ohne: 'Ohne Akte',
+  keine: 'Kein passender Ordner',
+  ohne: 'Ohne Ordner',
 };

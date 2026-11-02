@@ -54,7 +54,7 @@ export async function renderPrivacy({ root, state }) {
       <ul class="tips">
         <li><strong>Konto:</strong> E-Mail-Adresse, freiwillig Ihr Vorname, Ihr Passwort nur als sicherer Prüfwert (nicht im Klartext).</li>
         <li><strong>Briefe:</strong> die gescannten Seiten bzw. PDFs (verschlüsselt), auf Ihren Wunsch zusätzlich die unbearbeiteten Originalfotos, der erkannte Text, die Erklärung, erkannte Angaben wie Absender, Datum und Nummern, der Verlauf (z. B. „zugeordnet“, „Antwort versendet“).</li>
-        <li><strong>Akten und Haushalt:</strong> Ihre Akten mit Nummern (z. B. Kennzeichen, Vertrags- oder Zählernummer), Vorgänge, Zuordnungen der Briefe sowie Personen und Adressen, die Sie eintragen.</li>
+        <li><strong>Ordner und Haushalt:</strong> Ihre Ordner mit Nummern (z. B. Kennzeichen, Vertrags- oder Zählernummer), Vorgänge, Zuordnungen der Briefe sowie Personen und Adressen, die Sie eintragen.</li>
         <li><strong>Antworten und Fragen:</strong> Ihre Antwortentwürfe, versendete Antworten (mit Empfänger und Zeitpunkt) und Ihre Fragen an die KI mit den Antworten.</li>
         <li><strong>Aufgaben und Erinnerungen:</strong> was Sie bestätigt oder selbst eingetragen haben.</li>
         <li><strong>Geräte:</strong> eine grobe Gerätebezeichnung (z. B. „iPhone · Safari“) und wann Sie zuletzt aktiv waren.</li>
@@ -89,11 +89,10 @@ export async function renderPrivacy({ root, state }) {
 
 // Vierter Wert: true = bereits verfügbar (aus der Vorschau in die App übernommen)
 const PRO_FEATURES = [
-  ['calendar', 'Kalender-Abgleich', 'Bestätigte Termine automatisch mit Apple Kalender, Google Kalender oder Outlook abgleichen – nur nach Ihrer Freigabe. Heute schon möglich: einzelne Termine als Kalenderdatei herunterladen.'],
   ['pen', 'Antwortentwürfe', 'Im Brief unter „Antwort“: Vorlagen (z. B. Fristverlängerung, Widerspruch, Kündigung) oder ein KI-Entwurf, den Sie selbst bearbeiten.', true],
   ['file', 'Antwort als PDF', 'Den Entwurf bearbeiten und als druckfertiges PDF (DIN-Brief mit Falzmarken) herunterladen.', true],
   ['send', 'Antwort per E-Mail', 'Im eigenen E-Mail-Programm öffnen oder – wenn ein Mailserver eingerichtet ist – direkt senden. Immer erst nach Ihrer ausdrücklichen Freigabe.', true],
-  ['link', 'Akten und Vorgänge', 'Briefe werden anhand von Kennzeichen, Vertrags- und Zählernummern automatisch der richtigen Akte zugeordnet; zusammengehörige Briefe bilden Vorgänge.', true],
+  ['link', 'Ordner und Vorgänge', 'Briefe werden anhand von Kennzeichen, Vertrags- und Zählernummern automatisch dem richtigen Ordner zugeordnet; zusammengehörige Briefe bilden Vorgänge.', true],
   ['list', 'Fehlende Unterlagen', 'Eine Checkliste, welche Unterlagen ein Amt oder eine Versicherung noch von Ihnen braucht.'],
   ['translate', 'Übersetzen', 'Briefe in Ihre Sprache übersetzen und in einfacher Sprache erklären.'],
   ['users', 'Familienprofile', 'Getrennte Unterlagen für Familienmitglieder – mit gezielten Freigaben. Schon heute: Personen und Adressen im Haushalt (Einstellungen → Haushalt).'],

@@ -5,6 +5,7 @@ import { html, mount } from '../html.js';
 import { api } from '../api.js';
 import { icon, toast, formatBytes, busy, openDialog, formatUploaded, naStar } from '../ui.js';
 import { liveCameraAvailable, openCamera } from '../scanner/camera.js';
+import { takePendingFiles } from '../pending.js';
 import { openEditor } from '../scanner/editor.js';
 import { FILTERS, MAX_SOURCE_SIDE, decodeImage, toCanvas, detectCorners, renderPage, cleanOriginal, imageproc } from '../scanner/processing.js';
 
@@ -533,7 +534,7 @@ export async function render({ root, query, state, navigate, refreshMe }) {
           saved = true;
           pages.forEach((p) => p.thumb && URL.revokeObjectURL(p.thumb));
           toast('Seiten hinzugefügt. Der Brief wird neu gelesen.');
-          navigate(`/briefe/${targetLetter}?ansicht=original`);
+          navigate(`/briefe/${targetLetter}`);
           return;
         }
         text.textContent = 'Brief wird angelegt …';
@@ -642,9 +643,15 @@ export async function render({ root, query, state, navigate, refreshMe }) {
   window.addEventListener('beforeunload', onBeforeUnload);
 
   draw();
+  // Über das Plus-Menü gewählte Dateien übernehmen
+  const pending = takePendingFiles();
+  if (pending?.files?.length) {
+    if (pending.fromCamera) addFiles(pending.files, { fromCameraApp: true });
+    else handlePicked(pending.files);
+  }
   // Direkt in den Scanner – außer beim Hochladen von Dateien oder solange die KI-Frage offen ist
   const consentOpen = state.status?.ai?.enabled && !['ja', 'nein'].includes(state.me.aiConsent);
-  if (query.get('modus') !== 'datei' && !consentOpen && liveCameraAvailable()) startCamera();
+  if (!pending && query.get('modus') !== 'datei' && !consentOpen && liveCameraAvailable()) startCamera();
   return () => {
     controller.abort();
     window.removeEventListener('beforeunload', onBeforeUnload);

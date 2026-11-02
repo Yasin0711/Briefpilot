@@ -8,8 +8,8 @@
 /**
  * scope:  'global' = praktisch eindeutig (Kennzeichen, FIN, Zählernummer, MaLo-ID …)
  *         'issuer' = nur zusammen mit dem passenden Absender aussagekräftig (Rechnungs-, Kundennummer …)
- * level:  'objekt' = kennzeichnet eine Akte (Fahrzeug, Zähler, Vertrag)
- *         'vorgang' = kennzeichnet einen Vorgang innerhalb einer Akte (Rechnung, Schadenfall)
+ * level:  'objekt' = kennzeichnet einen Ordner (Fahrzeug, Zähler, Vertrag)
+ *         'vorgang' = kennzeichnet einen Vorgang innerhalb einem Ordner (Rechnung, Schadenfall)
  * weight: Grundgewicht für die Zuordnung (exakter Treffer, passender Kontext)
  */
 export const IDENTIFIER_KINDS = [
@@ -215,7 +215,7 @@ export function orgKey(name) {
   return orgTokens(name).join(' ');
 }
 
-/** Passt der Absender eines Briefes zum Vertragspartner einer Akte? 'ja' | 'nein' | 'unbekannt' */
+/** Passt der Absender eines Briefes zum Vertragspartner einem Ordner? 'ja' | 'nein' | 'unbekannt' */
 export function orgMatches(a, b) {
   const ta = new Set(orgTokens(a));
   const tb = new Set(orgTokens(b));

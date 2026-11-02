@@ -63,7 +63,7 @@ const PATHS = {
   rotateRight: '<path d="M21 4v6h-6"/><path d="M18.5 15a8 8 0 1 1-1.9-8.3L21 10"/>',
   crop: '<path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M2 6h14a2 2 0 0 1 2 2v14"/>',
   image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>',
-  // Akten und Arten
+  // Ordner und Arten
   car: '<path d="M5 17H3v-5l2-5h14l2 5v5h-2"/><path d="M3 12h18"/><circle cx="7.5" cy="17" r="2"/><circle cx="16.5" cy="17" r="2"/><path d="M9.5 17h5"/>',
   flame: '<path d="M12 21c-4 0-7-2.8-7-6.5 0-3.2 2.3-5.3 3.5-7 .4 1.6 1.4 2.8 2.5 3.3C11 7.5 12.5 5 15 3c.5 3 4 5.6 4 10.5 0 4.2-3 7.5-7 7.5z"/>',
   drop: '<path d="M12 3s-6 6.6-6 11a6 6 0 0 0 12 0c0-4.4-6-11-6-11z"/>',
@@ -71,6 +71,7 @@ const PATHS = {
   box: '<path d="m12 3 9 4.5v9L12 21l-9-4.5v-9z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/>',
   tag: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/>',
   hash: '<path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/>',
+  folderPlus: '<path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M12 11v5M9.5 13.5h5"/>',
   folderOpen: '<path d="M3 18V6a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v2"/><path d="M3 18 6 11h16l-3 7z"/>',
   moveTo: '<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 13h7M13 10l3 3-3 3"/>',
   inbox: '<path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z"/>',
@@ -80,6 +81,8 @@ const PATHS = {
   chat: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9.5h8M8 12.5h5"/>',
   reply: '<path d="m9 7-5 5 5 5"/><path d="M4 12h10a6 6 0 0 1 6 6v1"/>',
   history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
+  share: '<path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/>',
+  save: '<path d="M5 3h11l4 4v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
   printer: '<path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/>',
   merge: '<path d="M6 3v4a6 6 0 0 0 6 6v8"/><path d="M18 3v4a6 6 0 0 1-6 6"/><path d="m9 18 3 3 3-3"/>',
@@ -292,4 +295,42 @@ export function formatUploaded(isoString) {
 /** Stern für Funktionen, die zurzeit nicht verfügbar sind (statt erklärendem Text). Antippen → Übersicht „Was funktioniert?“. */
 export function naStar(title = 'Zurzeit nicht verfügbar') {
   return html`<a class="na-star" href="#/status" title="${title}" aria-label="${title}">*</a>`;
+}
+
+/**
+ * Auswahlblatt wie in iOS (von unten): für das Plus-Menü und das Kontextmenü (langes Drücken).
+ * actions: [{ label, icon, danger?, onSelect?: () => void, file?: { accept, multiple?, capture?, onFiles: (File[]) => void } }]
+ */
+export function actionSheet({ title = '', actions = [] }) {
+  const { dialog, close } = openDialog(html`<div class="sheet-body">
+    ${title ? html`<p class="sheet-title">${title}</p>` : ''}
+    <div class="sheet-group">${actions.map((a, i) => a.file
+      ? html`<label class="sheet-item">${icon(a.icon || 'file')}<span>${a.label}</span>
+          <input class="visually-hidden" type="file" data-sheet-file="${i}" accept="${a.file.accept || ''}" ${a.file.multiple ? 'multiple' : ''} ${a.file.capture ? html`capture="${a.file.capture}"` : ''}></label>`
+      : html`<button class="sheet-item ${a.danger ? 'is-danger' : ''}" type="button" data-sheet="${i}">${icon(a.icon || 'chevronRight')}<span>${a.label}</span></button>`)}</div>
+    <button class="sheet-item sheet-cancel" type="button" data-sheet-cancel>Abbrechen</button>
+  </div>`, (dlg, done) => {
+    dlg.classList.add('sheet');
+    dlg.addEventListener('click', (e) => {
+      if (e.target === dlg || e.target.closest('[data-sheet-cancel]')) {
+        done();
+        return;
+      }
+      const btn = e.target.closest('[data-sheet]');
+      if (btn) {
+        done();
+        actions[Number(btn.dataset.sheet)].onSelect?.();
+      }
+    });
+    dlg.addEventListener('change', (e) => {
+      const input = e.target.closest('[data-sheet-file]');
+      if (!input?.files?.length) return;
+      const files = [...input.files];
+      done();
+      actions[Number(input.dataset.sheetFile)].file.onFiles(files);
+    });
+  });
+  // Kein Fokus-Rahmen auf dem ersten Eintrag
+  dialog.querySelector('[data-sheet-cancel]')?.focus({ preventScroll: true });
+  return close;
 }

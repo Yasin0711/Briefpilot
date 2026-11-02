@@ -2,7 +2,8 @@
 // und Rückfragen an die KI zum Brief. Grundsatz: Nichts wird ohne ausdrückliche Freigabe verschickt.
 import { html, mount } from '../html.js';
 import { api, download } from '../api.js';
-import { icon, toast, openDialog, showError, clearErrors, busy, confirmDialog, naStar, scroller } from '../ui.js';
+import { icon, toast, openDialog, showError, clearErrors, busy, confirmDialog, naStar, scroller, actionSheet } from '../ui.js';
+import { shareFile } from '../context.js';
 import { formatDate } from '../shared/dates.js';
 
 const SENT_VIA = { email: 'per E-Mail aus BriefPilot', post: 'per Post', eigenes_programm: 'mit eigenem E-Mail-Programm', kopiert: 'Text kopiert' };
@@ -22,7 +23,7 @@ async function loadSuggestions(letterId) {
   }
 }
 
-// ---------- Weitere Unterlagen als Bezug (andere Briefe, ganze Akten) ----------
+// ---------- Weitere Unterlagen als Bezug (andere Briefe, ganze Ordner) ----------
 const refStore = new Map(); // Brief-ID → { letters: Map(id → Titel), objects: Map(id → Name) }
 function refsOf(letterId) {
   if (!refStore.has(letterId)) refStore.set(letterId, { letters: new Map(), objects: new Map() });
@@ -36,7 +37,7 @@ function refChips(letterId) {
   const r = refsOf(letterId);
   const chip = (kind, id, label) => html`<span class="tag ref-chip">${label}<button type="button" data-ref-remove="${kind}:${id}" aria-label="${label} entfernen">${icon('x')}</button></span>`;
   return html`<span class="small muted">Bezug:</span><span class="tag">Dieser Brief</span>
-    ${[...r.objects].map(([id, name]) => chip('o', id, `Akte: ${name}`))}
+    ${[...r.objects].map(([id, name]) => chip('o', id, `Ordner: ${name}`))}
     ${[...r.letters].map(([id, title]) => chip('l', id, title))}
     <button class="tag tag-edit" type="button" data-ref-pick>${icon('plus')}Unterlagen</button>`;
 }
@@ -118,7 +119,7 @@ export function repliesPanel(data, state) {
 
 function replyCard(r, aiReady = false) {
   const sent = r.status === 'gesendet';
-  return html`<article class="reply-card ${sent ? 'is-sent' : ''}" data-reply="${r.id}">
+  return html`<article class="reply-card ${sent ? 'is-sent' : ''}" data-reply="${r.id}" data-ctx="reply" data-id="${r.id}" data-name="${r.subject}">
     <div class="row">
       ${sent ? html`<span class="badge badge-done">${icon('check')}Versendet ${SENT_VIA[r.sentVia] || ''}${r.sentAt ? ` am ${formatDate(r.sentAt.slice(0, 10))}` : ''}</span>`
         : html`<span class="badge badge-open">${icon('edit')}Entwurf</span>`}
@@ -133,14 +134,10 @@ function replyCard(r, aiReady = false) {
       <button class="btn btn-small" type="submit">${icon('spark')}Ändern</button>
     </form>` : ''}
     ${!sent && r.placeholders ? html`<p class="task-notes">${icon('alert')}<span>Noch ${r.placeholders === 1 ? 'eine Stelle' : `${r.placeholders} Stellen`} in [eckigen Klammern] ausfüllen.</span></p>` : ''}
-    <div class="row">
-      ${!sent ? html`<button class="btn btn-small" type="button" data-reply-act="edit">${icon('edit')}Bearbeiten</button>` : ''}
-      ${!sent && aiReady ? html`<button class="btn btn-small btn-secondary" type="button" data-reply-act="variants">${icon('spark')}Weitere Entwürfe</button>` : ''}
-      <button class="btn btn-small btn-secondary" type="button" data-reply-act="pdf">${icon('printer')}PDF</button>
-      <button class="btn btn-small btn-secondary" type="button" data-reply-act="copy">${icon('copy')}Text kopieren</button>
-      ${!sent ? html`<button class="btn btn-small btn-secondary" type="button" data-reply-act="email">${icon('send')}Per E-Mail …</button>
-        <button class="btn btn-small btn-ghost" type="button" data-reply-act="mark">${icon('check')}Als versendet markieren</button>
-        <button class="btn btn-small btn-ghost" type="button" data-reply-act="delete" aria-label="Entwurf löschen">${icon('trash')}</button>` : ''}
+    <div class="reply-actions">
+      ${!sent ? html`<button class="icon-btn" type="button" data-reply-act="edit" aria-label="Bearbeiten" title="Bearbeiten">${icon('edit')}</button>` : ''}
+      <button class="icon-btn" type="button" data-reply-act="share" aria-label="Teilen" title="Teilen">${icon('share')}</button>
+      <button class="icon-btn ${r.savedLetterId ? 'is-done' : ''}" type="button" data-reply-act="save" aria-label="Im Ordner speichern" title="${r.savedLetterId ? 'Im Ordner gespeichert' : 'Im Ordner speichern'}">${icon('save')}</button>
     </div>
   </article>`;
 }
@@ -176,7 +173,7 @@ export function chatPanel(data, state) {
 export function bindAssistant(root, ctx) {
   const { letterId, getData, reload, state } = ctx;
 
-  /** Auswahl weiterer Unterlagen: ganze Akten und einzelne Briefe. */
+  /** Auswahl weiterer Unterlagen: ganze Ordner und einzelne Briefe. */
   async function pickReferences() {
     let objects = [];
     let letters = [];
@@ -194,7 +191,7 @@ export function bindAssistant(root, ctx) {
     openDialog(html`<form class="dialog-body stack" novalidate>
       <h2>Unterlagen als Bezug</h2>
       <input class="input" type="search" placeholder="Suchen …" data-ref-filter aria-label="Unterlagen durchsuchen">
-      ${objects.length ? html`<fieldset class="field"><legend class="field-label">Ganze Akten</legend>
+      ${objects.length ? html`<fieldset class="field"><legend class="field-label">Ganze Ordner</legend>
         <div class="folder-pick">${objects.map((o) => html`<label class="check" data-ref-item="${o.name.toLowerCase()}"><input type="checkbox" name="o" value="${o.id}" data-label="${o.name}" ${r.objects.has(o.id) ? 'checked' : ''}><span>${o.name} <span class="muted small">(${o.letterCount || 0})</span></span></label>`)}</div>
       </fieldset>` : ''}
       ${letters.length ? html`<fieldset class="field"><legend class="field-label">Einzelne Briefe</legend>
@@ -224,6 +221,24 @@ export function bindAssistant(root, ctx) {
         const box = root.querySelector('[data-refs]');
         if (box) mount(box, refChips(letterId));
       });
+    });
+  }
+
+  const aiOn = () => Boolean(root.querySelector('[data-ai-reply]'));
+
+  function shareSheet(reply) {
+    const sent = reply.status === 'gesendet';
+    actionSheet({
+      title: reply.subject,
+      actions: [
+        { label: 'Als PDF teilen', icon: 'file', onSelect: () => shareFile(`/api/replies/${reply.id}/pdf`, 'antwort.pdf', reply.subject) },
+        { label: 'Text kopieren', icon: 'copy', onSelect: async () => toast((await copyText(plainText(reply))) ? 'Kopiert.' : 'Kopieren hat nicht geklappt.') },
+        { label: 'Drucken / PDF laden', icon: 'printer', onSelect: () => download(`/api/replies/${reply.id}/pdf`, 'antwort.pdf') },
+        ...(!sent ? [
+          { label: 'Per E-Mail', icon: 'send', onSelect: () => emailDialog(reply) },
+          { label: 'Als versendet markieren', icon: 'check', onSelect: () => markSent(reply) },
+        ] : []),
+      ],
     });
   }
 
@@ -283,11 +298,25 @@ export function bindAssistant(root, ctx) {
         </div>
       </details>
       <div class="row"><button class="btn" type="submit">${icon('check')}Entwurf speichern</button>
-        <button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
+        <button class="btn btn-secondary" type="button" data-close>Abbrechen</button>
+        ${aiOn() ? html`<button class="btn btn-ghost" type="button" data-variants>${icon('spark')}Weitere Entwürfe</button>` : ''}</div>
     </form>`, (dialog, close) => {
       dialog.classList.add('is-wide');
       const form = dialog.querySelector('form');
       dialog.querySelector('[data-close]').addEventListener('click', () => close());
+      dialog.querySelector('[data-variants]')?.addEventListener('click', async (ev) => {
+        await busy(ev.currentTarget, async () => {
+          try {
+            const res = await api.post(`/api/replies/${r.id}/variants`, { count: 3, ...refBody(letterId) });
+            close();
+            toast(`${res.replies.length} weitere Entwürfe.`);
+            await reload();
+            ctx.showTab?.('antworten');
+          } catch (err) {
+            toast(err.message, { error: true });
+          }
+        });
+      });
       form.addEventListener('submit', async (ev) => {
         ev.preventDefault();
         clearErrors(form);
@@ -534,26 +563,16 @@ export function bindAssistant(root, ctx) {
         case 'edit':
           openEditor(reply);
           break;
-        case 'variants':
+        case 'share':
+          shareSheet(reply);
+          break;
+        case 'save':
           await busy(act, async () => {
-            const res = await api.post(`/api/replies/${reply.id}/variants`, { count: 3, ...refBody(letterId) });
-            toast(`${res.replies.length} weitere Entwürfe erstellt.`);
+            const res = await api.post(`/api/replies/${reply.id}/save`, {});
+            toast(res.folders ? 'Im Ordner gespeichert.' : 'Gespeichert – unter Briefe.');
             await reload();
             ctx.showTab?.('antworten');
           });
-          break;
-        case 'pdf':
-          await download(`/api/replies/${reply.id}/pdf`, 'antwort.pdf');
-          toast('PDF heruntergeladen – zum Ausdrucken oder Anhängen.');
-          break;
-        case 'copy':
-          toast((await copyText(plainText(reply))) ? 'Text in die Zwischenablage kopiert.' : 'Kopieren hat nicht geklappt. Bitte den Text im Entwurf markieren und kopieren.', { error: false });
-          break;
-        case 'email':
-          emailDialog(reply);
-          break;
-        case 'mark':
-          markSent(reply);
           break;
         case 'delete':
           if (await confirmDialog({ title: 'Entwurf löschen?', body: `„${reply.subject}“ wird gelöscht.`, confirmLabel: 'Löschen', danger: true })) {

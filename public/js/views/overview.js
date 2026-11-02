@@ -77,7 +77,7 @@ function draw(root, state, data) {
     ${counts.inbox ? html`<a class="inbox-alert" href="#/zuordnen">
       <span class="alert-disc">${icon('inbox')}</span>
       <span class="grow"><span class="row-title">${counts.inbox === 1 ? '1 Brief wartet' : `${counts.inbox} Briefe warten`} auf Ihre Entscheidung</span>
-        <span class="row-sub">BriefPilot hat mehrere mögliche Akten gefunden. Bitte wählen Sie die richtige aus.</span></span>
+        <span class="row-sub">BriefPilot hat mehrere mögliche Ordner gefunden. Bitte wählen Sie den richtigen aus.</span></span>
       ${icon('chevronRight', 'chev')}</a>` : ''}
 
     ${aiOff ? html`<p class="small na-row">KI-Auswertung${naStar()}</p>` : ''}
@@ -95,7 +95,7 @@ function draw(root, state, data) {
       <a class="stat ${counts.tasksToReview ? 'is-review' : ''}" href="#/aufgaben?status=zu_pruefen">
         <strong>${counts.tasksToReview}</strong><span>${counts.tasksToReview === 1 ? 'Angabe' : 'Angaben'} zu prüfen</span></a>
       <a class="stat" href="#/aufgaben?status=offen"><strong>${counts.open}</strong><span>offene Aufgaben${counts.overdue ? html`, <span class="when is-overdue">${counts.overdue} überfällig</span>` : ''}</span></a>
-      <a class="stat" href="#/akten"><strong>${counts.objects}</strong><span>${counts.objects === 1 ? 'Akte' : 'Akten'}${counts.inbox ? html`, <span class="when is-soon">${counts.inbox} zuzuordnen</span>` : ''}</span></a>
+      <a class="stat" href="#/akten"><strong>${counts.objects}</strong><span>${counts.objects === 1 ? 'Ordner' : 'Ordner'}${counts.inbox ? html`, <span class="when is-soon">${counts.inbox} zuzuordnen</span>` : ''}</span></a>
       ${counts.duplicates
         ? html`<a class="stat is-review" href="#/briefe?filter=doppelt"><strong>${counts.duplicates}</strong><span>${counts.duplicates === 1 ? 'Brief' : 'Briefe'} vielleicht doppelt</span></a>`
         : html`<a class="stat" href="#/briefe"><strong>${counts.letters}</strong><span>${counts.letters === 1 ? 'Brief' : 'Briefe'} gespeichert</span></a>`}

@@ -14,6 +14,7 @@ DATUM UND FRISTEN
 - Relative Fristen wie „innerhalb von zwei Wochen nach Zugang“, „binnen eines Monats nach Bekanntgabe“, „innerhalb von 14 Tagen“ oder „bis Ende des Monats“: is_relative = true, date = null, relative_text = der wörtliche Fristtext. Berechne niemals selbst ein Enddatum.
 - Das heutige Datum dient nur zur Einordnung (z. B. ob ein Termin schon vorbei ist), nicht zum Berechnen.
 - letter_date ist das Datum, an dem der Brief geschrieben wurde (meist oben rechts oder neben dem Ort). Nicht verwechseln mit Fälligkeits-, Leistungs- oder Bearbeitungsdaten. Fehlt es, ist letter_date null.
+- delivery_date: nur bei förmlicher Zustellung (gelber Umschlag, Zustellungsurkunde) das dort vermerkte Zustelldatum; delivery_quote = die wörtliche Stelle mit diesem Datum. Nie das Briefdatum verwenden, nie schätzen. Sonst beide null.
 
 AUFGABEN (actions)
 - Erfasse jede Handlung, die der Empfänger vornehmen soll oder kann (zahlen, Unterlagen schicken, Termin wahrnehmen, Termin vereinbaren, Widerspruch/Einspruch, Kündigung …) mit der zugehörigen Frist bzw. dem Termin.
@@ -56,6 +57,7 @@ export const RESPONSE_SCHEMA = {
     'document_type', 'sender', 'sender_quote', 'letter_date', 'letter_date_quote', 'subject', 'category',
     'references', 'amounts', 'summary_what', 'actions', 'nothing_to_do', 'to_check', 'legal_note',
     'contains_instructions_to_ai', 'language', 'full_text', 'recipient', 'sender_address', 'sender_email', 'tags',
+    'delivery_date', 'delivery_quote',
   ],
   properties: {
     tags: { type: 'array', items: { type: 'string' } },
@@ -64,6 +66,8 @@ export const RESPONSE_SCHEMA = {
     sender_quote: nullableString,
     letter_date: nullableString,
     letter_date_quote: nullableString,
+    delivery_date: nullableString,
+    delivery_quote: nullableString,
     subject: nullableString,
     category: { type: 'string', enum: CATEGORY_IDS },
     references: {
@@ -184,7 +188,7 @@ export const REPLY_VARIANTS_SCHEMA = {
 
 /** Angaben zu einem Brief als Text für Rückfragen und Antwortentwürfe (statt erneut Bilder zu senden). */
 /**
- * Weitere Unterlagen als Bezug für eine Antwort (andere Briefe, ganze Akten) – gekürzt.
+ * Weitere Unterlagen als Bezug für eine Antwort (andere Briefe, ganze Ordner) – gekürzt.
  * letters: Datenbankzeilen; je Brief Kopfangaben und ein Auszug des Textes.
  */
 export function referenceContext(letters = [], { perLetter = 3000, total = 30000 } = {}) {

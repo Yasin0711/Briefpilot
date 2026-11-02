@@ -1,4 +1,4 @@
-// Brief-Detailansicht: Erklärung in vier Schritten, Fristen bestätigen, Akte (Zuordnung mit Nachweis),
+// Brief-Detailansicht: Erklärung in vier Schritten, Fristen bestätigen, Ordner (Zuordnung mit Nachweis),
 // Fragen an die KI, Antworten, Original mit Seitenwerkzeugen, erkannter Text und Verlauf.
 import { html, mount } from '../html.js';
 import { api, download } from '../api.js';
@@ -6,7 +6,7 @@ import {
   icon, dateTile, whenLabel, categoryTile, statusBadge, taskKindLabel, toast, confirmDialog, openDialog,
   formValues, showError, clearErrors, busy, formatUploaded, scroller,
 } from '../ui.js';
-import { hydratePdfViews } from '../pdfview.js';
+import { hydratePdfViews, hydratePagers } from '../pdfview.js';
 import {
   CATEGORIES, REMINDER_OFFSETS, ANALYSIS_SOURCE_LABELS, TASK_KINDS, categoryLabel,
 } from '../shared/constants.js';
@@ -85,7 +85,7 @@ function confirmForm(task, letter, settings, today, { correcting = false } = {})
     <h4 class="visually-hidden">Angaben bestätigen</h4>
     ${relative ? html`
       <div class="field"><label class="label-icon" for="rd-${task.id}">${icon('hourglass')}Wann haben Sie den Brief bekommen?</label>
-        <input class="input" type="date" id="rd-${task.id}" name="receivedDate" max="${today}" value="${letter.receivedDate || ''}" data-received></div>
+        <input class="input" type="date" id="rd-${task.id}" name="receivedDate" max="${today}" value="${letter.receivedDate || letter.receivedSuggested || ''}" data-received></div>
       <div data-computed aria-live="polite"></div>
       <div class="field"><label for="dd-${task.id}">Fristende</label>
         <input class="input" type="date" id="dd-${task.id}" name="dueDate" value="${task.dueDate || ''}" data-due></div>`
@@ -122,7 +122,7 @@ function taskCard(task, letter, settings, today, correcting) {
   } else dateLine = html`<p class="muted">Ohne Datum</p>`;
 
   const activeReminders = (task.reminders || []).filter((r) => r.status === 'geplant');
-  return html`<article class="task-card ${isReview ? 'is-review' : ''} ${task.status === 'erledigt' ? 'is-done' : ''}" id="task-${task.id}" tabindex="-1">
+  return html`<article class="task-card ${isReview ? 'is-review' : ''} ${task.status === 'erledigt' ? 'is-done' : ''}" id="task-${task.id}" tabindex="-1" data-ctx="task" data-id="${task.id}" data-name="${task.title}">
     <div class="task-top">
       ${dateTile(shownDate, { today, unsure: isReview })}
       <div class="grow stack">
@@ -200,6 +200,28 @@ function originalView(files, { split = null, editable = true, tools = true, lett
       <div class="originals-grid">${originals.map((f, i) => html`<a href="/api/files/${f.id}" target="_blank" rel="noopener"><img src="/api/files/${f.id}" alt="Originalfoto ${i + 1}" loading="lazy"></a>`)}</div></details>` : ''}`;
 }
 
+/** Briefvorschau zum Blättern (rechts neben den erkannten Angaben). */
+function previewPanel(files, letter, editable) {
+  const pages = files.filter((f) => f.role !== 'original' && (f.kind === 'pdf' || f.kind === 'image'));
+  const office = files.filter((f) => f.kind === 'office');
+  if (!pages.length && !office.length) return '';
+  return html`<section class="panel preview-panel" aria-label="Brief">
+    ${pages.length ? html`<div class="pager" data-pager data-letter="${letter.id}" data-files="${JSON.stringify(pages.map((f) => ({ id: f.id, kind: f.kind })))}">
+      <div class="pager-stage" data-pager-stage title="Antippen zum Vergrößern"><span class="spinner" aria-hidden="true"></span></div>
+      <div class="pager-bar">
+        <button class="icon-btn icon-btn-small" type="button" data-pager-prev aria-label="Vorherige Seite">${icon('chevronLeft')}</button>
+        <span class="pager-label small muted" data-pager-label aria-live="polite"></span>
+        <button class="icon-btn icon-btn-small" type="button" data-pager-next aria-label="Nächste Seite">${icon('chevronRight')}</button>
+        <span class="grow"></span>
+        ${editable ? html`<a class="icon-btn icon-btn-small" href="#/scannen?zu=${letter.id}" aria-label="Seiten hinzufügen" title="Seiten hinzufügen">${icon('plus')}</a>` : ''}
+        ${editable && pages.length > 1 ? html`<button class="icon-btn icon-btn-small" type="button" data-action="delete-current-page" aria-label="Diese Seite löschen" title="Seite löschen">${icon('trash')}</button>` : ''}
+      </div>
+    </div>` : ''}
+    ${office.map((f) => html`<p class="row small"><span class="grow">${/presentation/.test(f.mime) ? 'PowerPoint' : /spreadsheet/.test(f.mime) ? 'Excel' : 'Word'}-Datei</span>
+      <a class="btn btn-small btn-secondary" href="/api/files/${f.id}">${icon('download')}Herunterladen</a></p>`)}
+  </section>`;
+}
+
 function factsPanel(letter, persons = []) {
   const dateStatus = {
     erkannt: html`<span class="badge badge-review">bitte prüfen</span>`,
@@ -207,9 +229,14 @@ function factsPanel(letter, persons = []) {
     fehlt: html`<span class="badge badge-review">${icon('alert')}fehlt</span>`,
     bestaetigt: html`<span class="badge badge-done">${icon('check')}bestätigt</span>`,
   }[letter.letterDateStatus];
-  return html`<section class="panel stack" aria-labelledby="facts-h">
+  return html`<section class="panel stack facts-panel" aria-labelledby="facts-h">
     <div class="section-title"><h2 id="facts-h">Erkannte Angaben</h2>
-      <button class="btn btn-small btn-secondary" type="button" data-action="edit-facts">${icon('edit')}Korrigieren</button></div>
+      <span class="facts-actions">
+        <button class="icon-btn" type="button" data-action="edit-facts" aria-label="Angaben bearbeiten" title="Bearbeiten">${icon('edit')}</button>
+        ${letter.reviewed
+          ? html`<span class="icon-btn is-done" role="img" aria-label="Alle Angaben bestätigt" title="Bestätigt">${icon('check')}</span>`
+          : html`<button class="icon-btn icon-btn-primary" type="button" data-action="review" aria-label="Alle Angaben bestätigen" title="Alle bestätigen">${icon('check')}</button>`}
+      </span></div>
     <dl class="facts">
       <div><dt>Absender</dt><dd>${letter.sender || html`<span class="muted">nicht erkannt</span>`}</dd></div>
       <div><dt>Briefdatum</dt><dd>${letter.letterDate ? formatDate(letter.letterDate) : html`<span class="muted">unbekannt</span>`} ${dateStatus}
@@ -224,8 +251,11 @@ function factsPanel(letter, persons = []) {
       ${letter.senderAddress ? html`<div><dt>Anschrift des Absenders</dt><dd>${letter.senderAddress}</dd></div>` : ''}
       ${letter.senderEmail ? html`<div><dt>E-Mail des Absenders</dt><dd>${letter.senderEmail}</dd></div>` : ''}
       ${letter.amounts?.length ? html`<div><dt>Beträge</dt><dd>${letter.amounts.map((a) => html`<div>${a.label}: ${a.amount} ${a.currency === 'EUR' ? '€' : a.currency}</div>`)}</dd></div>` : ''}
-      <div><dt>Brief erhalten am</dt><dd>${letter.receivedDate ? formatDate(letter.receivedDate) : html`<span class="muted">nicht angegeben</span>`}</dd></div>
-      <div><dt>Hochgeladen am</dt><dd>${formatUploaded(letter.uploadedAt)}</dd></div>
+      <div><dt>Brief erhalten am</dt><dd>${letter.receivedDate ? formatDate(letter.receivedDate)
+        : letter.receivedSuggested ? html`<span class="suggest-row">Zugestellt am ${formatDate(letter.receivedSuggested)}?
+            <button class="icon-btn icon-btn-small" type="button" data-action="confirm-delivery" aria-label="Zustelldatum bestätigen" title="Bestätigen">${icon('check')}</button></span>
+          ${letter.receivedSuggestedQuote ? html`<span class="small muted">„${letter.receivedSuggestedQuote}“</span>` : ''}`
+        : html`<span class="muted">nicht angegeben</span>`}</dd></div>
     </dl>
   </section>`;
 }
@@ -283,7 +313,7 @@ function eventDetail(e) {
   if (d.akte) parts.push(d.akte);
   if (d.durch) parts.push(d.durch === 'nutzer' ? 'von Ihnen' : 'automatisch');
   if (d.grund) parts.push(d.grund);
-  if (d.ohneAkte) parts.push('gehört zu keiner Akte');
+  if (d.ohneAkte) parts.push('gehört zu keinem Ordner');
   if (d.seiten) parts.push(d.seiten === 1 ? '1 Seite' : `${d.seiten} Seiten`);
   if (d.originale) parts.push(d.originale === 1 ? '1 Originalfoto' : `${d.originale} Originalfotos`);
   if (d.ausBrief) parts.push(`aus „${d.ausBrief}“`);
@@ -310,7 +340,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
   const id = params.id;
   let data = null;
   // Ansicht: Erklärung, Antwort, Original – oder keine (null): dann folgt direkt der nächste Abschnitt
-  let tab = ['erklaerung', 'aufgaben', 'antworten', 'original'].includes(query.get('ansicht')) ? query.get('ansicht') : null;
+  let tab = ['erklaerung', 'aufgaben', 'antworten'].includes(query.get('ansicht')) ? query.get('ansicht') : null;
   const openSteps = new Set(); // aufgeklappte Punkte der Erklärung (bleiben beim Neuzeichnen offen)
   // Link auf eine bestimmte Aufgabe (z. B. aus „Aufgaben“): Erklärung und „Bis wann?“ öffnen
   if (query.get('aufgabe')) tab = 'aufgaben';
@@ -320,12 +350,12 @@ export async function render({ root, params, query, state, navigate, isCurrent }
   const settings = state.me?.settings || { reminderOffsets: ['7d', '1d'] };
   let scrolledToTask = false;
   let persons = [];
-  let assignEditing = false; // „Akte ändern“ geöffnet
+  let assignEditing = false; // „Ordner ändern“ geöffnet
   let split = null; // Set der Seiten im Modus „Seiten trennen“
   // Leiste „Brief ablegen“ weggeklickt? (gilt für alle Briefe, bis sie wieder eingeblendet wird)
   let barHidden = false;
   try {
-    barHidden = localStorage.getItem('bp-filebar') === 'aus';
+    barHidden = localStorage.getItem('bp-filebar') !== 'an'; // standardmäßig eingeklappt
   } catch {
     barHidden = false;
   }
@@ -363,7 +393,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     const points = [];
     const review = tasks.filter((t) => t.status === 'zu_pruefen').length;
     if (review) points.push(review === 1 ? '1 Frist nicht bestätigt' : `${review} Fristen nicht bestätigt`);
-    if (['neue_akte', 'pruefen', 'vorschlag'].includes(letter.assignmentStatus)) points.push('keine Akte gewählt');
+    if (['neue_akte', 'pruefen', 'vorschlag'].includes(letter.assignmentStatus)) points.push('kein Ordner gewählt');
     return points;
   }
 
@@ -380,34 +410,19 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       </div>`;
   }
 
-  /** Akte: Zuordnung mit Nachweis – oder die Entscheidung, wenn BriefPilot unsicher ist. */
+  /** Ordner: Zuordnung mit Nachweis – oder die Entscheidung, wenn BriefPilot unsicher ist. */
   function assignmentPanel() {
     const { letter, links } = data;
     const status = letter.assignmentStatus;
     const attention = status === 'pruefen' || status === 'vorschlag' || status === 'neue_akte';
     if (assignEditing || attention) {
       return html`<section class="panel stack assign-panel ${attention && !assignEditing ? 'is-attention' : ''}" aria-labelledby="assign-h">
-        <h2 id="assign-h">${icon('folder')} ${assignEditing ? 'Akte ändern' : 'Zu welcher Akte gehört dieser Brief?'}</h2>
+        <h2 id="assign-h">${icon('folder')} ${assignEditing ? 'Ordner ändern' : 'Zu welchem Ordner gehört dieser Brief?'}</h2>
         <div data-decision></div>
       </section>`;
     }
-    if (links.length) {
-      return html`<section class="panel stack assign-panel" aria-labelledby="assign-h">
-        <div class="section-title"><h2 id="assign-h">${icon('folder')} ${links.length === 1 ? 'Akte' : 'Akten'}</h2>
-          <button class="btn btn-small btn-secondary" type="button" data-action="assign-change">${icon('edit')}Ändern</button></div>
-        <ul class="linked">${links.map((l) => html`<li>
-          ${objectTile(l.type)}
-          <div class="grow"><a class="row-title" href="#/akten/${l.objectId}">${l.name}</a>
-            <span class="row-sub">${l.origin === 'nutzer' ? 'Von Ihnen zugeordnet' : 'Automatisch zugeordnet'}${l.caseTitle ? ` · Vorgang: ${l.caseTitle}` : ''}</span>
-            ${l.evidence?.some((e) => e.type !== 'nutzer') ? html`<details class="why"><summary>Warum diese Akte?</summary>${evidenceList(l.evidence)}</details>` : ''}
-          </div></li>`)}</ul>
-      </section>`;
-    }
-    return html`<section class="panel assign-panel" aria-labelledby="assign-h">
-      <div class="row"><span class="grow"><strong id="assign-h" class="row-title">${icon('folder')} ${status === 'ohne' ? 'Gehört zu keiner Akte' : 'Keiner Akte zugeordnet'}</strong>
-        <span class="row-sub">${status === 'ohne' ? 'So von Ihnen festgelegt.' : 'BriefPilot hat keine Akte mit passender Nummer gefunden.'}</span></span>
-        <button class="btn btn-small btn-secondary" type="button" data-action="assign-change">${icon('folder')}Akte wählen</button></div>
-    </section>`;
+    // Ordner steht oben am Brief („Ordner wählen“) – hier nur, wenn etwas zu entscheiden ist
+    return '';
   }
 
   function duplicateNote() {
@@ -436,10 +451,9 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         <div class="grow">
           <h1>${letter.subject || (analyzing ? 'Neuer Brief' : 'Brief ohne Betreff')}</h1>
           <p class="letter-meta">${[letter.sender || 'Absender unbekannt', letter.letterDate ? formatDate(letter.letterDate, { short: true }) : null].filter(Boolean).join(' · ')}</p>
-          ${analyzing ? '' : html`<div class="tag-row">${(letter.tags || []).map((t) => html`<a class="tag" href="#/briefe?tag=${encodeURIComponent(t)}">#${t}</a>`)}
-            <button class="tag tag-edit" type="button" data-action="edit-tags" aria-label="Schlagworte bearbeiten">${icon(letter.tags?.length ? 'edit' : 'plus')}${letter.tags?.length ? '' : 'Schlagwort'}</button></div>`}
           <div class="row-meta">
             ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
+            ${letter.isDemoContent ? '' : html`<button class="btn btn-small btn-secondary folder-pick-btn" type="button" data-action="pick-folder">${icon('folderPlus')}Ordner wählen</button>`}
             ${letter.analysisSource === 'beispiel' && sourceLabel ? html`<span class="badge badge-demo">${icon('info')}${sourceLabel}</span>` : ''}
             ${letter.reviewed ? html`<span class="badge badge-done">${icon('check')}Angaben geprüft</span>` : ''}
           </div>
@@ -456,11 +470,16 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       ${duplicateNote()}
       ${analyzing ? '' : assignmentPanel()}
 
+      <div class="facts-preview">
+        ${analyzing ? '' : factsPanel(letter, persons)}
+        ${previewPanel(files, letter, editable)}
+      </div>
+      ${split ? html`<section class="panel stack">${originalView(files, { split, editable, letterId: letter.id })}</section>` : ''}
+
       <div class="tabs letter-tabs" role="tablist" aria-label="Ansicht">
         <button class="tab" role="tab" type="button" data-tab="erklaerung" aria-selected="${tab === 'erklaerung'}">Erklärung</button>
         <button class="tab" role="tab" type="button" data-tab="aufgaben" aria-selected="${tab === 'aufgaben'}">Aufgaben${reviewCount ? html` <span class="tab-count">${reviewCount}</span>` : ''}</button>
         <button class="tab" role="tab" type="button" data-tab="antworten" aria-selected="${tab === 'antworten'}">Antwort${drafts ? html` <span class="tab-count">${drafts}</span>` : ''}</button>
-        <button class="tab tab-original" role="tab" type="button" data-tab="original" aria-selected="${tab === 'original'}">Original</button>
       </div>
 
       <div class="detail-grid">
@@ -476,28 +495,25 @@ export async function render({ root, params, query, state, navigate, isCurrent }
               : html`<p class="muted">${analyzing ? 'Erscheint, sobald der Brief gelesen ist.' : 'Keine Aufgaben.'}</p>`}
           </div>` : ''}
           <div data-panel="antworten" ${tab === 'antworten' ? '' : html`hidden`}>${tab === 'antworten' ? repliesPanel(data, state) : ''}</div>
-          <div data-panel="original" ${tab === 'original' ? '' : html`hidden`}>${originalView(files, { split, editable, letterId: letter.id })}</div>
-          ${(tab === 'erklaerung' || !tab) && !analyzing ? factsPanel(letter, persons) : ''}
           ${(tab === 'erklaerung' || !tab) && !analyzing ? html`<section class="panel stack">
             <h2>Weitere Möglichkeiten</h2>
             <div class="row">
               <button class="btn btn-small btn-secondary" type="button" data-tab="antworten">${icon('reply')}Antwort schreiben</button>
               <button class="btn btn-small btn-secondary" type="button" data-action="pdf">${icon('download')}Als PDF herunterladen</button>
+              ${editable && files.filter((f) => f.role !== 'original').length > 1 ? html`<button class="btn btn-small btn-secondary" type="button" data-action="split-start">${icon('split')}Seiten trennen</button>` : ''}
+              ${editable ? html`<button class="btn btn-small btn-secondary" type="button" data-action="merge">${icon('merge')}Anderen Brief anhängen</button>` : ''}
               ${letter.isDemoContent ? '' : html`<button class="btn btn-small btn-secondary" type="button" data-action="reanalyze">${icon('refresh')}Erneut auswerten</button>`}
               <button class="btn btn-small btn-danger" type="button" data-action="delete">${icon('trash')}Brief löschen</button>
             </div>
             <details class="history"><summary>${icon('history')} Verlauf (${data.events.length})</summary>${historyList(data.events)}</details>
           </section>` : ''}
         </div>
-        <aside class="detail-original" aria-label="Originalbrief">
-          <h2 class="visually-hidden">Original</h2>
-          ${originalView(files, { split, editable, letterId: letter.id })}
-        </aside>
       </div>
+      <p class="upload-note">Hochgeladen am ${formatUploaded(letter.uploadedAt)}</p>
       ${analyzing ? '' : fileBar()}
     </div>`);
 
-    // Entscheidung über die Akte einbauen (Kandidaten mit Nachweisen, Nummern merken …)
+    // Entscheidung über den Ordner einbauen (Kandidaten mit Nachweisen, Nummern merken …)
     const decisionBox = root.querySelector('[data-decision]');
     if (decisionBox) {
       const a = letter.assignment || {};
@@ -523,6 +539,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     }
     if (tab === 'antworten') assistant.fillTemplates();
     hydratePdfViews(root);
+    hydratePagers(root);
 
     // Relative Frist: rechnerisches Ende vorschlagen, sobald ein Zugangsdatum eingegeben ist
     root.querySelectorAll('[data-received]').forEach((input) => {
@@ -610,6 +627,68 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     });
   });
 
+
+  /** „Ordner wählen“: vorhandenen Ordner antippen oder neuen anlegen – der Brief liegt dann direkt darin. */
+  async function pickFolder() {
+    let objects = [];
+    try {
+      objects = (await api.get('/api/objects')).objects.filter((o) => o.status !== 'beendet');
+    } catch (err) {
+      toast(err.message, { error: true });
+      return;
+    }
+    objects.sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }));
+    const current = new Set(data.links.map((l) => l.objectId));
+    openDialog(html`<div class="dialog-body stack">
+      <div class="row"><h2 class="grow">Ordner wählen</h2><button class="icon-btn" type="button" data-close aria-label="Schließen">${icon('x')}</button></div>
+      <input class="input" type="search" placeholder="Suchen …" data-folder-filter aria-label="Ordner suchen">
+      <ul class="pick-list">${objects.map((o) => html`<li data-item="${o.name.toLowerCase()}"><button class="pick-item ${current.has(o.id) ? 'is-on' : ''}" type="button" data-pick="${o.id}">
+        ${icon('folder')}<span class="grow">${o.name}</span><span class="small muted">${o.letterCount || 0}</span>${current.has(o.id) ? icon('check') : ''}</button></li>`)}</ul>
+      <form class="row" data-new-folder novalidate>
+        <label class="visually-hidden" for="nf-name">Neuer Ordner</label>
+        <input class="input grow" id="nf-name" name="name" maxlength="120" placeholder="Neuer Ordner …" autocomplete="off">
+        <button class="btn" type="submit">${icon('folderPlus')}Anlegen</button>
+      </form>
+    </div>`, (dialog, close) => {
+      dialog.querySelector('[data-close]').addEventListener('click', () => close());
+      dialog.querySelector('[data-folder-filter]').addEventListener('input', (ev) => {
+        const q = ev.target.value.trim().toLowerCase();
+        dialog.querySelectorAll('[data-item]').forEach((li) => {
+          li.hidden = Boolean(q) && !li.dataset.item.includes(q);
+        });
+      });
+      const done = async (msg) => {
+        close();
+        forgetObjects();
+        refreshCounts();
+        toast(msg);
+        await load();
+      };
+      dialog.addEventListener('click', async (ev) => {
+        const pick = ev.target.closest('[data-pick]');
+        if (!pick) return;
+        try {
+          await api.put(`/api/letters/${id}/links`, { objectIds: [pick.dataset.pick] });
+          await done(`Abgelegt in „${objects.find((o) => o.id === pick.dataset.pick)?.name}“.`);
+        } catch (err) {
+          toast(err.message, { error: true });
+        }
+      });
+      dialog.querySelector('[data-new-folder]').addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const name = ev.target.name.value.trim();
+        if (!name) return;
+        try {
+          const res = await api.post('/api/objects', { type: 'sonstiges', name, identifiers: [], letterId: id });
+          await api.put(`/api/letters/${id}/links`, { objectIds: [res.object.id] });
+          await done(`Abgelegt in „${res.object.name}“.`);
+        } catch (err) {
+          toast(err.message, { error: true });
+        }
+      });
+    });
+  }
+
   // Aufgeklappte Punkte merken (toggle steigt nicht auf – daher in der Capture-Phase)
   root.addEventListener('toggle', (e) => {
     const step = e.target.closest?.('[data-step]');
@@ -660,9 +739,11 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       } else if (action === 'reminders') {
         editReminders(data.tasks.find((t) => t.id === taskId));
       } else if (action === 'file-away') {
-        const open = openPoints();
-        if (open.length && !(await confirmDialog({ title: 'Trotzdem ablegen?', body: `Noch offen: ${open.join(', ')}.`, confirmLabel: 'Ablegen', cancelLabel: 'Zurück' }))) return;
-        if (!data.letter.reviewed) await api.post(`/api/letters/${id}/review`);
+        // Noch kein Ordner: direkt die Ordnerauswahl öffnen (keine Rückfrage)
+        if (!data.links.length) {
+          pickFolder();
+          return;
+        }
         const akte = data.links.map((l) => l.name).join(', ');
         toast(akte ? `Abgelegt in ${akte}.` : 'Abgelegt.');
         navigate('/briefe');
@@ -687,9 +768,13 @@ export async function render({ root, params, query, state, navigate, isCurrent }
           });
           form.tags.focus();
         });
+      } else if (action === 'confirm-delivery') {
+        await api.patch(`/api/letters/${id}`, { receivedDate: data.letter.receivedSuggested });
+        toast('Zustelldatum übernommen.');
+        await reload();
       } else if (action === 'review') {
         await api.post(`/api/letters/${id}/review`);
-        toast('Danke! Die Angaben sind als geprüft markiert.');
+        toast('Alle Angaben bestätigt.');
         await reload();
       } else if (action === 'reanalyze') {
         if (await confirmDialog({ title: 'Brief erneut auswerten?', body: 'Unbestätigte Vorschläge werden ersetzt. Von Ihnen bestätigte Aufgaben und Ihre Korrekturen bleiben erhalten.', confirmLabel: 'Erneut auswerten' })) {
@@ -720,7 +805,6 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         toast('PDF heruntergeladen.');
       } else if (action === 'split-start') {
         split = new Set();
-        tab = window.matchMedia('(min-width: 1180px)').matches ? tab : 'original';
         draw();
         root.querySelector('[data-split-page]')?.focus();
       } else if (action === 'split-cancel') {
@@ -750,6 +834,18 @@ export async function render({ root, params, query, state, navigate, isCurrent }
           /* nur für diese Ansicht */
         }
         draw();
+      } else if (action === 'pick-folder') {
+        pickFolder();
+      } else if (action === 'delete-current-page') {
+        const fileId = root.querySelector('[data-pager]')?.dataset.current;
+        const file = data.files.find((f) => f.id === fileId);
+        if (!file) return;
+        const many = file.kind === 'pdf' && (file.pageCount || 1) > 1;
+        if (await confirmDialog({ title: many ? 'Dieses PDF löschen?' : 'Diese Seite löschen?', body: many ? `Das PDF hat ${file.pageCount} Seiten; alle werden entfernt.` : '', confirmLabel: 'Löschen', danger: true })) {
+          await api.del(`/api/letters/${id}/pages/${fileId}`);
+          toast('Gelöscht.');
+          await load();
+        }
       } else if (action === 'delete-page') {
         if (await confirmDialog({ title: 'Seite löschen?', body: 'Der Brief wird danach neu gelesen.', confirmLabel: 'Löschen', danger: true })) {
           await api.del(`/api/letters/${id}/pages/${el.dataset.file}`);

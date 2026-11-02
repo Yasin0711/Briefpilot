@@ -116,7 +116,7 @@ test('Nur die gemeinsame Kundennummer oder nur der Absender: kein Raten, sondern
   assert.equal(d.status, 'pruefen');
   assert.equal(state(a).links.length, 0, 'nichts wird blind abgelegt');
   assert.equal(state(a).info.candidates.length, 7);
-  assert.match(d.message, /Wir haben sieben mögliche Akten gefunden\. Bitte wählen Sie die richtige aus\./);
+  assert.match(d.message, /Wir haben sieben mögliche Ordner gefunden\. Bitte wählen Sie den richtigen aus\./);
 
   const b = letter({ sender: 'Muster Versicherung AG', text: 'Wichtige Information zu Ihren Verträgen bei uns.' });
   assert.equal(assignLetter(db, b).status, 'pruefen', 'gleicher Absender allein entscheidet nicht');

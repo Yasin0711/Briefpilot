@@ -11,6 +11,9 @@ import {
 } from '../domain/replies.js';
 import { renderReplyPdf } from '../pdf/letter.js';
 import { logLetterEvent } from '../domain/events.js';
+import { setLetterLinks } from '../domain/assignment.js';
+import { refreshSearchText } from '../domain/letters.js';
+import crypto from 'node:crypto';
 import { todayIn, isValidIsoDate } from '../../public/js/shared/dates.js';
 
 const parseJson = (value, fallback) => {
@@ -28,9 +31,9 @@ export function serializeMessage(m) {
 }
 
 export function registerAssistantRoutes(router, ctx) {
-  const { db, config, ai, analyzer, limiter, mailer } = ctx;
+  const { db, config, ai, analyzer, limiter, mailer, storage } = ctx;
 
-  /** Gewählte weitere Briefe und Akten als Bezug (nur eigene; der aktuelle Brief zählt nicht doppelt). */
+  /** Gewählte weitere Briefe und Ordner als Bezug (nur eigene; der aktuelle Brief zählt nicht doppelt). */
   function referencesFor(user, body, currentId) {
     const letterIds = new Set((Array.isArray(body.refLetterIds) ? body.refLetterIds : []).slice(0, 20).map(String));
     for (const oid of (Array.isArray(body.refObjectIds) ? body.refObjectIds : []).slice(0, 10).map(String)) {
@@ -297,6 +300,49 @@ export function registerAssistantRoutes(router, ctx) {
       'Cache-Control': 'private, no-store',
     });
     res.end(pdf);
+  });
+
+  /** Antwort als PDF-Dokument im Ordner des Briefes ablegen (erscheint dort wie ein Brief). */
+  router.post('/api/replies/:id/save', async (req, res, { user, params }) => {
+    const reply = ownReply(user, params.id);
+    const letter = reply.letter_id ? db.get('SELECT * FROM letters WHERE id = ? AND user_id = ?', reply.letter_id, user.id) : null;
+    const existing = reply.saved_letter_id ? db.get('SELECT id FROM letters WHERE id = ? AND user_id = ?', reply.saved_letter_id, user.id) : null;
+    const pdf = pdfFor(reply);
+    const sha256 = crypto.createHash('sha256').update(pdf).digest('hex');
+    const key = await storage.put(user.id, pdf);
+    const now = new Date().toISOString();
+    const docId = existing?.id || newId();
+    const fileId = newId();
+    db.tx(() => {
+      if (existing) {
+        // Erneut gespeichert: alte Fassung ersetzen statt doppelt ablegen
+        for (const f of db.all('SELECT id, storage_key FROM files WHERE letter_id = ?', docId)) {
+          db.run('DELETE FROM files WHERE id = ?', f.id);
+          storage.remove(f.storage_key).catch(() => {});
+        }
+      } else {
+        db.run(
+          `INSERT INTO letters (id, user_id, uploaded_at, analysis_status, analysis_source, is_demo_content, created_at, updated_at)
+           VALUES (?, ?, ?, 'fertig', 'manuell', 0, ?, ?)`, docId, user.id, now, now, now
+        );
+      }
+      db.run(
+        `UPDATE letters SET subject = ?, sender = ?, document_type = 'Antwortschreiben', category = ?, letter_date = ?, letter_date_status = 'bestaetigt',
+                full_text = ?, reviewed_at = ?, updated_at = ? WHERE id = ?`,
+        `Antwort: ${reply.subject}`.slice(0, 300), 'Eigene Antwort', letter?.category || 'sonstiges', reply.reply_date || now.slice(0, 10),
+        reply.body, now, now, docId
+      );
+      db.run(
+        `INSERT INTO files (id, user_id, letter_id, position, kind, mime, size, page_count, sha256, storage_key, role, created_at)
+         VALUES (?, ?, ?, 0, 'pdf', 'application/pdf', ?, 1, ?, ?, 'seite', ?)`, fileId, user.id, docId, pdf.length, sha256, key, now
+      );
+      db.run('UPDATE replies SET saved_letter_id = ? WHERE id = ?', docId, reply.id);
+    });
+    refreshSearchText(db, docId);
+    const folders = letter ? db.all('SELECT object_id FROM letter_links WHERE letter_id = ?', letter.id).map((r) => r.object_id) : [];
+    if (folders.length) setLetterLinks(db, user, docId, { objectIds: folders });
+    logLetterEvent(db, user.id, docId, 'hochgeladen', { seiten: 1, ausBrief: 'Antwort' });
+    return { ok: true, letterId: docId, folders: folders.length };
   });
 
   /** E-Mail über den eingerichteten Mailserver – nur mit ausdrücklicher Freigabe (confirm: true). */

@@ -148,7 +148,7 @@ export async function createDemoAccount({ db, storage, config }) {
       }
     });
   }
-  // Zuordnung zu den Akten – mit derselben Logik wie bei echten Briefen
+  // Zuordnung zu den Ordner – mit derselben Logik wie bei echten Briefen
   const ctx = loadAssignmentContext(db, userId);
   for (const letterId of letterIds) {
     const row = db.get('SELECT * FROM letters WHERE id = ?', letterId);

@@ -1,4 +1,4 @@
-// Gemeinsame Bausteine für Briefe, Zuordnung und Akten (ohne Abhängigkeit zu anderen Ansichten).
+// Gemeinsame Bausteine für Briefe, Zuordnung und Ordner (ohne Abhängigkeit zu anderen Ansichten).
 import { html } from '../html.js';
 import { icon } from '../ui.js';
 import { objectType } from '../shared/constants.js';
@@ -26,7 +26,7 @@ export function letterThumb(l) {
     : ''}</span>`;
 }
 
-/** Kleine Kennzeichnungen der Akten eines Briefes. In Listenzeilen ohne Link (keine Links in Links). */
+/** Kleine Kennzeichnungen der Ordner eines Briefes. In Listenzeilen ohne Link (keine Links in Links). */
 export function objectChips(objects = [], { link = false } = {}) {
   if (!objects?.length) return '';
   return html`<span class="obj-chips">${objects.map((o) => (link
@@ -34,18 +34,18 @@ export function objectChips(objects = [], { link = false } = {}) {
     : html`<span class="obj-chip">${icon(objectIconName(o.type))}<span>${o.name}</span></span>`))}</span>`;
 }
 
-/** Umschalter oben in „Briefe“: alle Briefe · zuordnen · Akten. */
+/** Umschalter oben in „Briefe“: alle Briefe · zuordnen · Ordner. */
 export function briefeTabs(active, counts = {}) {
   const items = [
     { id: 'briefe', href: '#/briefe', label: 'Alle Briefe', ic: 'mail' },
     { id: 'zuordnen', href: '#/zuordnen', label: 'Zuordnen', ic: 'inbox', count: counts.inbox },
-    { id: 'akten', href: '#/akten', label: 'Akten', ic: 'folder' },
+    { id: 'akten', href: '#/akten', label: 'Ordner', ic: 'folder' },
   ];
-  return html`<nav class="seg" aria-label="Briefe und Akten">${items.map((i) => html`<a class="seg-item" href="${i.href}" ${active === i.id ? html`aria-current="page"` : ''}>
+  return html`<nav class="seg" aria-label="Briefe und Ordner">${items.map((i) => html`<a class="seg-item" href="${i.href}" ${active === i.id ? html`aria-current="page"` : ''}>
     ${icon(i.ic)}<span>${i.label}</span>${i.count ? html`<span class="seg-badge" aria-label="${i.count} offen">${i.count}</span>` : ''}</a>`)}</nav>`;
 }
 
-/** Zeile in Brieflisten (Übersicht, Briefe, Akte). note: zusätzliche Zeile (z. B. warum zugeordnet). */
+/** Zeile in Brieflisten (Übersicht, Briefe, Ordner). note: zusätzliche Zeile (z. B. warum zugeordnet). */
 export function letterRow(l, { note = null } = {}) {
   const dateText = l.letterDate ? `Brief vom ${formatDate(l.letterDate)}` : 'Briefdatum unbekannt';
   const badges = [];
@@ -53,10 +53,10 @@ export function letterRow(l, { note = null } = {}) {
   else if (l.analysisStatus === 'fehler') badges.push(html`<span class="badge badge-danger">Auswertung fehlgeschlagen</span>`);
   else if (l.tasksToReview) badges.push(html`<span class="badge badge-review">${icon('alert')}${l.tasksToReview} zu prüfen</span>`);
   else if (!l.reviewed && l.analysisStatus === 'fertig') badges.push(html`<span class="badge badge-review">Angaben prüfen</span>`);
-  if (l.assignmentStatus === 'pruefen' || l.assignmentStatus === 'vorschlag') badges.push(html`<span class="badge badge-review">${icon('inbox')}Akte wählen</span>`);
-  if (l.assignmentStatus === 'neue_akte') badges.push(html`<span class="badge badge-review">${icon('folder')}Neue Akte?</span>`);
+  if (l.assignmentStatus === 'pruefen' || l.assignmentStatus === 'vorschlag') badges.push(html`<span class="badge badge-review">${icon('inbox')}Ordner wählen</span>`);
+  if (l.assignmentStatus === 'neue_akte') badges.push(html`<span class="badge badge-review">${icon('folder')}Neuer Ordner?</span>`);
   if (l.duplicateStatus === 'verdacht') badges.push(html`<span class="badge badge-review">${icon('copy')}Doppelt?</span>`);
-  return html`<li><a class="list-row" href="#/briefe/${l.id}">
+  return html`<li><a class="list-row" href="#/briefe/${l.id}" data-ctx="letter" data-id="${l.id}" data-name="${l.subject || l.sender || 'Brief'}">
     ${letterThumb(l)}
     <span class="grow"><span class="row-title">${l.subject || 'Brief ohne Betreff'}</span>
       <span class="row-sub">${l.sender || 'Absender unbekannt'}</span><span class="row-sub">${dateText}</span>
@@ -65,7 +65,7 @@ export function letterRow(l, { note = null } = {}) {
     ${icon('chevronRight', 'chev')}</a></li>`;
 }
 
-/** Ein Nachweis in Worten: warum ein Brief zu einer Akte passt (oder nicht sicher passt). */
+/** Ein Nachweis in Worten: warum ein Brief zu einem Ordner passt (oder nicht sicher passt). */
 export function evidenceText(ev) {
   if (!ev) return '';
   if (ev.type === 'absender') return `Absender passt zum Vertragspartner „${ev.value}“ (allein kein Beweis)`;
@@ -80,7 +80,7 @@ export function evidenceText(ev) {
   return text;
 }
 
-/** Nachweise als Liste, mit Zitat aus dem Brief und Hinweis (z. B. „gehört zu 5 Akten“). */
+/** Nachweise als Liste, mit Zitat aus dem Brief und Hinweis (z. B. „gehört zu 5 Ordner“). */
 export function evidenceList(evidence = []) {
   const items = evidence.filter((e) => e && (e.type !== 'kennung' || e.weight !== 0));
   if (!items.length) return '';

@@ -1,6 +1,8 @@
 // Aufgaben, Fristen und Termine: bestätigen, korrigieren, erledigen, Erinnerungen, Kalenderdatei.
 import { HttpError, badRequest, notFound, readJson } from '../lib/http.js';
 import { newId } from '../lib/security.js';
+import crypto from 'node:crypto';
+import { userSettings } from '../domain/reminders.js';
 import { serializeTask } from '../domain/letters.js';
 import { scheduleReminders, cancelReminders } from '../domain/reminders.js';
 import { TASK_KIND_IDS, REMINDER_OFFSET_IDS, taskKindLabel } from '../../public/js/shared/constants.js';
@@ -76,7 +78,19 @@ export function registerTaskRoutes(router, ctx) {
     const counts = Object.fromEntries(
       db.all('SELECT status, COUNT(*) AS n FROM tasks WHERE user_id = ? GROUP BY status', user.id).map((r) => [r.status, r.n])
     );
+    // Zustelldatum-Vorschläge (gelber Brief) gehören auch zu „Zu prüfen“
+    const deliveries = db.all(
+      `SELECT l.id, l.subject, l.sender, l.received_suggested, l.received_suggested_quote,
+        (SELECT f.id || ':' || f.kind || ':' || f.size FROM files f WHERE f.letter_id = l.id AND f.role = 'seite' ORDER BY f.position LIMIT 1) AS first_file
+       FROM letters l WHERE l.user_id = ? AND l.received_suggested IS NOT NULL AND l.received_date IS NULL ORDER BY l.uploaded_at DESC LIMIT 50`, user.id
+    );
+    if (deliveries.length) counts.zu_pruefen = (counts.zu_pruefen || 0) + deliveries.length;
     return {
+      deliveries: !status || status === 'zu_pruefen' ? deliveries.map((d) => {
+        const [fileId, kind, size] = String(d.first_file || '').split(':');
+        return { letterId: d.id, subject: d.subject, sender: d.sender, date: d.received_suggested, quote: d.received_suggested_quote,
+          letterFile: fileId ? { id: fileId, kind, size: Number(size) || 0 } : null };
+      }) : [],
       tasks: rows.map((r) => {
         const [fileId, kind, size] = String(r.first_file || '').split(':');
         return { ...serializeTask(r), letterFile: fileId ? { id: fileId, kind, size: Number(size) || 0 } : null };
@@ -87,6 +101,8 @@ export function registerTaskRoutes(router, ctx) {
   });
 
   // Eigene Aufgabe anlegen – vom Nutzer selbst eingetragen, daher direkt „Offen“
+  router.get('/api/tasks/:id', (req, res, { user, params }) => ({ task: withReminders(ownTask(user, params.id)) }));
+
   router.post('/api/tasks', async (req, res, { user }) => {
     const body = await readJson(req);
     const title = String(body.title || '').trim().slice(0, 160);
@@ -254,6 +270,42 @@ export function registerTaskRoutes(router, ctx) {
     if (!r.changes) throw notFound();
     return { ok: true };
   });
+
+  /** Kalender-Abo (iOS „Kalenderabo hinzufügen“): neuen geheimen Link erzeugen oder abschalten. */
+  router.post('/api/me/calendar', async (req, res, { user }) => {
+    const body = await readJson(req);
+    const settings = userSettings(user);
+    settings.calendarToken = body.off === true ? null : crypto.randomBytes(24).toString('base64url');
+    db.run('UPDATE users SET settings = ?, updated_at = ? WHERE id = ?', JSON.stringify(settings), new Date().toISOString(), user.id);
+    return { token: settings.calendarToken };
+  });
+
+  /** Abo-Feed: nur bestätigte Fristen und Termine mit Datum. Stabile UIDs → keine Doppelten. */
+  router.get('/api/calendar/:token', (req, res, { params }) => {
+    const token = String(params.token || '').replace(/\.ics$/, '');
+    if (token.length < 20) throw notFound();
+    const owner = db.get("SELECT * FROM users WHERE json_extract(settings, '$.calendarToken') = ?", token);
+    if (!owner) throw notFound();
+    const tasks = db.all(`${TASK_SELECT} WHERE t.user_id = ? AND t.status = 'offen' AND t.due_date IS NOT NULL ORDER BY t.due_date`, owner.id);
+    const stamp = icsUtc(new Date());
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//BriefPilot//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+      'X-WR-CALNAME:BriefPilot', 'REFRESH-INTERVAL;VALUE=DURATION:PT6H', 'X-PUBLISHED-TTL:PT6H'];
+    for (const task of tasks) {
+      lines.push('BEGIN:VEVENT', `UID:${task.id}@briefpilot`, `DTSTAMP:${stamp}`);
+      if (task.due_time) {
+        const start = zonedTimeToUtc(task.due_date, task.due_time, owner.timezone);
+        lines.push(`DTSTART:${icsUtc(start)}`, `DTEND:${icsUtc(new Date(start.getTime() + 3600_000))}`);
+      } else {
+        lines.push(`DTSTART;VALUE=DATE:${task.due_date.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${addDays(task.due_date, 1).replace(/-/g, '')}`);
+      }
+      lines.push(`SUMMARY:${icsEscape(`${taskKindLabel(task.kind)}: ${task.title}`)}`);
+      if (task.letter_subject) lines.push(`DESCRIPTION:${icsEscape(`Brief: ${task.letter_subject}`)}`);
+      lines.push('END:VEVENT');
+    }
+    lines.push('END:VCALENDAR');
+    res.writeHead(200, { 'Content-Type': 'text/calendar; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': 'inline; filename="briefpilot.ics"' });
+    res.end(lines.map(icsFold).join('\r\n') + '\r\n');
+  }, { auth: false });
 
   // Kalenderdatei (.ics) für einen bestätigten Termin – nur auf ausdrücklichen Klick des Nutzers
   router.get('/api/tasks/:id/ics', (req, res, { user, params }) => {

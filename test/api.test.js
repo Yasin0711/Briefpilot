@@ -235,7 +235,7 @@ test('Briefe ohne Datum werden zur Prüfung markiert; Fotos ohne KI werden ehrli
     await server.app.ctx.analyzer.idle();
     const photo = (await c.get(`/api/letters/${created.data.id}`)).data;
     assert.equal(photo.letter.analysisStatus, 'nicht_moeglich');
-    assert.match(photo.letter.analysisError, /KI-Texterkennung/);
+    assert.match(photo.letter.analysisError, /braucht KI/);
     assert.equal(photo.tasks.length, 0, 'keine erfundenen Aufgaben');
   } finally {
     await server.stop();
@@ -379,7 +379,7 @@ test('Demomodus: eigenes Konto mit gekennzeichneten Beispielbriefen', async () =
     const unclear = inbox.find((l) => l.subject.includes('Jahresinformation'));
     assert.match(unclear.assignment.message, /zwei mögliche Verträge gefunden\. Bitte wählen Sie den richtigen aus/);
     const shared = inbox.find((l) => l.subject.includes('Versicherungsbedingungen'));
-    assert.match(shared.assignment.message, /sieben mögliche Akten gefunden/);
+    assert.match(shared.assignment.message, /sieben mögliche Ordner gefunden/);
     const c2 = server.client();
     await c2.post('/api/auth/demo');
     const other = (await c2.get('/api/letters')).data.letters;

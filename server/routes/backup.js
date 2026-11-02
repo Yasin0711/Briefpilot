@@ -13,7 +13,7 @@ import { setSessionCookie, serializeUser } from './auth.js';
 
 // Reihenfolge = Abhängigkeiten (beim Einspielen werden Fremdschlüssel ohnehin kurz ausgesetzt)
 export const BACKUP_TABLES = [
-  'folders', 'persons', 'addresses', 'objects', 'cases', 'identifiers', 'letters', 'files',
+  'persons', 'addresses', 'objects', 'cases', 'identifiers', 'letters', 'files',
   'letter_links', 'tasks', 'reminders', 'replies', 'letter_messages', 'letter_events',
 ];
 const FORMAT = 'briefpilot-sicherung';
@@ -90,6 +90,7 @@ export function registerBackupRoutes(router, ctx) {
           let rows = Array.isArray(data.tables?.[t]) ? data.tables[t] : [];
           rows = rows.filter((r) => r && r.user_id === u.id); // nur Zeilen dieses Kontos
           if (t === 'files') rows = rows.map((r) => ({ ...r, storage_key: '' })); // Inhalt folgt einzeln
+          if (t === 'objects') rows = rows.map((r) => ({ ...r, folder_id: null })); // keine Sammel-Ordner mehr
           insertRows(db, t, rows);
         }
       });

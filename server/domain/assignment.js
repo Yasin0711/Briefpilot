@@ -3,7 +3,7 @@
 // Sicherheitsregeln (siehe docs/ARCHITEKTUR.md):
 //  1. Der Absender allein entscheidet nie – ausschlaggebend sind eindeutige Kennungen.
 //  2. Nummern, die nur beim jeweiligen Absender eindeutig sind (Rechnungs-, Kundennummer …),
-//     zählen nur, wenn der Absender zum Vertragspartner der Akte passt.
+//     zählen nur, wenn der Absender zum Vertragspartner des Ordners passt.
 //  3. Automatisch zugeordnet wird nur bei genau EINEM klaren Treffer. Ähnliche Nummern,
 //     mehrere Treffer oder nur gleicher Absender → neutraler Eingang „Zur Prüfung“.
 //  4. Jede Zuordnung speichert, welche Angaben im Brief ausschlaggebend waren.
@@ -76,7 +76,7 @@ export function letterIdentifiers(letter) {
   return out.slice(0, 40);
 }
 
-/** Lädt Akten und Kennungen eines Nutzers einmal (für viele Briefe hintereinander). */
+/** Lädt Ordner und Kennungen eines Nutzers einmal (für viele Briefe hintereinander). */
 export function loadAssignmentContext(db, userId) {
   const objects = db.all('SELECT id, name, type, provider, provider_key, status FROM objects WHERE user_id = ?', userId);
   const known = db.all(
@@ -95,7 +95,7 @@ function issuerContext(sender, identifier, object) {
 }
 
 /**
- * Bewertet, zu welchen Akten ein Brief passen könnte.
+ * Bewertet, zu welchen Ordner ein Brief passen könnte.
  * @returns {{ identifiers: Array, candidates: Array<{objectId,name,type,score,exactScore,fuzzy,strongIds,caseId,evidence}> }}
  */
 export function scoreLetter(db, letter, ctx = loadAssignmentContext(db, letter.user_id)) {
@@ -128,7 +128,7 @@ export function scoreLetter(db, letter, ctx = loadAssignmentContext(db, letter.u
     }
 
     if (exact.length) {
-      // 1. Kontext je Treffer bestimmen (passt der Absender zur Akte?)
+      // 1. Kontext je Treffer bestimmen (passt der Absender zum Ordner?)
       const scored = [];
       for (const { k, type } of exact) {
         const object = ctx.objectById.get(k.object_id);
@@ -145,7 +145,7 @@ export function scoreLetter(db, letter, ctx = loadAssignmentContext(db, letter.u
         if (expired) factor *= 0.9;
         scored.push({ k, type, info, factor, context, expired });
       }
-      // 2. Wie viele Akten teilen sich diese Nummer im passenden Kontext? (Unterscheidet sie überhaupt?)
+      // 2. Wie viele Ordner teilen sich diese Nummer im passenden Kontext? (Unterscheidet sie überhaupt?)
       const shared = new Set(scored.filter((x) => x.factor > 0).map((x) => x.k.object_id)).size || 1;
       const byObject = new Map();
       for (const { k, type, info, factor, context, expired } of scored) {
@@ -156,9 +156,9 @@ export function scoreLetter(db, letter, ctx = loadAssignmentContext(db, letter.u
           caseId: k.case_id || null, caseTitle: k.case_title || null,
         };
         if (factor === 0) ev.note = 'Gleiche Nummer, aber anderer Absender – zählt nicht.';
-        else if (shared > 1) ev.note = `Diese Nummer gehört zu ${shared} Akten und unterscheidet sie nicht.`;
+        else if (shared > 1) ev.note = `Diese Nummer gehört zu ${shared} Ordnern und unterscheidet sie nicht.`;
         else if (context === 'unbekannt') ev.note = 'Absender nicht sicher erkannt – Nummer zählt nur eingeschränkt.';
-        else if (expired) ev.note = 'Frühere Nummer dieser Akte.';
+        else if (expired) ev.note = 'Frühere Nummer dieses Ordners.';
         const prev = byObject.get(k.object_id);
         if (!prev || prev.weight < ev.weight) byObject.set(k.object_id, ev);
       }
@@ -222,9 +222,9 @@ function pluralPhrase(candidates) {
 
 /**
  * Entscheidet anhand der Bewertung, ob automatisch zugeordnet wird.
- * Nur Hinweise, die eine Akte von den anderen UNTERSCHEIDEN (eigene, nicht geteilte Nummern),
+ * Nur Hinweise, die einen Ordner von den anderen UNTERSCHEIDEN (eigene, nicht geteilte Nummern),
  * zählen für „eindeutig“ bzw. „Konkurrenz“. Gemeinsame Kundennummern und der Absender helfen
- * allen Akten gleich viel und entscheiden deshalb nie.
+ * allen Ordner gleich viel und entscheiden deshalb nie.
  * @returns {{ status: 'zugeordnet'|'pruefen'|'vorschlag'|'keine', reason, message, chosen: string[], preselected: string[], shown: string[] }}
  */
 export function decideAssignment(candidates) {
@@ -258,7 +258,7 @@ export function decideAssignment(candidates) {
   if (strong.length > 1) {
     return {
       status: 'pruefen', reason: 'mehrere',
-      message: `Dieser Brief nennt mehrere Ihrer Akten (${nameList(strong)}). Bitte bestätigen Sie, zu welchen er gehört.`,
+      message: `Dieser Brief nennt mehrere Ihrer Ordner (${nameList(strong)}). Bitte bestätigen Sie, zu welchen er gehört.`,
       chosen: [], preselected: ids(strong), shown: ids(strong),
     };
   }
@@ -283,7 +283,7 @@ export function decideAssignment(candidates) {
     return {
       status: 'vorschlag', reason: viaProvider ? 'nur_absender' : 'schwach',
       message: viaProvider
-        ? `Der Absender passt zu ${nameList([only])}, aber der Brief enthält keine Nummer dieser Akte. Gehört er dazu?`
+        ? `Der Absender passt zu ${nameList([only])}, aber der Brief enthält keine Nummer dieses Ordners. Gehört er dazu?`
         : `Der Brief passt möglicherweise zu ${nameList([only])}. Bitte bestätigen Sie die Zuordnung.`,
       chosen: [], preselected: [only.objectId], shown: [only.objectId],
     };
@@ -316,7 +316,7 @@ function insertLink(db, { userId, letterId, objectId, caseId = null, origin, sco
 const CASE_KIND_FOR = { rechnungsnummer: 'rechnung', schadennummer: 'schaden', bestellnummer: 'bestellung', aktenzeichen: 'bescheid', kassenzeichen: 'bescheid' };
 
 /**
- * Ordnet einen Brief einem Vorgang seiner Akte zu: vorhandener Vorgang mit gleicher Nummer
+ * Ordnet einen Brief einem Vorgang seiner Ordner zu: vorhandener Vorgang mit gleicher Nummer
  * oder – wenn der Brief eine Vorgangsnummer enthält (Rechnung, Schaden …) – ein neuer Vorgang.
  */
 export function ensureCase(db, letter, objectId, letterIds, { create = true } = {}) {
@@ -351,7 +351,7 @@ export function ensureCase(db, letter, objectId, letterIds, { create = true } = 
 
 /**
  * Führt die automatische Zuordnung für einen Brief aus. Entscheidungen des Nutzers
- * (Verknüpfungen „nutzer“ oder „ohne Akte“) bleiben unangetastet, außer force = true.
+ * (Verknüpfungen „nutzer“ oder „ohne Ordner“) bleiben unangetastet, außer force = true.
  */
 export function assignLetter(db, letterId, { force = false, ctx = null, log = true } = {}) {
   const letter = db.get('SELECT * FROM letters WHERE id = ?', letterId);
@@ -363,24 +363,24 @@ export function assignLetter(db, letterId, { force = false, ctx = null, log = tr
   const context = ctx || loadAssignmentContext(db, letter.user_id);
   const { identifiers, candidates } = scoreLetter(db, letter, context);
   const decision = decideAssignment(candidates);
-  // Keine passende Akte: neue Akte mit passendem Namen vorschlagen (angelegt wird erst nach Zustimmung)
+  // Kein passender Ordner: neuer Ordner mit passendem Namen vorschlagen (angelegt wird erst nach Zustimmung)
   let proposal = null;
   if (decision.status === 'keine' && !letter.is_demo_content) {
     proposal = proposeObject(letter, identifiers);
-    // Gibt es schon eine Akte mit genau diesem Namen (z. B. „Weiterbildung“)? Dann diese vorschlagen statt einer zweiten
+    // Gibt es schon einen Ordner mit genau diesem Namen (z. B. „Weiterbildung“)? Dann diese vorschlagen statt einer zweiten
     const sameName = proposal && context.objects.find((o) => o.status !== 'beendet' && o.name.trim().toLowerCase() === proposal.name.trim().toLowerCase());
     if (sameName) {
-      candidates.push({ objectId: sameName.id, name: sameName.name, type: sameName.type, score: 1, exactScore: 0, evidence: [{ type: 'name', note: `Passt zum Namen der Akte „${sameName.name}“` }] });
+      candidates.push({ objectId: sameName.id, name: sameName.name, type: sameName.type, score: 1, exactScore: 0, evidence: [{ type: 'name', note: `Passt zum Namen des Ordners „${sameName.name}“` }] });
       decision.status = 'vorschlag';
       decision.reason = 'gleicher_name';
-      decision.message = `Gehört das Dokument in die Akte „${sameName.name}“?`;
+      decision.message = `Gehört das Dokument in den Ordner „${sameName.name}“?`;
       decision.shown = [sameName.id];
       decision.preselected = [sameName.id];
       proposal = null;
     } else if (proposal) {
       decision.status = 'neue_akte';
       decision.reason = 'keine_akte';
-      decision.message = `Für diesen Brief gibt es noch keine passende Akte. Neue Akte „${proposal.name}“ anlegen und den Brief dort ablegen?`;
+      decision.message = `Für diesen Brief gibt es noch keinen passenden Ordner. Neuer Ordner „${proposal.name}“ anlegen und den Brief dort ablegen?`;
     }
   }
   const now = new Date().toISOString();
@@ -417,7 +417,7 @@ export function assignLetter(db, letterId, { force = false, ctx = null, log = tr
   return decision;
 }
 
-/** Nach Änderungen an Akten: alle noch nicht vom Nutzer entschiedenen Briefe neu bewerten. */
+/** Nach Änderungen an Ordner: alle noch nicht vom Nutzer entschiedenen Briefe neu bewerten. */
 export function reassignOpenLetters(db, userId) {
   const ctx = loadAssignmentContext(db, userId);
   const rows = db.all(
@@ -438,14 +438,14 @@ export function reassignOpenLetters(db, userId) {
 
 /**
  * Zuordnung durch den Nutzer: ersetzt alle Verknüpfungen des Briefes.
- * learn: [{ objectId, kind, value, status }] – Nummern aus dem Brief, die künftig zur Akte gehören
+ * learn: [{ objectId, kind, value, status }] – Nummern aus dem Brief, die künftig zum Ordner gehören
  * cases: { [objectId]: caseId | 'neu' | null }
  */
 export function setLetterLinks(db, user, letterId, { objectIds = [], none = false, learn = [], cases = {} } = {}) {
   const letter = db.get('SELECT * FROM letters WHERE id = ? AND user_id = ?', letterId, user.id);
   if (!letter) return null;
   const objects = objectIds.map((id) => db.get('SELECT * FROM objects WHERE id = ? AND user_id = ?', id, user.id));
-  if (objects.some((o) => !o)) throw Object.assign(new Error('Mindestens eine Akte wurde nicht gefunden.'), { status: 404 });
+  if (objects.some((o) => !o)) throw Object.assign(new Error('Mindestens ein Ordner wurde nicht gefunden.'), { status: 404 });
   const info = parseJson(letter.assignment_json, {});
   const identifiersInLetter = letterIdentifiers(letter);
   const now = new Date().toISOString();
@@ -464,7 +464,7 @@ export function setLetterLinks(db, user, letterId, { objectIds = [], none = fals
         userId: user.id, letterId, objectId: o.id, caseId, origin: 'nutzer', score: candidate?.score ?? null,
         evidence: candidate?.evidence?.length ? candidate.evidence : [{ type: 'nutzer', note: 'Vom Nutzer zugeordnet.' }],
       });
-      // Akte ohne Vertragspartner: Absender des Briefes übernehmen (Kontext für künftige Briefe)
+      // Ordner ohne Vertragspartner: Absender des Briefes übernehmen (Kontext für künftige Briefe)
       if (!o.provider && letter.sender) {
         db.run('UPDATE objects SET provider = ?, provider_key = ?, updated_at = ? WHERE id = ?', letter.sender, orgKey(letter.sender), now, o.id);
       }

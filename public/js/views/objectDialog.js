@@ -1,4 +1,4 @@
-// Dialog zum Anlegen und Bearbeiten einer Akte (Fahrzeug, Zähler, Vertrag …) samt Nummern.
+// Dialog zum Anlegen und Bearbeiten einem Ordner (Fahrzeug, Zähler, Vertrag …) samt Nummern.
 import { html, mount } from '../html.js';
 import { api } from '../api.js';
 import { icon, toast, openDialog, showError, clearErrors, busy } from '../ui.js';
@@ -30,7 +30,7 @@ export function guessType(identifiers = [], category = '') {
   return 'vertrag';
 }
 
-/** Nummern, die eine Akte kennzeichnen (keine Rechnungs- oder Schadennummern, keine IBAN des Absenders). */
+/** Nummern, die einen Ordner kennzeichnen (keine Rechnungs- oder Schadennummern, keine IBAN des Absenders). */
 export function objectLevelIdentifiers(identifiers = []) {
   return identifiers.filter((i) => identifierKind(i.kind).level === 'objekt' && i.kind !== 'iban');
 }
@@ -68,25 +68,16 @@ export async function openObjectDialog({ object = null, prefill = {}, letterId =
     /* ohne Personen und Adressen weiter */
   }
   const editing = Boolean(object);
-  let folders = [];
-  try {
-    folders = (await api.get('/api/folders')).folders || [];
-  } catch {
-    folders = [];
-  }
-  const folderId = object ? object.folderId : prefill.folderId || '';
   let type = object?.type || prefill.type || (letterId ? 'vertrag' : 'sonstiges');
   const rows = editing ? [] : (prefill.identifiers?.length ? prefill.identifiers : [{}]).map((i) => ({ kind: i.kind, value: i.value, status: i.status === 'alt' ? 'alt' : 'aktuell' }));
 
   openDialog(html`<form class="dialog-body stack" novalidate>
-    <h2>${editing ? 'Akte bearbeiten' : 'Neue Akte'}</h2>
+    <h2>${editing ? 'Ordner bearbeiten' : 'Neuer Ordner'}</h2>
     ${!editing ? html`<p class="muted small">Alle Briefe zu einer Sache, z. B. Auto oder Vertrag.</p>` : ''}
     <div class="field"><label for="o-type">Art</label>
       <select class="input" id="o-type" name="type" data-type>${OBJECT_TYPES.map((t) => html`<option value="${t.id}" ${t.id === type ? 'selected' : ''}>${t.label}</option>`)}</select></div>
     <div class="field"><label for="o-name">Name</label>
       <input class="input" id="o-name" name="name" maxlength="120" required value="${object?.name || prefill.name || ''}" placeholder="z. B. Fahrzeug 1 · SB-AB 123"></div>
-    ${folders.length ? html`<div class="field"><label for="o-folder">Ordner</label>
-      <select class="input" id="o-folder" name="folderId"><option value="">Kein Ordner</option>${folders.map((f) => html`<option value="${f.id}" ${f.id === folderId ? 'selected' : ''}>${f.name}</option>`)}</select></div>` : ''}
     <div class="field"><label for="o-provider">Vertragspartner / Absender <span class="muted">(freiwillig)</span></label>
       <input class="input" id="o-provider" name="provider" maxlength="160" value="${object?.provider || prefill.provider || ''}" placeholder="z. B. HUK-COBURG, Stadtwerke Saarbrücken"></div>
     ${household.persons.length || household.addresses.length ? html`<div class="field-pair">
@@ -102,7 +93,7 @@ export async function openObjectDialog({ object = null, prefill = {}, letterId =
     </fieldset>` : ''}
     <div class="field"><label for="o-notes">Notiz <span class="muted">(freiwillig)</span></label>
       <textarea class="input" id="o-notes" name="notes" rows="2" maxlength="1000">${object?.notes || ''}</textarea></div>
-    <div class="row"><button class="btn" type="submit">${icon('check')}${editing ? 'Speichern' : 'Akte anlegen'}</button>
+    <div class="row"><button class="btn" type="submit">${icon('check')}${editing ? 'Speichern' : 'Ordner anlegen'}</button>
       <button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
   </form>`, (dialog, close) => {
     const form = dialog.querySelector('form');
@@ -144,7 +135,6 @@ export async function openObjectDialog({ object = null, prefill = {}, letterId =
         type: data.type, name: data.name, provider: data.provider || null, notes: data.notes || null,
         personId: data.personId || null, addressId: data.addressId || null,
       };
-      if (folders.length) body.folderId = data.folderId || null;
       // Leere Zeilen werden nicht gesendet; Fehlermeldungen des Servers zeigen auf die richtige Zeile
       const sent = editing ? [] : collectRows().map((r, i) => ({ ...r, i })).filter((r) => r.value);
       if (!editing) {
@@ -155,7 +145,7 @@ export async function openObjectDialog({ object = null, prefill = {}, letterId =
         try {
           const res = editing ? await api.patch(`/api/objects/${object.id}`, body) : await api.post('/api/objects', body);
           close();
-          toast(editing ? 'Akte gespeichert.' : res.existing ? 'Diese Akte gab es schon – verwendet.' : letterId ? 'Akte angelegt und Brief zugeordnet.' : 'Akte angelegt.');
+          toast(editing ? 'Ordner gespeichert.' : res.existing ? 'Diesen Ordner gab es schon – verwendet.' : letterId ? 'Ordner angelegt und Brief zugeordnet.' : 'Ordner angelegt.');
           if (res.warnings?.length) setTimeout(() => toast(res.warnings[0]), 3700);
           else if (res.reassigned?.zugeordnet) setTimeout(() => toast(`${res.reassigned.zugeordnet === 1 ? 'Ein weiterer Brief wurde' : `${res.reassigned.zugeordnet} weitere Briefe wurden`} zugeordnet.`), 3700);
           onSaved?.(res);

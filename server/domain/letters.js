@@ -40,6 +40,8 @@ export function serializeLetterSummary(row) {
     letterDate: row.letter_date,
     letterDateStatus: row.letter_date_status,
     receivedDate: row.received_date,
+    receivedSuggested: row.received_suggested || null,
+    receivedSuggestedQuote: row.received_suggested_quote || null,
     uploadedAt: row.uploaded_at,
     category: row.category,
     analysisStatus: row.analysis_status,
@@ -158,6 +160,9 @@ export function saveAnalysis(db, letterId, analysis, { source, model }) {
       buildSearchText(updated), updated.identifiers_json, updated.recipient, updated.sender_address, updated.sender_email,
       source, model || null, now, analysis.injection ? 1 : 0, updated.tags_json, now, letterId
     );
+    // Zustelldatum nur vorschlagen – gilt erst nach Bestätigung (received_date)
+    db.run('UPDATE letters SET received_suggested = ?, received_suggested_quote = ? WHERE id = ?',
+      letter.received_date ? null : analysis.deliveryDate || null, letter.received_date ? null : analysis.deliveryQuote || null, letterId);
     // Nur unbestätigte, automatisch erzeugte Vorschläge werden ersetzt
     db.run("DELETE FROM tasks WHERE letter_id = ? AND status = 'zu_pruefen' AND origin != 'nutzer'", letterId);
     for (const action of analysis.actions) {

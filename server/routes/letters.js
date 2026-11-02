@@ -313,7 +313,7 @@ export function registerLetterRoutes(router, ctx) {
           alternatives.push('l.search_text LIKE ? ESCAPE \'\\\'');
           params.push(`%${escapeLike(compact(word))}%`);
         }
-        // Name der Akte oder eine ihrer Nummern (z. B. Kennzeichen), auch wenn sie im Brief selbst nicht steht
+        // Name des Ordners oder eine ihrer Nummern (z. B. Kennzeichen), auch wenn sie im Brief selbst nicht steht
         alternatives.push(`l.id IN (SELECT ll.letter_id FROM letter_links ll JOIN objects o ON o.id = ll.object_id
                                      WHERE o.user_id = ? AND lower(o.name) LIKE ? ESCAPE '\\')`);
         params.push(user.id, `%${escapeLike(word)}%`);
@@ -372,7 +372,7 @@ export function registerLetterRoutes(router, ctx) {
     return { letters: rows.map((r) => ({ ...serializeLetterSummary(r), objects: links.get(r.id) || [] })), total };
   });
 
-  /** Akten je Brief (für Listen) */
+  /** Ordner je Brief (für Listen) */
   function linkedObjects(userId) {
     const map = new Map();
     for (const l of db.all(
@@ -459,6 +459,8 @@ export function registerLetterRoutes(router, ctx) {
         if (ld && daysBetween(ld, body.receivedDate) < 0) throw badRequest('Das Zugangsdatum liegt vor dem Briefdatum. Bitte prüfen.', { field: 'receivedDate' });
         updates.received_date = body.receivedDate;
       }
+      updates.received_suggested = null;
+      updates.received_suggested_quote = null;
     }
     if (body.references !== undefined) {
       if (!Array.isArray(body.references) || body.references.length > 20) throw badRequest('Ungültige Aktenzeichen.');

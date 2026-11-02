@@ -2,7 +2,9 @@
 import { html, mount } from './html.js';
 import { api, setUnauthorizedHandler, setMutationHandler } from './api.js';
 import { syncBackup, scheduleBackup, hasRestorableBackup, restoreFromDevice, requestPersistentStorage } from './backup.js';
-import { icon, LOGO, scroller } from './ui.js';
+import { icon, LOGO, scroller, actionSheet } from './ui.js';
+import { setPendingFiles } from './pending.js';
+import { installContextMenus } from './context.js';
 import { installLetterThumbs } from './pdfview.js';
 import { installViewerLinks } from './viewer.js';
 import * as auth from './views/auth.js';
@@ -23,8 +25,8 @@ const ROUTES = [
   { path: /^\/briefe$/, view: letters.render, nav: 'briefe', title: 'Briefe' },
   { path: /^\/briefe\/([\w-]+)$/, view: letter.render, nav: 'briefe', title: 'Brief', keys: ['id'], wide: true },
   { path: /^\/zuordnen$/, view: inbox.render, nav: 'briefe', title: 'Briefe zuordnen' },
-  { path: /^\/akten$/, view: objects.renderList, nav: 'briefe', title: 'Akten' },
-  { path: /^\/akten\/([\w-]+)$/, view: objects.renderDetail, nav: 'briefe', title: 'Akte', keys: ['id'] },
+  { path: /^\/akten$/, view: objects.renderList, nav: 'briefe', title: 'Ordner' },
+  { path: /^\/akten\/([\w-]+)$/, view: objects.renderDetail, nav: 'briefe', title: 'Ordner', keys: ['id'] },
   { path: /^\/scannen$/, view: scan.render, nav: 'scannen', title: 'Brief scannen' },
   { path: /^\/aufgaben$/, view: tasks.render, nav: 'aufgaben', title: 'Aufgaben und Termine' },
   { path: /^\/einstellungen$/, view: settings.render, nav: 'einstellungen', title: 'Einstellungen' },
@@ -40,7 +42,7 @@ const ROUTES = [
 const NAV = [
   { id: 'uebersicht', href: '#/', label: 'Übersicht', icon: 'home' },
   { id: 'briefe', href: '#/briefe', label: 'Briefe', icon: 'mail', badge: 'inbox', badgeLabel: 'Briefe zuordnen' },
-  { id: 'scannen', href: '#/scannen', label: 'Scannen', icon: 'camera', scan: true },
+  { id: 'scannen', href: '#/scannen', label: 'Hinzufügen', icon: 'plus', scan: true },
   { id: 'aufgaben', href: '#/aufgaben', label: 'Aufgaben', icon: 'tasks', badge: 'tasksToReview', badgeLabel: 'zu prüfen' },
   { id: 'einstellungen', href: '#/einstellungen', label: 'Einstellungen', icon: 'settings' },
 ];
@@ -97,6 +99,33 @@ function renderNav(active) {
         </a></li>`)}
     </ul>`);
 }
+
+const IMPORT_ACCEPT = 'application/pdf,image/*,.heic,.heif,.pptx,.docx,.xlsx';
+
+/** Plus in der Mitte: Auswahl, was hinzugefügt werden soll (nutzt die vorhandenen Scan- und Importwege). */
+function openAddSheet() {
+  const take = (files, opts = {}) => {
+    setPendingFiles(files, opts);
+    navigate(`/scannen?modus=datei&t=${Date.now()}`);
+  };
+  actionSheet({
+    title: 'Hinzufügen',
+    actions: [
+      { label: 'Dokument scannen', icon: 'camera', onSelect: () => navigate(`/scannen?t=${Date.now()}`) },
+      { label: 'Foto aufnehmen', icon: 'image', file: { accept: 'image/*', capture: 'environment', onFiles: (f) => take(f, { fromCamera: true }) } },
+      { label: 'Vorhandenes Bild auswählen', icon: 'image', file: { accept: 'image/*,.heic,.heif', multiple: true, onFiles: (f) => take(f) } },
+      { label: 'PDF oder Datei importieren', icon: 'file', file: { accept: IMPORT_ACCEPT, multiple: true, onFiles: (f) => take(f) } },
+      ...(state.status?.mailImport?.enabled ? [{ label: 'E-Mail importieren', icon: 'mail', onSelect: () => navigate('/email-import') }] : []),
+    ],
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const add = e.target.closest('.nav-scan');
+  if (!add || !state.me) return;
+  e.preventDefault();
+  openAddSheet();
+});
 
 function renderBanner() {
   const slot = document.getElementById('banner');
@@ -250,4 +279,11 @@ async function start() {
 export { applyTextSize, applyTheme };
 installLetterThumbs();
 installViewerLinks();
+installContextMenus(({ left, kind, id } = {}) => {
+  // Gelöschtes Element, dessen Detailseite gerade offen ist: zurück zur Liste
+  const { path } = parseHash();
+  if (left && kind === 'letter' && path === `/briefe/${id}`) return navigate('/briefe');
+  if (left && kind === 'folder' && path === `/akten/${id}`) return navigate('/akten');
+  return route();
+});
 start();

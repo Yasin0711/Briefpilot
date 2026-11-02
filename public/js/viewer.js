@@ -173,6 +173,18 @@ export async function openViewer({ files = null, letterId = null, title = '', st
 
 /** Klicks auf [data-view-letter] / [data-view-file] überall in der App öffnen die Vollbild-Ansicht. */
 export function installViewerLinks() {
+  // Blätter-Vorschau angetippt (pdfview.js): Vollbild an dieser Seite
+  document.addEventListener('bp:open-page', (e) => {
+    const box = e.target.closest?.('[data-pager]');
+    let files = [];
+    try {
+      files = JSON.parse(box?.dataset.files || '[]');
+    } catch {
+      files = [];
+    }
+    if (files.length) openViewer({ files, start: e.detail?.start || 0 });
+    else if (box?.dataset.letter) openViewer({ letterId: box.dataset.letter, start: e.detail?.start || 0 });
+  });
   document.addEventListener('click', (e) => {
     const el = e.target.closest('[data-view-letter], [data-view-file]');
     if (!el || e.defaultPrevented || e.metaKey || e.ctrlKey) return;

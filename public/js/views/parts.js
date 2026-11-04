@@ -51,8 +51,6 @@ export function letterRow(l, { note = null } = {}) {
   const badges = [];
   if (l.analysisStatus === 'wartet' || l.analysisStatus === 'laeuft') badges.push(html`<span class="badge badge-open">Wird gelesen …</span>`);
   else if (l.analysisStatus === 'fehler') badges.push(html`<span class="badge badge-danger">Auswertung fehlgeschlagen</span>`);
-  else if (l.tasksToReview) badges.push(html`<span class="badge badge-review">${icon('alert')}${l.tasksToReview} zu prüfen</span>`);
-  else if (!l.reviewed && l.analysisStatus === 'fertig') badges.push(html`<span class="badge badge-review">Angaben prüfen</span>`);
   if (l.assignmentStatus === 'pruefen' || l.assignmentStatus === 'vorschlag') badges.push(html`<span class="badge badge-review">${icon('inbox')}Ordner wählen</span>`);
   if (l.assignmentStatus === 'neue_akte') badges.push(html`<span class="badge badge-review">${icon('folder')}Neuer Ordner?</span>`);
   if (l.duplicateStatus === 'verdacht') badges.push(html`<span class="badge badge-review">${icon('copy')}Doppelt?</span>`);

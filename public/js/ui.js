@@ -127,6 +127,8 @@ export function kindIcon(kind) {
 }
 
 export function statusBadge(status) {
+  // „Zu prüfen“ wird nicht als Warnung angezeigt (Bestätigen-Formular reicht)
+  if (status === 'zu_pruefen') return '';
   const cls = { zu_pruefen: 'badge-review', offen: 'badge-open', erledigt: 'badge-done' }[status] || '';
   const ic = { zu_pruefen: 'alert', offen: 'circle', erledigt: 'check' }[status];
   return html`<span class="badge ${cls}">${icon(ic)}${TASK_STATUS[status] || status}</span>`;

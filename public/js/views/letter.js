@@ -11,7 +11,7 @@ import {
   CATEGORIES, REMINDER_OFFSETS, ANALYSIS_SOURCE_LABELS, TASK_KINDS, categoryLabel,
 } from '../shared/constants.js';
 import { identifierKindLabel } from '../shared/identifiers.js';
-import { formatDate, formatDateTime, computeRelativeEnd, todayIn, isValidIsoDate, isWeekend } from '../shared/dates.js';
+import { formatDate, formatDateTime, computeRelativeEnd, todayIn, isValidIsoDate } from '../shared/dates.js';
 import { setReviewCount, setInboxCount } from '../app.js';
 import { objectChips, objectTile, evidenceList, identifierStatusBadge } from './parts.js';
 import { moveSheet, fileLetterInto } from '../folderSheet.js';
@@ -72,7 +72,7 @@ function reminderChips(selected, name = 'reminders') {
 }
 
 // Hinweise, die schon an anderer Stelle sichtbar sind (Zitat, Datumsfeld), nicht doppelt zeigen
-const REDUNDANT_NOTE = /Zugangsdatum|nicht gefunden|sinngemäß|kein eindeutiges Datum/i;
+const REDUNDANT_NOTE = /Zugangsdatum|nicht gefunden|sinngemäß|kein eindeutiges Datum|Wochenende/i;
 function visibleNotes(task) {
   return (task.checkNotes || []).filter((n) => !REDUNDANT_NOTE.test(n));
 }
@@ -273,7 +273,7 @@ function explanation(data, settings, today, correcting, openSteps = new Set()) {
       </div>`, Boolean(s.legalNote))}
 
     ${step('2', 'Was muss ich tun?', active.length ? String(active.length) : 'nichts', html`
-      ${active.length ? html`<ul class="todo-list">${active.map((t) => html`<li>${icon(t.status === 'zu_pruefen' ? 'alert' : 'circle')}<span>${t.title}${t.status === 'zu_pruefen' ? html` <span class="badge badge-review">zu prüfen</span>` : ''}</span></li>`)}</ul>`
+      ${active.length ? html`<ul class="todo-list">${active.map((t) => html`<li>${icon('circle')}<span>${t.title}</span></li>`)}</ul>`
         : s.nothingToDo ? html`<p class="explain-body">Nichts.</p>`
           : tasks.length ? html`<p class="explain-body">Alles erledigt.</p>`
             : html`<p class="explain-body">Keine Aufgaben erkannt.</p>`}
@@ -554,7 +554,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
           return;
         }
         mount(out, html`<div><p class="small muted">${formatDate(res.start, { short: true })} + ${periodLabel(task.relativeRule)} = ${formatDate(res.date, { short: true })}</p>
-          ${isWeekend(res.date) ? html`<p class="small muted">Fällt aufs Wochenende – besser vorher handeln.</p>` : ''}</div>`);
+          </div>`);
         if (!manual) due.value = res.date;
       };
       input.addEventListener('input', update);

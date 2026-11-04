@@ -8,7 +8,7 @@ import {
   IDENTIFIER_KIND_IDS, kindFromLabel, normalizeIdentifier, extractIdentifiers, identifierKindLabel, compactAddressText,
 } from '../../public/js/shared/identifiers.js';
 import {
-  isValidIsoDate, isValidTime, parseGermanDates, parseRelativeDeadline, isWeekend, daysBetween,
+  isValidIsoDate, isValidTime, parseGermanDates, parseRelativeDeadline, daysBetween,
 } from '../../public/js/shared/dates.js';
 
 const str = (v, max = 500) => (typeof v === 'string' ? v.replace(/\u0000/g, '').trim().slice(0, max) : '');
@@ -182,7 +182,6 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
       notes.push('Uhrzeit steht so nicht im Brief.');
     }
     if (date && today && daysBetween(today, date) < 0) notes.push('Liegt in der Vergangenheit.');
-    if (date && isWeekend(date)) notes.push('Fällt auf ein Wochenende.');
 
     let page = Number.isInteger(a?.page) && a.page > 0 && a.page < 500 ? a.page : null;
     if (page === null && quote && /--- Seite \d+ ---/.test(fullText)) {

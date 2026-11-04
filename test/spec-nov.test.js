@@ -176,3 +176,11 @@ test('Profil „Meine Angaben“ füllt Antworten automatisch aus', async (t) =>
   assert.equal(reply.sender.email, 'hans@example.org');
   assert.equal(reply.place, 'Saarbrücken');
 });
+
+test('Eigene Angaben ersetzen Platzhalter im Entwurf, Unbekanntes bleibt', async () => {
+  const { fillUserPlaceholders } = await import('../server/domain/replies.js');
+  const me = { name: 'Hans Muster', address: 'Hauptstraße 5\n66111 Saarbrücken', phone: '0681 123', email: 'h@example.org' };
+  const out = fillUserPlaceholders('Erreichbar unter [Telefonnummer] oder [E-Mail-Adresse]. Neue Anschrift: [Ihre neue Anschrift]. [Ihr Name] · [Begründung ergänzen]', me, 'Saarbrücken');
+  assert.equal(out, 'Erreichbar unter 0681 123 oder h@example.org. Neue Anschrift: Hauptstraße 5, 66111 Saarbrücken. Hans Muster · [Begründung ergänzen]');
+  assert.equal(fillUserPlaceholders('Tel. [Telefon]', { name: 'A' }), 'Tel. [Telefon]', 'ohne Telefonnummer bleibt der Platzhalter');
+});

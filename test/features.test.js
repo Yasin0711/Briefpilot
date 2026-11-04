@@ -309,10 +309,16 @@ test('Kostenlose KI (Gemini, nachgebaut): Auswertung, Rückfrage mit Antwortentw
     // Entwurf aus der Antwort übernehmen
     r = await c.post(`/api/letters/${created.data.id}/replies`, { mode: 'text', subject: r.data.messages[1].replySubject, body: r.data.messages[1].replyBody });
     assert.equal(r.data.reply.origin, 'ki');
-    // Antwortbrief direkt von der KI
+    // Antwortbrief direkt von der KI – mit den eigenen Angaben schon im ersten Entwurf
+    await c.patch('/api/me', { settings: { profile: { name: 'Hans Muster', street: 'Hauptstraße 5', zip: '66111', city: 'Saarbrücken', phone: '0681 123' } } });
     r = await c.post(`/api/letters/${created.data.id}/replies`, { mode: 'ki', instruction: 'Bitte um Ratenzahlung' });
     assert.equal(r.status, 200, JSON.stringify(r.data));
     assert.match(r.data.reply.subject, /Ratenzahlung/);
+    const replyPrompt = JSON.stringify(requests.at(-1).body.contents);
+    assert.match(replyPrompt, /Angaben des Nutzers \(Absender\)/);
+    assert.match(replyPrompt, /Name: Hans Muster/);
+    assert.match(replyPrompt, /Telefon: 0681 123/);
+    assert.equal(r.data.reply.sender.name, 'Hans Muster');
     // Weitere Unterlagen als Bezug: Text eines anderen Briefes landet im Prompt
     const other = await c.post('/api/letters', { fileIds: [(await c.upload(insurancePdf({ plate: 'SB-XY 1', policy: 'KFZ-777' }), 'application/pdf')).data.id] });
     await server.app.ctx.analyzer.idle();

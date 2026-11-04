@@ -212,6 +212,30 @@ export function replyDefaults(db, user, letter) {
   };
 }
 
+/**
+ * Platzhalter für eigene Angaben im Text ersetzen ([Ihr Name], [Telefonnummer], [Ihre Anschrift] …),
+ * damit schon der erste Entwurf die Daten des Nutzers enthält. Unbekanntes bleibt als Platzhalter stehen.
+ */
+export function fillUserPlaceholders(text, sender = {}, place = '') {
+  if (!text) return text;
+  const addr = String(sender.address || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const cityLine = addr.length > 1 ? addr[addr.length - 1] : '';
+  const values = [
+    [/^(ihr(en)? )?(vor- und nach|voll(ständig)?er |eigener )?name|^name des (absenders|nutzers|kunden|versicherungsnehmers)|^unterschrift|^vorname nachname$/i, sender.name],
+    [/^(ihre )?(telefon(nummer)?|tel\.?|rufnummer|handynummer|mobilnummer)/i, sender.phone],
+    [/^(ihre )?e-?mail(-adresse)?/i, sender.email],
+    [/^(ihre )?(neue )?(anschrift|adresse|postanschrift|wohnanschrift)/i, addr.join(', ')],
+    [/^(ihre )?straße( und hausnummer| und nr\.?)?$/i, addr[0]],
+    [/^(plz und ort|plz ort|postleitzahl und ort)$/i, cityLine],
+    [/^(ihr )?(wohn)?ort$/i, place],
+  ];
+  return text.replace(/\[([^\]\n]{2,60})\]/g, (m, inner) => {
+    const key = inner.trim();
+    const hit = values.find(([re, v]) => v && re.test(key));
+    return hit ? hit[1] : m;
+  });
+}
+
 export function serializeReply(row) {
   const body = row.body || '';
   return {

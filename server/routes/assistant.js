@@ -4,10 +4,10 @@ import { HttpError, badRequest, notFound, readJson } from '../lib/http.js';
 import { newId, isValidEmail, isGuest } from '../lib/security.js';
 import { AiError } from '../analysis/ai.js';
 import {
-  ASK_SYSTEM_PROMPT, ASK_SCHEMA, REPLY_SYSTEM_PROMPT, REPLY_SCHEMA, REPLY_VARIANTS_SCHEMA, letterContext, referenceContext,
+  ASK_SYSTEM_PROMPT, ASK_SCHEMA, REPLY_SYSTEM_PROMPT, REPLY_SCHEMA, REPLY_VARIANTS_SCHEMA, letterContext, referenceContext, userContext,
 } from '../analysis/prompt.js';
 import {
-  REPLY_TEMPLATES, REPLY_TEMPLATE_IDS, templateReply, suggestReplyTemplates, suggestQuestions, replyDefaults, serializeReply, replyPlainText, replyReferences,
+  REPLY_TEMPLATES, REPLY_TEMPLATE_IDS, templateReply, suggestReplyTemplates, suggestQuestions, replyDefaults, serializeReply, replyPlainText, replyReferences, fillUserPlaceholders,
 } from '../domain/replies.js';
 import { renderReplyPdf } from '../pdf/letter.js';
 import { logLetterEvent } from '../domain/events.js';
@@ -89,7 +89,8 @@ export function registerAssistantRoutes(router, ctx) {
     requireAi(user);
     const tasks = db.all('SELECT * FROM tasks WHERE letter_id = ? ORDER BY position', letter.id);
     const history = db.all('SELECT role, content FROM letter_messages WHERE letter_id = ? ORDER BY created_at DESC LIMIT 6', letter.id).reverse();
-    const prompt = `${letterContext(letter, tasks)}\n\n${history.length ? `Bisheriges Gespräch:\n${history.map((m) => `${m.role === 'frage' ? 'Nutzer' : 'Assistent'}: ${m.content}`).join('\n')}\n\n` : ''}Frage des Nutzers: ${question}`;
+    const me = replyDefaults(db, user, letter);
+    const prompt = `${letterContext(letter, tasks)}${userContext(me.sender, me.place)}\n\n${history.length ? `Bisheriges Gespräch:\n${history.map((m) => `${m.role === 'frage' ? 'Nutzer' : 'Assistent'}: ${m.content}`).join('\n')}\n\n` : ''}Frage des Nutzers: ${question}`;
     let result;
     let model;
     try {
@@ -99,7 +100,7 @@ export function registerAssistantRoutes(router, ctx) {
     }
     const answer = str(result?.answer, 4000) || 'Dazu konnte ich keine Antwort finden.';
     const replySubject = str(result?.reply_subject, 300) || null;
-    const replyBody = str(result?.reply_body, 6000) || null;
+    const replyBody = fillUserPlaceholders(str(result?.reply_body, 6000), me.sender, me.place) || null;
     const now = Date.now();
     db.tx(() => {
       db.run('INSERT INTO letter_messages (id, user_id, letter_id, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?)', newId(), user.id, letter.id, 'frage', question, new Date(now).toISOString());
@@ -145,7 +146,7 @@ export function registerAssistantRoutes(router, ctx) {
         || REPLY_TEMPLATES.find((t) => t.id === body.template)?.label || 'Eine höfliche, kurze Antwort auf den Brief.';
       requireAi(user);
       try {
-        const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}\n\nWunsch des Nutzers für das Antwortschreiben: ${instruction}`;
+        const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}${userContext(defaults.sender, defaults.place)}\n\nWunsch des Nutzers für das Antwortschreiben: ${instruction}`;
         const { result } = await ai.completeJson({ system: REPLY_SYSTEM_PROMPT, prompt, schema: REPLY_SCHEMA, maxTokens: 4096 });
         subject = str(result?.subject, 300);
         text = str(result?.body, 8000);
@@ -164,6 +165,9 @@ export function registerAssistantRoutes(router, ctx) {
       template = REPLY_TEMPLATE_IDS.includes(body.template) ? body.template : 'leer';
       ({ subject, body: text } = templateReply(template, letter, tasks));
     }
+    // Eigene Angaben gleich im ersten Entwurf einsetzen (auch bei Vorlagen)
+    text = fillUserPlaceholders(text, defaults.sender, defaults.place);
+    subject = fillUserPlaceholders(subject, defaults.sender, defaults.place);
     const now = new Date().toISOString();
     const id = newId();
     db.run(
@@ -187,10 +191,11 @@ export function registerAssistantRoutes(router, ctx) {
     if (!instruction) throw badRequest('Bitte schreiben Sie, was geändert werden soll.', { field: 'instruction' });
     requireAi(user);
     const tasks = db.all('SELECT * FROM tasks WHERE letter_id = ? ORDER BY position', letter.id);
+    const me = replyDefaults(db, user, letter);
     let subject;
     let text;
     try {
-      const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}\n\nAktueller Entwurf:\nBetreff: ${reply.subject}\n${reply.body}\n\n`
+      const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}${userContext(me.sender, me.place)}\n\nAktueller Entwurf:\nBetreff: ${reply.subject}\n${reply.body}\n\n`
         + `Änderungswunsch des Nutzers: ${instruction}\n\n`
         + 'Überarbeite den Entwurf entsprechend. Ändere nur, was gewünscht ist; alles andere bleibt möglichst gleich. '
         + 'Angaben des Nutzers (z. B. ein korrigierter Name) übernimmst du so, wie er sie schreibt.';
@@ -201,6 +206,7 @@ export function registerAssistantRoutes(router, ctx) {
       throw aiFailure(err);
     }
     if (!text) throw new HttpError(502, 'Die KI hat keinen geänderten Text geliefert. Bitte erneut versuchen.');
+    text = fillUserPlaceholders(text, me.sender, me.place);
     db.run('UPDATE replies SET subject = ?, body = ?, updated_at = ? WHERE id = ?', subject || reply.subject, text, new Date().toISOString(), reply.id);
     logLetterEvent(db, user.id, letter.id, 'antwort_geaendert', { herkunft: 'ki' });
     return { reply: serializeReply(db.get('SELECT * FROM replies WHERE id = ?', reply.id)) };
@@ -218,12 +224,12 @@ export function registerAssistantRoutes(router, ctx) {
     const defaults = replyDefaults(db, user, letter);
     let drafts;
     try {
-      const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}\n\nBisheriger Entwurf:\nBetreff: ${base.subject}\n${base.body}\n\n`
+      const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}${userContext(defaults.sender, defaults.place)}\n\nBisheriger Entwurf:\nBetreff: ${base.subject}\n${base.body}\n\n`
         + `Schreibe ${count} deutlich unterschiedliche Alternativen zu diesem Entwurf (z. B. kürzer, ausführlicher, bestimmter im Ton). `
         + 'Gleiche Fakten, gleiche Platzhalter-Regeln. Gib sie im Feld drafts zurück.';
       const { result } = await ai.completeJson({ system: REPLY_SYSTEM_PROMPT, prompt, schema: REPLY_VARIANTS_SCHEMA, maxTokens: 6000 });
       drafts = (Array.isArray(result?.drafts) ? result.drafts : [])
-        .map((d) => ({ subject: str(d?.subject, 300), body: str(d?.body, 8000) }))
+        .map((d) => ({ subject: str(d?.subject, 300), body: fillUserPlaceholders(str(d?.body, 8000), defaults.sender, defaults.place) }))
         .filter((d) => d.body)
         .slice(0, count);
     } catch (err) {

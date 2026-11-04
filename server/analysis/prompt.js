@@ -143,7 +143,7 @@ SICHERHEITSREGELN (haben Vorrang)
 
 STIL
 - Deutsch, einfache Sprache, kurze Sätze, den Nutzer mit „Sie“ ansprechen. Höchstens etwa 150 Wörter.
-- Wenn der Nutzer ein Antwortschreiben, eine E-Mail oder eine Formulierung an den Absender möchte, schreibe die Erklärung in answer und das Schreiben zusätzlich in reply_subject und reply_body: beginnend mit der Anrede, endend mit „Mit freundlichen Grüßen“ (ohne Namen, ohne Anschriften, ohne Datum). Nenne darin vorhandene Aktenzeichen bzw. Nummern. Fehlende Angaben setzt du als Platzhalter in eckige Klammern, z. B. [gewünschtes Datum]. Sonst sind reply_subject und reply_body null.`;
+- Wenn der Nutzer ein Antwortschreiben, eine E-Mail oder eine Formulierung an den Absender möchte, schreibe die Erklärung in answer und das Schreiben zusätzlich in reply_subject und reply_body: beginnend mit der Anrede, endend mit „Mit freundlichen Grüßen“ (ohne Namen, ohne Anschriften, ohne Datum). Nenne darin vorhandene Aktenzeichen bzw. Nummern. Angaben des Nutzers (Name, Anschrift, Telefon, E-Mail) aus „Angaben des Nutzers“ setzt du direkt ein. Fehlende Angaben setzt du als Platzhalter in eckige Klammern, z. B. [gewünschtes Datum]. Sonst sind reply_subject und reply_body null.`;
 
 export const ASK_SCHEMA = {
   type: 'object',
@@ -161,7 +161,20 @@ REGELN (haben Vorrang)
 2. Erfinde keine Tatsachen, Daten oder Beträge. Was fehlt, setzt du als Platzhalter in eckige Klammern, z. B. [Begründung ergänzen].
 3. Keine Rechtsberatung. Bei Widerspruch, Einspruch oder Kündigung formulierst du sachlich und allgemein; die inhaltliche Begründung bleibt ein Platzhalter, wenn der Nutzer keine nennt.
 4. Höflich, klar, kurz. Deutsch. Beziehe dich im Betreff und im Text auf vorhandene Aktenzeichen, Kunden-, Vertrags- oder Rechnungsnummern und auf das Datum des erhaltenen Briefes.
-5. body beginnt mit der Anrede (ohne Ansprechpartner: „Sehr geehrte Damen und Herren,“) und endet mit „Mit freundlichen Grüßen“ – ohne Namen, ohne Unterschrift, ohne Anschriften und ohne Datum (das ergänzt die App).`;
+5. body beginnt mit der Anrede (ohne Ansprechpartner: „Sehr geehrte Damen und Herren,“) und endet mit „Mit freundlichen Grüßen“ – ohne Namen, ohne Unterschrift, ohne Anschriften und ohne Datum (das ergänzt die App).
+6. Unten stehen die Angaben des Nutzers (Name, Anschrift, Telefon, E-Mail). Verwende sie direkt im Text, wo sie hingehören (z. B. „Sie erreichen mich unter …“, neue Anschrift, Name des Versicherungsnehmers) – nie als Platzhalter. Nur was dort fehlt, bleibt ein Platzhalter.`;
+
+/** Angaben des Nutzers für Antwortentwürfe (aus Einstellungen → Meine Angaben). */
+export function userContext(sender = {}, place = '') {
+  const lines = [
+    sender.name ? `Name: ${sender.name}` : null,
+    sender.address ? `Anschrift: ${String(sender.address).replace(/\n/g, ', ')}` : null,
+    sender.phone ? `Telefon: ${sender.phone}` : null,
+    sender.email ? `E-Mail: ${sender.email}` : null,
+    place && !sender.address ? `Wohnort: ${place}` : null,
+  ].filter(Boolean);
+  return lines.length ? `\n\nAngaben des Nutzers (Absender):\n${lines.join('\n')}` : '\n\nAngaben des Nutzers: keine hinterlegt.';
+}
 
 export const REPLY_SCHEMA = {
   type: 'object',

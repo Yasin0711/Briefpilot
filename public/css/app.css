@@ -1245,3 +1245,21 @@ input[type="date"].input, input[type="time"].input { -webkit-appearance: none; a
 .letter-meta.wrap-meta { white-space: normal; display: flex; flex-wrap: wrap; gap: 2px 12px; }
 .letter-meta.wrap-meta > span { min-width: 0; overflow-wrap: anywhere; }
 .object-actions { flex-wrap: wrap; }
+/* Briefe: Suche breit, Sortierung schmal daneben */
+.search-row .search-box { flex: 1 1 auto; min-width: 0; }
+.search-row select.sort-select { flex: 0 0 auto; width: auto; max-width: 42%; }
+
+/* Seitenübersicht (Seiten löschen) */
+.move-danger { color: var(--danger, #c0392b); }
+.pages-hint { margin: 10px 16px 4px; }
+.pages-hint.is-warn { color: var(--review); }
+.pages-grid { list-style: none; margin: 0; padding: 8px 14px 24px; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 14px; overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
+.page-tile { position: relative; display: grid; gap: 6px; justify-items: center; width: 100%; padding: 0; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; -webkit-touch-callout: none; user-select: none; touch-action: manipulation; }
+.sheet-thumb { display: grid; place-items: center; width: 100%; aspect-ratio: 1 / 1.414; overflow: hidden; border-radius: 6px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line-strong); transition: box-shadow .15s, transform .15s; }
+.sheet-thumb canvas, .sheet-thumb img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.page-tile[aria-selected="true"] .sheet-thumb { box-shadow: 0 0 0 3px var(--action); transform: scale(.96); }
+.page-circle { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; background: rgba(16, 35, 58, .25); display: grid; place-items: center; color: transparent; box-shadow: 0 1px 4px rgba(0,0,0,.25); transition: background .15s; }
+.page-circle svg { width: 16px; height: 16px; }
+.page-tile[aria-selected="true"] .page-circle { background: var(--action); color: #fff; }
+.page-no { font-size: .85rem; color: var(--muted); }
+dialog .viewer { z-index: 10; }

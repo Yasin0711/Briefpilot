@@ -85,3 +85,32 @@ test('Versionsnummer: 1.01 … 1.99, dann 2.00, 2.03', async () => {
   assert.equal(versionLabel(103), '2.03');
   assert.equal(versionLabel(0), null);
 });
+
+test('Seiten löschen: einzelne PDF-Seiten und ganze Dateien, eine Seite bleibt', async (t) => {
+  const s = await startTestServer();
+  t.after(() => s.stop());
+  const { c } = await registerUser(s);
+  const lines = (n) => [`Seite Nummer ${n}`, 'Stadtwerke Musterstadt, Musterstadt, 03.10.2026', 'Sehr geehrte Damen und Herren, anbei Ihre Rechnung.', 'Bitte zahlen Sie den Betrag von 89,40 EUR bis zum 15.11.2026.', 'Mit freundlichen Gruessen, Ihr Kundenservice']
+    .map((text, i) => ({ type: 'text', x: 70, y: 720 - i * 24, text }));
+  const pdf = buildPdf([1, 2, 3].map(lines));
+  const up = await c.upload(pdf, 'application/pdf');
+  const letter = (await c.post('/api/letters', { fileIds: [up.data.id] })).data;
+  await s.app.ctx.analyzer.idle();
+  const before = (await c.get(`/api/letters/${letter.id}`)).data.files.filter((f) => f.role !== 'original');
+  assert.equal(before.length, 1);
+  // Alle drei Seiten: abgelehnt
+  const all = await c.post(`/api/letters/${letter.id}/pages/delete`, { pages: [0, 1, 2].map((page) => ({ fileId: before[0].id, page })) });
+  assert.equal(all.status, 400);
+  // Seite 2 löschen
+  const r = await c.post(`/api/letters/${letter.id}/pages/delete`, { pages: [{ fileId: before[0].id, page: 1 }] });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.removed, 1);
+  await s.app.ctx.analyzer.idle();
+  const after = (await c.get(`/api/letters/${letter.id}`)).data;
+  const files = after.files.filter((f) => f.role !== 'original');
+  assert.equal(files.length, 1);
+  assert.notEqual(files[0].id, before[0].id, 'neue Datei-ID nach dem Kürzen');
+  assert.equal(files[0].pageCount, 2);
+  assert.doesNotMatch(after.letter.fullText || '', /Seite Nummer 2/);
+  assert.match(after.letter.fullText || '', /Seite Nummer 3/);
+});

@@ -12,16 +12,17 @@ const MAX_CANVAS_PIXELS = 12_000_000;
 let openInstance = null;
 
 /**
- * @param {{ files?: {id:string, kind:string}[], letterId?: string, title?: string, start?: number }} opts
+ * @param {{ files?: {id:string, kind:string}[], letterId?: string, title?: string, start?: number, container?: HTMLElement }} opts
+ *   container: z. B. ein offenes Fenster (<dialog>), damit die Ansicht darüber liegt
  */
-export async function openViewer({ files = null, letterId = null, title = '', start = 0 } = {}) {
+export async function openViewer({ files = null, letterId = null, title = '', start = 0, container = null } = {}) {
   if (openInstance) openInstance.close();
   const root = document.createElement('div');
   root.className = 'viewer';
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-modal', 'true');
   root.setAttribute('aria-label', title || 'Brief');
-  document.body.append(root);
+  (container || document.body).append(root);
   document.body.classList.add('viewer-open');
   const previousFocus = document.activeElement;
   let zoom = 0;

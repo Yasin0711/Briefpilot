@@ -15,6 +15,7 @@ import { formatDate, formatDateTime, computeRelativeEnd, todayIn, isValidIsoDate
 import { setReviewCount, setInboxCount } from '../app.js';
 import { objectChips, objectTile, evidenceList, identifierStatusBadge } from './parts.js';
 import { moveSheet, fileLetterInto } from '../folderSheet.js';
+import { pagesSheet } from '../pagesSheet.js';
 import { mountDecision, forgetObjects } from './assign.js';
 import { repliesPanel, chatPanel, bindAssistant } from './replies.js';
 import { loadHousehold } from './objectDialog.js';
@@ -216,7 +217,7 @@ function previewPanel(files, letter, editable) {
       </div>
       ${editable ? html`<div class="pager-tools">
         <a class="icon-btn icon-btn-small" href="#/scannen?zu=${letter.id}" aria-label="Seiten hinzufügen" title="Seiten hinzufügen">${icon('plus')}</a>
-        ${pages.length > 1 ? html`<button class="icon-btn icon-btn-small" type="button" data-action="delete-current-page" aria-label="Diese Seite löschen" title="Seite löschen">${icon('trash')}</button>` : ''}
+        <button class="icon-btn icon-btn-small" type="button" data-action="pages" aria-label="Seiten löschen" title="Seiten löschen">${icon('trash')}</button>
       </div>` : ''}
     </div>` : ''}
     ${office.map((f) => html`<p class="stack small"><span>${/presentation/.test(f.mime) ? 'PowerPoint' : /spreadsheet/.test(f.mime) ? 'Excel' : 'Word'}-Datei</span>
@@ -483,7 +484,6 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         viewable: files.some((f) => f.role !== 'original' && (f.kind === 'pdf' || f.kind === 'image')),
         folderRow: html`<div class="row-meta folder-row">
           ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
-          ${letter.isDemoContent ? '' : html`<button class="btn btn-small btn-secondary folder-pick-btn" type="button" data-action="pick-folder">${icon('folderPlus')}Ordner wählen</button>`}
           ${letter.analysisSource === 'beispiel' && sourceLabel ? html`<span class="badge badge-demo">${icon('info')}${sourceLabel}</span>` : ''}
         </div>`,
       })}
@@ -492,6 +492,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       ${!analyzing ? html`<section class="panel stack more-panel">
             <h2>Weitere Möglichkeiten</h2>
             <div class="row">
+              ${letter.isDemoContent ? '' : html`<button class="btn btn-small btn-secondary" type="button" data-action="pick-folder">${icon('folderPlus')}Ordner wählen</button>`}
               <button class="btn btn-small btn-secondary" type="button" data-tab="antworten">${icon('reply')}Antwort schreiben</button>
               <button class="btn btn-small btn-secondary" type="button" data-action="pdf">${icon('download')}Als PDF herunterladen</button>
               ${editable && files.filter((f) => f.role !== 'original').length > 1 ? html`<button class="btn btn-small btn-secondary" type="button" data-action="split-start">${icon('split')}Seiten trennen</button>` : ''}
@@ -712,6 +713,9 @@ export async function render({ root, params, query, state, navigate, isCurrent }
           });
           form.tags.focus();
         });
+      } else if (action === 'pages') {
+        const removed = await pagesSheet({ letterId: id, files: data.files.filter((f) => f.role !== 'original') });
+        if (removed) await reload();
       } else if (action === 'confirm-delivery') {
         await api.patch(`/api/letters/${id}`, { receivedDate: data.letter.receivedSuggested });
         toast('Zustelldatum übernommen.');

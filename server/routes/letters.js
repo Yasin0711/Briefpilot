@@ -8,7 +8,7 @@ import { extractOfficeText, OFFICE_TYPES } from '../lib/office.js';
 import path from 'node:path';
 import fsp from 'node:fs/promises';
 import { inspectPdf, firstPageJpeg } from '../pdf/extract.js';
-import { sanitizePdf, hasActiveObjects } from '../pdf/sanitize.js';
+import { sanitizePdf, hasActiveObjects, subsetPdf } from '../pdf/sanitize.js';
 import { buildScanPdf } from '../pdf/write.js';
 import {
   serializeLetter, serializeLetterSummary, serializeTask, buildSearchText, compact,
@@ -637,6 +637,79 @@ export function registerLetterRoutes(router, ctx) {
     logLetterEvent(db, user.id, letter.id, 'seite_entfernt');
     analyzer.enqueue(letter.id);
     return { ok: true };
+  });
+
+  /**
+   * Mehrere Seiten auf einmal löschen. `pages`: [{ fileId, page? }] – `page` (ab 0) wählt bei
+   * mehrseitigen PDFs einzelne Seiten; die PDF wird dann ohne diese Seiten neu gespeichert.
+   * Mindestens eine Seite bleibt (sonst den ganzen Brief löschen).
+   */
+  router.post('/api/letters/:id/pages/delete', async (req, res, { user, params }) => {
+    const letter = ownLetter(user, params.id);
+    checkEditable(letter);
+    const body = await readJson(req);
+    const picks = Array.isArray(body.pages) ? body.pages.slice(0, 500) : [];
+    if (!picks.length) throw badRequest('Bitte Seiten auswählen.');
+    const files = db.all("SELECT * FROM files WHERE letter_id = ? AND role = 'seite' ORDER BY position", letter.id);
+    const plan = new Map(); // fileId → Set der Seiten (null = ganze Datei)
+    for (const p of picks) {
+      const f = files.find((x) => x.id === String(p?.fileId || ''));
+      if (!f) throw notFound('Eine der Seiten wurde nicht gefunden.');
+      const set = plan.get(f.id) || new Set();
+      if (f.kind === 'pdf' && Number.isInteger(p.page) && p.page >= 0) set.add(p.page);
+      else set.add(null);
+      plan.set(f.id, set);
+    }
+    // Was bleibt übrig?
+    const total = files.reduce((n, f) => n + (f.kind === 'pdf' ? Math.max(1, f.page_count || 1) : 1), 0);
+    let removing = 0;
+    for (const f of files) {
+      const set = plan.get(f.id);
+      if (!set) continue;
+      removing += set.has(null) ? (f.kind === 'pdf' ? Math.max(1, f.page_count || 1) : 1) : set.size;
+    }
+    if (removing >= total) throw badRequest('Mindestens eine Seite muss bleiben – sonst den ganzen Brief löschen.');
+
+    const now = new Date().toISOString();
+    const dropFiles = [];
+    const replace = []; // { old, row }
+    for (const f of files) {
+      const set = plan.get(f.id);
+      if (!set) continue;
+      if (set.has(null) || f.kind !== 'pdf') {
+        dropFiles.push(f);
+        continue;
+      }
+      const data = await storage.get(f.storage_key);
+      const count = inspectPdf(data).pageCount || f.page_count || 1;
+      const keepIdx = Array.from({ length: count }, (_, i) => i).filter((i) => !set.has(i));
+      if (!keepIdx.length) {
+        dropFiles.push(f);
+        continue;
+      }
+      const { pdf, pages } = subsetPdf(data, keepIdx);
+      const key = await storage.put(user.id, pdf);
+      replace.push({ old: f, row: { id: newId(), key, size: pdf.length, pages, sha256: crypto.createHash('sha256').update(pdf).digest('hex') } });
+    }
+    db.tx(() => {
+      for (const f of dropFiles) db.run('DELETE FROM files WHERE id = ?', f.id);
+      for (const { old, row } of replace) {
+        // Neue Datei-ID, damit Vorschauen nicht die alte Fassung aus dem Zwischenspeicher zeigen
+        db.run(
+          `INSERT INTO files (id, user_id, letter_id, position, kind, mime, size, page_count, sha256, storage_key, role, created_at)
+           VALUES (?, ?, ?, ?, 'pdf', 'application/pdf', ?, ?, ?, ?, 'seite', ?)`,
+          row.id, user.id, letter.id, old.position, row.size, row.pages, row.sha256, row.key, now
+        );
+        db.run('DELETE FROM files WHERE id = ?', old.id);
+      }
+      db.all("SELECT id FROM files WHERE letter_id = ? AND role = 'seite' ORDER BY position", letter.id)
+        .forEach((p, i) => db.run('UPDATE files SET position = ? WHERE id = ?', i, p.id));
+      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", now, letter.id);
+    });
+    for (const f of [...dropFiles, ...replace.map((r) => r.old)]) await storage.remove(f.storage_key).catch(() => {});
+    logLetterEvent(db, user.id, letter.id, 'seite_entfernt', { seiten: removing });
+    analyzer.enqueue(letter.id);
+    return { ok: true, removed: removing };
   });
 
   /** Verschiebt ausgewählte Seiten in einen neuen Brief. */

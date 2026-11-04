@@ -202,7 +202,7 @@ export function cachedThumb(fileId) {
 // Zeigt das Original unverändert an: Es wird nur gezeichnet, an der Datei ändert sich nichts.
 
 /** Liste aller Seiten eines Briefes: [{ fileId, kind, page }] – PDFs werden dafür kurz geöffnet. */
-async function pageList(files) {
+export async function pageList(files) {
   const pages = [];
   for (const f of files) {
     if (f.kind === 'image') pages.push({ fileId: f.id, kind: 'image', page: 1 });

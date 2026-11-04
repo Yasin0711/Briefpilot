@@ -228,17 +228,20 @@ function collectPageRefs(doc, rootRef, max) {
 }
 
 /**
- * Neue PDF mit nur den ersten `maxPages` Seiten (ohne Lesezeichen, Formulare, Links).
- * Nicht mehr benötigte Bilder und Schriften fallen weg, damit die Datei klein bleibt.
+ * Neue PDF mit nur den ersten `maxPages` Seiten – oder (Array) genau den Seiten mit diesen
+ * Nummern (ab 0). Ohne Lesezeichen, Formulare, Links; nicht mehr benötigte Bilder und
+ * Schriften fallen weg, damit die Datei klein bleibt.
+ * @param {Buffer|Uint8Array} input
+ * @param {number|number[]} selection
  * @returns {{ pdf: Buffer, pages: number, total: number }}
  */
-export function subsetPdf(input, maxPages) {
+export function subsetPdf(input, selection) {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
   const doc = new PdfDocument(buf);
   const { root } = findTrailerRefs(doc, buf);
   if (!root) throw new Error('Die PDF-Datei hat keinen gültigen Katalog.');
   const all = collectPageRefs(doc, root, Number.MAX_SAFE_INTEGER);
-  const keep = all.slice(0, maxPages);
+  const keep = Array.isArray(selection) ? all.filter((_, i) => selection.includes(i)) : all.slice(0, selection);
   if (!keep.length) throw new Error('Keine Seiten gefunden.');
   const nums = [...doc.objects.keys()];
   const pagesNum = Math.max(...nums) + 1;

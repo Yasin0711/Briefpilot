@@ -56,6 +56,7 @@ function draw(root, state, data) {
     <div class="hello">
       <h1>${greeting(state.me?.name)}</h1>
       <p class="muted">${formatDate(today, { weekday: true })}</p>
+      <p class="small muted" data-app-version></p>
     </div>
 
     <div class="scan-cta">
@@ -122,6 +123,10 @@ function draw(root, state, data) {
       <div class="panel panel-plain"><ul class="list">${data.recentLetters.map((l) => letterRow(l))}</ul></div>
     </section>` : ''}
   </div>`);
+  fetch('/api/version', { cache: 'no-store' }).then((r) => r.json()).then(({ label }) => {
+    const el = root.querySelector('[data-app-version]');
+    if (el && label) el.textContent = `Version ${label}`;
+  }).catch(() => {});
 
 }
 

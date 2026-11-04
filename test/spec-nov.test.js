@@ -164,7 +164,7 @@ test('Profil „Meine Angaben“ füllt Antworten automatisch aus', async (t) =>
   assert.equal(bad.status, 400);
   const ok = await c.patch('/api/me', { settings: { profile: { name: 'Hans Muster', street: 'Hauptstraße 5', zip: '66111', city: 'Saarbrücken', phone: '0681 123', email: 'hans@example.org' } } });
   assert.equal(ok.status, 200);
-  assert.equal(ok.data.user.settings.profile.city, 'Saarbrücken');
+  assert.equal(ok.data.user.settings.profiles[0].city, 'Saarbrücken', 'altes Einzelprofil wird zu einem Profil');
   const pdf = buildPdf([[{ type: 'text', x: 70, y: 700, text: 'Stadtwerke Rechnung 89,40 EUR' }]]);
   const up = await c.upload(pdf, 'application/pdf');
   const letter = (await c.post('/api/letters', { fileIds: [up.data.id] })).data;
@@ -183,4 +183,32 @@ test('Eigene Angaben ersetzen Platzhalter im Entwurf, Unbekanntes bleibt', async
   const out = fillUserPlaceholders('Erreichbar unter [Telefonnummer] oder [E-Mail-Adresse]. Neue Anschrift: [Ihre neue Anschrift]. [Ihr Name] · [Begründung ergänzen]', me, 'Saarbrücken');
   assert.equal(out, 'Erreichbar unter 0681 123 oder h@example.org. Neue Anschrift: Hauptstraße 5, 66111 Saarbrücken. Hans Muster · [Begründung ergänzen]');
   assert.equal(fillUserPlaceholders('Tel. [Telefon]', { name: 'A' }), 'Tel. [Telefon]', 'ohne Telefonnummer bleibt der Platzhalter');
+});
+
+test('Mehrere Profile: Kurzname, Standard, Auswahl beim Entwurf', async (t) => {
+  const s = await startTestServer();
+  t.after(() => s.stop());
+  const { c } = await registerUser(s);
+  const r = await c.patch('/api/me', { settings: { profiles: [
+    { label: 'Privat', name: 'Hans Muster', street: 'Ringstraße 1', zip: '11111', city: 'Musterstadt' },
+    { label: 'Büro Saar', name: 'Muster GmbH', street: 'Hafenstraße 9', zip: '66111', city: 'Saarbrücken', phone: '0681 999' },
+  ] } });
+  assert.equal(r.status, 200);
+  const profiles = r.data.user.settings.profiles;
+  assert.equal(profiles.length, 2);
+  assert.equal(profiles[1].label, 'Büro Saar');
+  assert.equal(r.data.user.settings.defaultProfileId, profiles[0].id, 'erstes Profil ist Standard');
+  const pdf = buildPdf([[{ type: 'text', x: 70, y: 700, text: 'Stadtwerke Rechnung 89,40 EUR' }]]);
+  const up = await c.upload(pdf, 'application/pdf');
+  const letter = (await c.post('/api/letters', { fileIds: [up.data.id] })).data;
+  await s.app.ctx.analyzer.idle();
+  const plain = (await c.post(`/api/letters/${letter.id}/replies`, { mode: 'text', subject: 'A', body: 'Text [Telefonnummer]' })).data.reply;
+  assert.equal(plain.sender.name, 'Hans Muster', 'ohne Auswahl: Standardprofil');
+  const office = (await c.post(`/api/letters/${letter.id}/replies`, { mode: 'text', subject: 'B', body: 'Rückruf unter [Telefonnummer]', profileId: profiles[1].id })).data.reply;
+  assert.equal(office.sender.name, 'Muster GmbH');
+  assert.equal(office.place, 'Saarbrücken');
+  assert.match(office.body, /0681 999/);
+  // Standard ändern
+  const d = await c.patch('/api/me', { settings: { defaultProfileId: profiles[1].id } });
+  assert.equal(d.data.user.settings.defaultProfileId, profiles[1].id);
 });

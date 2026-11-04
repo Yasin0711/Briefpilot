@@ -50,14 +50,29 @@ export function registerAccountRoutes(router, ctx) {
       if (s.notificationDetails !== undefined) next.notificationDetails = s.notificationDetails === true;
       if (s.autoConfirmFacts !== undefined) next.autoConfirmFacts = s.autoConfirmFacts === true;
       if (s.autoCalendar !== undefined) next.autoCalendar = s.autoCalendar === true;
-      // Eigene Angaben für Antworten (Absender im Brief)
-      if (s.profile !== undefined) {
-        const p = s.profile && typeof s.profile === 'object' ? s.profile : {};
+      // Eigene Angaben für Antworten (Absender im Brief) – mehrere Profile mit Kurznamen
+      const cleanProfile = (p, i) => {
         const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, max);
-        const email = clean(p.email, 254);
+        const email = clean(p?.email, 254);
         if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw badRequest('Bitte eine gültige E-Mail-Adresse eintragen.');
-        next.profile = { name: clean(p.name, 120), street: clean(p.street, 160), zip: clean(p.zip, 12), city: clean(p.city, 100), phone: clean(p.phone, 40), email };
+        const id = /^[a-z0-9-]{1,40}$/.test(String(p?.id || '')) ? p.id : `p-${Date.now().toString(36)}-${i}`;
+        return {
+          id, label: clean(p?.label, 30) || `Profil ${i + 1}`, name: clean(p?.name, 120), street: clean(p?.street, 160),
+          zip: clean(p?.zip, 12), city: clean(p?.city, 100), phone: clean(p?.phone, 40), email,
+        };
+      };
+      if (s.profiles !== undefined) {
+        const list = Array.isArray(s.profiles) ? s.profiles.slice(0, 10) : [];
+        next.profiles = list.map(cleanProfile);
+        delete next.profile;
+        if (!next.profiles.some((p) => p.id === next.defaultProfileId)) next.defaultProfileId = next.profiles[0]?.id || null;
+      } else if (s.profile !== undefined) {
+        // Ältere App-Version: ein einzelnes Profil
+        next.profiles = [cleanProfile({ ...s.profile, id: 'privat', label: s.profile?.label || 'Privat' }, 0)];
+        next.defaultProfileId = 'privat';
+        delete next.profile;
       }
+      if (s.defaultProfileId !== undefined && (next.profiles || []).some((p) => p.id === s.defaultProfileId)) next.defaultProfileId = s.defaultProfileId;
       updates.settings = JSON.stringify(next);
     }
     const keys = Object.keys(updates);

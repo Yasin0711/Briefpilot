@@ -136,7 +136,7 @@ export function registerAssistantRoutes(router, ctx) {
     const body = await readJson(req);
     const mode = ['vorlage', 'ki', 'text'].includes(body.mode) ? body.mode : 'vorlage';
     const tasks = db.all('SELECT * FROM tasks WHERE letter_id = ? ORDER BY position', letter.id);
-    const defaults = replyDefaults(db, user, letter);
+    const defaults = replyDefaults(db, user, letter, { profileId: typeof body.profileId === 'string' ? body.profileId : null });
     let subject;
     let text;
     let origin = 'vorlage';
@@ -191,7 +191,8 @@ export function registerAssistantRoutes(router, ctx) {
     if (!instruction) throw badRequest('Bitte schreiben Sie, was geändert werden soll.', { field: 'instruction' });
     requireAi(user);
     const tasks = db.all('SELECT * FROM tasks WHERE letter_id = ? ORDER BY position', letter.id);
-    const me = replyDefaults(db, user, letter);
+    // Angaben des Profils, mit dem dieser Entwurf angelegt wurde
+    const me = { sender: parseJson(reply.sender_json, {}), place: reply.place || '' };
     let subject;
     let text;
     try {
@@ -224,12 +225,13 @@ export function registerAssistantRoutes(router, ctx) {
     const defaults = replyDefaults(db, user, letter);
     let drafts;
     try {
-      const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}${userContext(defaults.sender, defaults.place)}\n\nBisheriger Entwurf:\nBetreff: ${base.subject}\n${base.body}\n\n`
+      const baseSender = base.sender_json ? parseJson(base.sender_json, defaults.sender) : defaults.sender;
+      const prompt = `${letterContext(letter, tasks)}${referencesFor(user, body, letter.id)}${userContext(baseSender, base.place || defaults.place)}\n\nBisheriger Entwurf:\nBetreff: ${base.subject}\n${base.body}\n\n`
         + `Schreibe ${count} deutlich unterschiedliche Alternativen zu diesem Entwurf (z. B. kürzer, ausführlicher, bestimmter im Ton). `
         + 'Gleiche Fakten, gleiche Platzhalter-Regeln. Gib sie im Feld drafts zurück.';
       const { result } = await ai.completeJson({ system: REPLY_SYSTEM_PROMPT, prompt, schema: REPLY_VARIANTS_SCHEMA, maxTokens: 6000 });
       drafts = (Array.isArray(result?.drafts) ? result.drafts : [])
-        .map((d) => ({ subject: str(d?.subject, 300), body: fillUserPlaceholders(str(d?.body, 8000), defaults.sender, defaults.place) }))
+        .map((d) => ({ subject: str(d?.subject, 300), body: fillUserPlaceholders(str(d?.body, 8000), base.sender_json ? parseJson(base.sender_json, {}) : defaults.sender, base.place || defaults.place) }))
         .filter((d) => d.body)
         .slice(0, count);
     } catch (err) {

@@ -183,8 +183,23 @@ function addressText(a) {
   return [a.street, [a.zip, a.city].filter(Boolean).join(' ')].filter(Boolean).join('\n');
 }
 
-/** Standardangaben: Empfänger = Absender des Briefes; Absender = eigene Person und Hauptadresse. */
-export function replyDefaults(db, user, letter) {
+/** Profile des Nutzers (Einstellungen → Meine Angaben); ältere Einzelprofile werden mitgelesen. */
+export function userProfiles(user) {
+  let s = {};
+  try {
+    s = JSON.parse(user.settings || '{}') || {};
+  } catch {
+    s = {};
+  }
+  const list = Array.isArray(s.profiles) ? s.profiles : s.profile ? [{ id: 'privat', label: 'Privat', ...s.profile }] : [];
+  return { list, defaultId: s.defaultProfileId || list[0]?.id || null };
+}
+
+/**
+ * Standardangaben: Empfänger = Absender des Briefes; Absender = gewähltes Profil
+ * (sonst Standardprofil, sonst eigene Person und Hauptadresse aus dem Haushalt).
+ */
+export function replyDefaults(db, user, letter, { profileId = null } = {}) {
   const me = db.get("SELECT * FROM persons WHERE user_id = ? AND relation = 'ich' ORDER BY created_at LIMIT 1", user.id);
   const today = new Date().toISOString().slice(0, 10);
   const home = db.get(
@@ -193,12 +208,8 @@ export function replyDefaults(db, user, letter) {
     user.id, today
   );
   // Eigenes Profil (Einstellungen → Meine Angaben) hat Vorrang vor Haushalt und Konto
-  let profile = {};
-  try {
-    profile = JSON.parse(user.settings || '{}').profile || {};
-  } catch {
-    profile = {};
-  }
+  const { list, defaultId } = userProfiles(user);
+  const profile = list.find((p) => p.id === profileId) || list.find((p) => p.id === defaultId) || list[0] || {};
   const profileAddress = [profile.street, [profile.zip, profile.city].filter(Boolean).join(' ')].filter(Boolean).join('\n');
   return {
     recipient: { name: letter.sender || '', address: letter.sender_address || '', email: letter.sender_email || '' },

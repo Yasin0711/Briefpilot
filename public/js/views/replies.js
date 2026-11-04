@@ -24,6 +24,29 @@ async function loadSuggestions(letterId) {
   }
 }
 
+/** HTML-Vorlage in ein Element umwandeln (für den Austausch einzelner Knöpfe). */
+function templateEl(markup) {
+  const box = document.createElement('div');
+  mount(box, markup);
+  return box.firstElementChild;
+}
+
+// ---------- Profil für den Absender (Einstellungen → Meine Angaben) ----------
+const profileChoice = new Map(); // Brief-ID → gewählte Profil-ID
+function profilesOf(state) {
+  const s = state?.me?.settings || {};
+  const list = Array.isArray(s.profiles) ? s.profiles : s.profile ? [{ id: 'privat', label: 'Privat', ...s.profile }] : [];
+  return { list, defaultId: s.defaultProfileId || list[0]?.id || null };
+}
+function chosenProfile(state, letterId) {
+  const { list, defaultId } = profilesOf(state);
+  return list.find((p) => p.id === profileChoice.get(letterId)) || list.find((p) => p.id === defaultId) || list[0] || null;
+}
+function profileButton(state, letterId) {
+  const p = chosenProfile(state, letterId);
+  return html`<button class="btn btn-secondary profile-btn" type="button" data-profile-pick aria-label="Profil wählen${p ? `: ${p.label}` : ''}" title="Profil">${icon('userCircle')}<span class="profile-btn-label">${p ? p.label : 'Profil'}</span></button>`;
+}
+
 // ---------- Weitere Unterlagen als Bezug (andere Briefe, ganze Ordner) ----------
 const refStore = new Map(); // Brief-ID → { letters: Map(id → Titel), objects: Map(id → Name) }
 function refsOf(letterId) {
@@ -106,8 +129,8 @@ export function repliesPanel(data, state) {
         <label class="visually-hidden" for="ai-instr">Was soll in der Antwort stehen?</label>
         <textarea class="input" id="ai-instr" name="instruction" rows="3" maxlength="1000" placeholder="Was soll in der Antwort stehen?"></textarea>
         <div class="tag-row ref-row" data-refs>${refChips(letter.id)}</div>
-        <div class="row"><button class="btn grow" type="submit">${icon('spark')}Entwurf erstellen</button>${bulb}</div>
-      </form>` : html`<div class="row">${ai.na ? html`<p class="small na-row grow">${ai.reason}</p>` : html`<p class="small muted grow">${ai.reason}</p>`}${bulb}</div>`}
+        <div class="row reply-actions-row"><button class="btn grow" type="submit">${icon('spark')}Entwurf erstellen</button>${profileButton(state, letter.id)}${bulb}</div>
+      </form>` : html`<div class="row reply-actions-row">${ai.na ? html`<p class="small na-row grow">${ai.reason}</p>` : html`<p class="small muted grow">${ai.reason}</p>`}${profileButton(state, letter.id)}${bulb}</div>`}
       <div class="template-grid" id="tpl-box" data-templates hidden><p class="muted small">Wird geladen …</p></div>
     </div>
 
@@ -222,7 +245,8 @@ export function bindAssistant(root, ctx) {
   async function createReply(body, button) {
     await busy(button, async () => {
       try {
-        const { reply } = await api.post(`/api/letters/${letterId}/replies`, body);
+        const profile = chosenProfile(state, letterId);
+        const { reply } = await api.post(`/api/letters/${letterId}/replies`, { ...body, profileId: profile?.id || null });
         toast(body.mode === 'ki' ? 'Entwurf erstellt. Bitte prüfen und anpassen.' : 'Entwurf angelegt.');
         await reload();
         ctx.showTab?.('antworten');
@@ -500,6 +524,25 @@ export function bindAssistant(root, ctx) {
     }
     if (e.target.closest('[data-ref-pick]')) {
       pickReferences();
+      return;
+    }
+    if (e.target.closest('[data-profile-pick]')) {
+      const { list } = profilesOf(state);
+      const current = chosenProfile(state, letterId);
+      actionSheet({
+        title: 'Absender für den Entwurf',
+        actions: [
+          ...list.map((p) => ({
+            label: `${p.label}${p.name && p.name !== p.label ? ` – ${p.name}` : ''}`,
+            icon: p.id === current?.id ? 'check' : 'userCircle',
+            onSelect: () => {
+              profileChoice.set(letterId, p.id);
+              root.querySelectorAll('[data-profile-pick]').forEach((b) => b.replaceWith(templateEl(profileButton(state, letterId))));
+            },
+          })),
+          { label: list.length ? 'Profile bearbeiten' : 'Profil anlegen', icon: 'edit', onSelect: () => { location.hash = '#/einstellungen?bereich=angaben'; } },
+        ],
+      });
       return;
     }
     const toggle = e.target.closest('[data-toggle-templates]');

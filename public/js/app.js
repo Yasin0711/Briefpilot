@@ -287,10 +287,7 @@ async function currentVersion() {
   try {
     const res = await fetch('/api/version', { cache: 'no-store' });
     if (!res.ok) return null;
-    const { version, label } = await res.json();
-    // Versionsnummer immer unten auf jeder Seite (die geladene, nicht eine neuere auf dem Server)
-    const el = document.getElementById('app-version');
-    if (el && label && (!loadedVersion || loadedVersion === version)) el.textContent = `Version ${label}`;
+    const { version } = await res.json();
     return version;
   } catch {
     return null;

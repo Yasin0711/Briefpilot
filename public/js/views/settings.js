@@ -155,7 +155,8 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
   async function draw() {
     const me = state.me;
     const s = me.settings;
-    const pr = s.profile || {};
+    const profiles = Array.isArray(s.profiles) ? s.profiles : s.profile ? [{ id: 'privat', label: 'Privat', ...s.profile }] : [];
+    const defaultProfileId = s.defaultProfileId || profiles[0]?.id || null;
     const [sessions, push, household] = await Promise.all([
       api.get('/api/me/sessions'),
       pushState(state.status).catch(() => ({ available: false, reason: 'Benachrichtigungen konnten nicht geprüft werden.' })),
@@ -196,18 +197,14 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
 
       <section class="panel stack settings-section" aria-labelledby="s-absender">
         <h2 id="s-absender">Meine Angaben</h2>
-        <p class="muted">Werden in Antworten automatisch eingesetzt.</p>
-        <form class="stack" data-form="sender" novalidate>
-          <div class="field"><label for="pr-name">Vor- und Nachname</label><input class="input" id="pr-name" name="name" value="${pr.name ?? (me.isGuest ? '' : me.name || '')}" maxlength="120" autocomplete="name"></div>
-          <div class="field"><label for="pr-street">Straße und Hausnummer</label><input class="input" id="pr-street" name="street" value="${pr.street || ''}" maxlength="160" autocomplete="street-address"></div>
-          <div class="field-pair">
-            <div class="field"><label for="pr-zip">PLZ</label><input class="input" id="pr-zip" name="zip" value="${pr.zip || ''}" maxlength="12" inputmode="numeric" autocomplete="postal-code"></div>
-            <div class="field"><label for="pr-city">Ort</label><input class="input" id="pr-city" name="city" value="${pr.city || ''}" maxlength="100" autocomplete="address-level2"></div>
-          </div>
-          <div class="field"><label for="pr-phone">Telefon <span class="muted">(freiwillig)</span></label><input class="input" id="pr-phone" name="phone" type="tel" value="${pr.phone || ''}" maxlength="40" autocomplete="tel"></div>
-          <div class="field"><label for="pr-email">E-Mail <span class="muted">(freiwillig)</span></label><input class="input" id="pr-email" name="email" type="email" value="${pr.email ?? (me.isGuest || me.isDemo ? '' : me.email || '')}" maxlength="254" autocomplete="email"></div>
-          <div class="row"><button class="btn" type="submit">${icon('check')}Speichern</button></div>
-        </form>
+        <p class="muted">Profile für Antworten – z. B. privat, Geschäftsstelle.</p>
+        ${profiles.length ? html`<ul class="id-list">${profiles.map((p) => html`<li>
+            <span class="grow"><span class="row-title">${p.label}${p.id === defaultProfileId ? html` <span class="badge profile-default">Standard</span>` : ''}</span>
+              <span class="row-sub">${[p.name, [p.zip, p.city].filter(Boolean).join(' '), p.phone].filter(Boolean).join(' · ') || 'noch leer'}</span></span>
+            <button class="icon-btn" type="button" data-profile-edit="${p.id}" aria-label="Profil ${p.label} bearbeiten">${icon('edit')}</button>
+            <button class="icon-btn" type="button" data-profile-delete="${p.id}" aria-label="Profil ${p.label} löschen">${icon('trash')}</button>
+          </li>`)}</ul>` : html`<p class="muted small">Noch kein Profil.</p>`}
+        <p><button class="btn btn-secondary" type="button" data-profile-add ${profiles.length >= 10 ? 'disabled' : ''}>${icon('plus')}Profil</button></p>
       </section>
 
       <section class="panel stack settings-section" aria-labelledby="s-haushalt">
@@ -420,8 +417,6 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
       try {
         if (form.dataset.form === 'profile') {
           await api.patch('/api/me', { name: v.name });
-        } else if (form.dataset.form === 'sender') {
-          await api.patch('/api/me', { settings: { profile: { name: v.name, street: v.street, zip: v.zip, city: v.city, phone: v.phone, email: v.email } } });
         } else if (form.dataset.form === 'reminders') {
           await api.patch('/api/me', { settings: { reminderOffsets: v.reminderOffsets || [], reminderTime: v.reminderTime, emailReminders: v.emailReminders, notificationDetails: v.notificationDetails } });
         }
@@ -431,6 +426,88 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         showError(form, err);
       }
     });
+  });
+
+  // ---------- Profile (Meine Angaben) ----------
+  function currentProfiles() {
+    const st = state.me.settings || {};
+    return {
+      list: Array.isArray(st.profiles) ? st.profiles.map((p) => ({ ...p })) : st.profile ? [{ id: 'privat', label: 'Privat', ...st.profile }] : [],
+      defaultId: st.defaultProfileId || null,
+    };
+  }
+  async function saveProfiles(list, defaultId) {
+    await api.patch('/api/me', { settings: { profiles: list, ...(defaultId ? { defaultProfileId: defaultId } : {}) } });
+    await refreshMe();
+    await draw();
+  }
+  function profileDialog(existing) {
+    const { list, defaultId } = currentProfiles();
+    const p = existing || { label: list.length ? '' : 'Privat', name: list.length ? '' : (me().isGuest ? '' : me().name || '') };
+    const isDefault = existing ? existing.id === (defaultId || list[0]?.id) : !list.length;
+    openDialog(html`<form class="dialog-body stack" novalidate>
+      <h2>${existing ? 'Profil bearbeiten' : 'Neues Profil'}</h2>
+      <div class="field"><label for="pf-label">Kurzname</label><input class="input" id="pf-label" name="label" value="${p.label || ''}" maxlength="30" placeholder="z. B. Privat, Büro Saarbrücken" required></div>
+      <div class="field"><label for="pf-name">Name</label><input class="input" id="pf-name" name="name" value="${p.name || ''}" maxlength="120" autocomplete="name"></div>
+      <div class="field"><label for="pf-street">Straße und Hausnummer</label><input class="input" id="pf-street" name="street" value="${p.street || ''}" maxlength="160" autocomplete="street-address"></div>
+      <div class="field-pair">
+        <div class="field"><label for="pf-zip">PLZ</label><input class="input" id="pf-zip" name="zip" value="${p.zip || ''}" maxlength="12" inputmode="numeric" autocomplete="postal-code"></div>
+        <div class="field"><label for="pf-city">Ort</label><input class="input" id="pf-city" name="city" value="${p.city || ''}" maxlength="100" autocomplete="address-level2"></div>
+      </div>
+      <div class="field"><label for="pf-phone">Telefon <span class="muted">(freiwillig)</span></label><input class="input" id="pf-phone" name="phone" type="tel" value="${p.phone || ''}" maxlength="40" autocomplete="tel"></div>
+      <div class="field"><label for="pf-email">E-Mail <span class="muted">(freiwillig)</span></label><input class="input" id="pf-email" name="email" type="email" value="${p.email || ''}" maxlength="254" autocomplete="email"></div>
+      <label class="check"><input type="checkbox" name="isDefault" ${isDefault ? 'checked' : ''}><span>Standard für neue Antworten</span></label>
+      <div class="row"><button class="btn" type="submit">${icon('check')}Speichern</button><button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
+    </form>`, (dialog, close) => {
+      const form = dialog.querySelector('form');
+      dialog.querySelector('[data-close]').addEventListener('click', () => close());
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        clearErrors(form);
+        const v = formValues(form);
+        if (!String(v.label || '').trim()) {
+          showError(form, new Error('Bitte einen Kurznamen eingeben.'));
+          return;
+        }
+        await busy(form.querySelector('[type=submit]'), async () => {
+          try {
+            const entry = { label: v.label, name: v.name, street: v.street, zip: v.zip, city: v.city, phone: v.phone, email: v.email };
+            const id = existing?.id || `p-${Date.now().toString(36)}`;
+            const next = existing ? list.map((x) => (x.id === existing.id ? { ...x, ...entry } : x)) : [...list, { id, ...entry }];
+            await saveProfiles(next, v.isDefault ? id : defaultId);
+            close();
+            toast('Gespeichert.');
+          } catch (err) {
+            showError(form, err);
+          }
+        });
+      });
+    });
+  }
+  const me = () => state.me;
+  root.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-profile-add]')) {
+      profileDialog(null);
+      return;
+    }
+    const pe = e.target.closest('[data-profile-edit]');
+    if (pe) {
+      profileDialog(currentProfiles().list.find((p) => p.id === pe.dataset.profileEdit));
+      return;
+    }
+    const pd = e.target.closest('[data-profile-delete]');
+    if (pd) {
+      const { list, defaultId } = currentProfiles();
+      const p = list.find((x) => x.id === pd.dataset.profileDelete);
+      if (!p || !(await confirmDialog({ title: `„${p.label}“ löschen?`, confirmLabel: 'Löschen', danger: true }))) return;
+      try {
+        const next = list.filter((x) => x.id !== p.id);
+        await saveProfiles(next, defaultId === p.id ? next[0]?.id : defaultId);
+        toast('Profil gelöscht.');
+      } catch (err) {
+        toast(err.message, { error: true });
+      }
+    }
   });
 
   root.addEventListener('click', async (e) => {
@@ -611,4 +688,5 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
 
   void confirmDialog;
   await draw();
+  if (location.hash.includes('bereich=angaben')) root.querySelector('#s-absender')?.scrollIntoView({ block: 'start' });
 }

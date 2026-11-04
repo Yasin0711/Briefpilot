@@ -248,7 +248,8 @@ export function hydratePagers(root) {
       pagerState.set(letterId, index);
       const p = pages[index];
       box.dataset.current = p.fileId;
-      label.textContent = pages.length > 1 ? `Seite ${index + 1} von ${pages.length}` : '1 Seite';
+      label.textContent = pages.length > 1 ? `${index + 1} von ${pages.length}` : '1 Seite';
+      label.setAttribute('aria-label', `Seite ${index + 1} von ${pages.length}`);
       prev.disabled = index === 0;
       next.disabled = index === pages.length - 1;
       const width = Math.max(200, stage.clientWidth || 320);

@@ -3,7 +3,7 @@
 import { html, mount } from '../html.js';
 import { api, download } from '../api.js';
 import {
-  icon, dateTile, whenLabel, categoryTile, statusBadge, taskKindLabel, toast, confirmDialog, openDialog,
+  icon, dateTile, whenLabel, statusBadge, taskKindLabel, toast, confirmDialog, openDialog,
   formValues, showError, clearErrors, busy, formatUploaded, scroller,
 } from '../ui.js';
 import { hydratePdfViews, hydratePagers } from '../pdfview.js';
@@ -200,36 +200,42 @@ function originalView(files, { split = null, editable = true, tools = true, lett
       <div class="originals-grid">${originals.map((f, i) => html`<a href="/api/files/${f.id}" target="_blank" rel="noopener"><img src="/api/files/${f.id}" alt="Originalfoto ${i + 1}" loading="lazy"></a>`)}</div></details>` : ''}`;
 }
 
-/** Briefvorschau zum Blättern (rechts neben den erkannten Angaben). */
+/** Briefvorschau zum Blättern (rechts in der Box der erkannten Angaben). */
 function previewPanel(files, letter, editable) {
   const pages = files.filter((f) => f.role !== 'original' && (f.kind === 'pdf' || f.kind === 'image'));
   const office = files.filter((f) => f.kind === 'office');
   if (!pages.length && !office.length) return '';
-  return html`<section class="panel preview-panel" aria-label="Brief">
+  return html`<div class="preview-col" aria-label="Brief">
     ${pages.length ? html`<div class="pager" data-pager data-letter="${letter.id}" data-files="${JSON.stringify(pages.map((f) => ({ id: f.id, kind: f.kind })))}">
       <div class="pager-stage" data-pager-stage title="Antippen zum Vergrößern"><span class="spinner" aria-hidden="true"></span></div>
       <div class="pager-bar">
         <button class="icon-btn icon-btn-small" type="button" data-pager-prev aria-label="Vorherige Seite">${icon('chevronLeft')}</button>
         <span class="pager-label small muted" data-pager-label aria-live="polite"></span>
         <button class="icon-btn icon-btn-small" type="button" data-pager-next aria-label="Nächste Seite">${icon('chevronRight')}</button>
-        <span class="grow"></span>
-        ${editable ? html`<a class="icon-btn icon-btn-small" href="#/scannen?zu=${letter.id}" aria-label="Seiten hinzufügen" title="Seiten hinzufügen">${icon('plus')}</a>` : ''}
-        ${editable && pages.length > 1 ? html`<button class="icon-btn icon-btn-small" type="button" data-action="delete-current-page" aria-label="Diese Seite löschen" title="Seite löschen">${icon('trash')}</button>` : ''}
       </div>
+      ${editable ? html`<div class="pager-tools">
+        <a class="icon-btn icon-btn-small" href="#/scannen?zu=${letter.id}" aria-label="Seiten hinzufügen" title="Seiten hinzufügen">${icon('plus')}</a>
+        ${pages.length > 1 ? html`<button class="icon-btn icon-btn-small" type="button" data-action="delete-current-page" aria-label="Diese Seite löschen" title="Seite löschen">${icon('trash')}</button>` : ''}
+      </div>` : ''}
     </div>` : ''}
-    ${office.map((f) => html`<p class="row small"><span class="grow">${/presentation/.test(f.mime) ? 'PowerPoint' : /spreadsheet/.test(f.mime) ? 'Excel' : 'Word'}-Datei</span>
-      <a class="btn btn-small btn-secondary" href="/api/files/${f.id}">${icon('download')}Herunterladen</a></p>`)}
-  </section>`;
+    ${office.map((f) => html`<p class="stack small"><span>${/presentation/.test(f.mime) ? 'PowerPoint' : /spreadsheet/.test(f.mime) ? 'Excel' : 'Word'}-Datei</span>
+      <a class="btn btn-small btn-secondary" href="/api/files/${f.id}">${icon('download')}Laden</a></p>`)}
+  </div>`;
 }
 
-function factsPanel(letter, persons = []) {
+function factsPanel(letter, persons = [], { folderRow = '', preview = '', analyzing = false } = {}) {
   const dateStatus = {
     erkannt: html`<span class="badge badge-review">bitte prüfen</span>`,
     unsicher: html`<span class="badge badge-review">${icon('alert')}unsicher</span>`,
     fehlt: html`<span class="badge badge-review">${icon('alert')}fehlt</span>`,
     bestaetigt: html`<span class="badge badge-done">${icon('check')}bestätigt</span>`,
   }[letter.letterDateStatus];
-  return html`<section class="panel stack facts-panel" aria-labelledby="facts-h">
+  if (analyzing) {
+    return html`<section class="panel facts-box ${preview ? '' : 'no-preview'}" aria-label="Brief">
+      <div class="facts-col stack">${folderRow}<p class="muted">Angaben erscheinen, sobald der Brief gelesen ist.</p></div>${preview}</section>`;
+  }
+  return html`<section class="panel facts-box ${preview ? '' : 'no-preview'}" aria-labelledby="facts-h">
+    <div class="facts-col stack">
     <div class="section-title"><h2 id="facts-h">Erkannte Angaben</h2>
       <span class="facts-actions">
         <button class="icon-btn" type="button" data-action="edit-facts" aria-label="Angaben bearbeiten" title="Bearbeiten">${icon('edit')}</button>
@@ -237,6 +243,7 @@ function factsPanel(letter, persons = []) {
           ? html`<span class="icon-btn is-done" role="img" aria-label="Alle Angaben bestätigt" title="Bestätigt">${icon('check')}</span>`
           : html`<button class="icon-btn icon-btn-primary" type="button" data-action="review" aria-label="Alle Angaben bestätigen" title="Alle bestätigen">${icon('check')}</button>`}
       </span></div>
+    ${folderRow}
     <dl class="facts">
       <div><dt>Absender</dt><dd>${letter.sender || html`<span class="muted">nicht erkannt</span>`}</dd></div>
       <div><dt>Briefdatum</dt><dd>${letter.letterDate ? formatDate(letter.letterDate) : html`<span class="muted">unbekannt</span>`} ${dateStatus}
@@ -257,6 +264,8 @@ function factsPanel(letter, persons = []) {
           ${letter.receivedSuggestedQuote ? html`<span class="small muted">„${letter.receivedSuggestedQuote}“</span>` : ''}`
         : html`<span class="muted">nicht angegeben</span>`}</dd></div>
     </dl>
+    </div>
+    ${preview}
   </section>`;
 }
 
@@ -446,19 +455,12 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     const reviewCount = tasks.filter((t) => t.status === 'zu_pruefen').length;
     mount(root, html`<div class="stack-l">
       <p><a class="btn btn-ghost btn-small" href="#/briefe">${icon('chevronLeft')}Alle Briefe</a></p>
-      <header class="letter-head">
-        ${categoryTile(letter.category)}
-        <div class="grow">
-          <h1>${letter.subject || (analyzing ? 'Neuer Brief' : 'Brief ohne Betreff')}</h1>
-          <p class="letter-meta">${[letter.sender || 'Absender unbekannt', letter.letterDate ? formatDate(letter.letterDate, { short: true }) : null].filter(Boolean).join(' · ')}</p>
-          <div class="row-meta">
-            ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
-            ${letter.isDemoContent ? '' : html`<button class="btn btn-small btn-secondary folder-pick-btn" type="button" data-action="pick-folder">${icon('folderPlus')}Ordner wählen</button>`}
-            ${letter.analysisSource === 'beispiel' && sourceLabel ? html`<span class="badge badge-demo">${icon('info')}${sourceLabel}</span>` : ''}
-            ${letter.reviewed ? html`<span class="badge badge-done">${icon('check')}Angaben geprüft</span>` : ''}
-          </div>
-        </div>
-      </header>
+      <h1 class="visually-hidden">${letter.subject || (analyzing ? 'Neuer Brief' : 'Brief ohne Betreff')}</h1>
+      <div class="tabs letter-tabs" role="tablist" aria-label="Ansicht">
+        <button class="tab" role="tab" type="button" data-tab="erklaerung" aria-selected="${tab === 'erklaerung'}">Erklärung</button>
+        <button class="tab" role="tab" type="button" data-tab="aufgaben" aria-selected="${tab === 'aufgaben'}">Aufgaben${reviewCount ? html` <span class="tab-count">${reviewCount}</span>` : ''}</button>
+        <button class="tab" role="tab" type="button" data-tab="antworten" aria-selected="${tab === 'antworten'}">Antwort${drafts ? html` <span class="tab-count">${drafts}</span>` : ''}</button>
+      </div>
 
       ${analyzing ? html`<div class="note" role="status"><span class="spinner" aria-hidden="true"></span><div><strong>Wird gelesen …</strong><p>Meist unter einer Minute.</p></div></div>` : ''}
       ${letter.analysisStatus === 'fehler' ? html`<div class="note note-danger" role="alert">${icon('alert')}<div class="stack"><div><strong>Die Auswertung hat nicht geklappt.</strong><p>${letter.analysisError}</p></div>
@@ -470,17 +472,16 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       ${duplicateNote()}
       ${analyzing ? '' : assignmentPanel()}
 
-      <div class="facts-preview">
-        ${analyzing ? '' : factsPanel(letter, persons)}
-        ${previewPanel(files, letter, editable)}
-      </div>
+      ${factsPanel(letter, persons, {
+        analyzing,
+        preview: previewPanel(files, letter, editable),
+        folderRow: html`<div class="row-meta folder-row">
+          ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
+          ${letter.isDemoContent ? '' : html`<button class="btn btn-small btn-secondary folder-pick-btn" type="button" data-action="pick-folder">${icon('folderPlus')}Ordner wählen</button>`}
+          ${letter.analysisSource === 'beispiel' && sourceLabel ? html`<span class="badge badge-demo">${icon('info')}${sourceLabel}</span>` : ''}
+        </div>`,
+      })}
       ${split ? html`<section class="panel stack">${originalView(files, { split, editable, letterId: letter.id })}</section>` : ''}
-
-      <div class="tabs letter-tabs" role="tablist" aria-label="Ansicht">
-        <button class="tab" role="tab" type="button" data-tab="erklaerung" aria-selected="${tab === 'erklaerung'}">Erklärung</button>
-        <button class="tab" role="tab" type="button" data-tab="aufgaben" aria-selected="${tab === 'aufgaben'}">Aufgaben${reviewCount ? html` <span class="tab-count">${reviewCount}</span>` : ''}</button>
-        <button class="tab" role="tab" type="button" data-tab="antworten" aria-selected="${tab === 'antworten'}">Antwort${drafts ? html` <span class="tab-count">${drafts}</span>` : ''}</button>
-      </div>
 
       <div class="detail-grid">
         <div class="stack-l ${tab ? '' : 'no-tab'}">

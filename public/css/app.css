@@ -1115,8 +1115,6 @@ body.viewer-open { overflow: hidden; }
 .restore-screen h1 { font-size: 1.3rem; }
 
 /* ---------- Briefansicht: erkannte Angaben links, Vorschau rechts ---------- */
-.facts-preview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
-@media (min-width: 760px) { .facts-preview { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 .facts-actions { display: inline-flex; gap: 6px; }
 .icon-btn-primary { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
 .icon-btn-primary:hover:not(:disabled) { background: var(--ink); filter: brightness(1.08); }
@@ -1168,3 +1166,25 @@ dialog.sheet::backdrop { background: rgba(10, 16, 24, 0.35); }
 
 .reply-actions { display: flex; gap: .25rem; justify-content: flex-end; }
 .suggest-row { display: inline-flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+
+/* Erkannte Angaben links, Briefvorschau rechts – in einer Box */
+.facts-box { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr); gap: 14px; align-items: start; }
+.facts-box.no-preview { grid-template-columns: minmax(0, 1fr); }
+.facts-box .facts > div { grid-template-columns: 1fr; gap: 2px; }
+.facts-box .folder-row { margin-top: 0; }
+.preview-col { position: sticky; top: 64px; min-width: 0; }
+.preview-col .pager-stage { min-height: 140px; }
+.preview-col .pager-bar { justify-content: center; gap: 2px; margin-top: 6px; }
+.preview-col .pager-label { min-width: 0; padding: 0 2px; white-space: nowrap; }
+.preview-col .icon-btn-small { width: 34px; height: 34px; min-height: 34px; }
+.pager-tools { display: flex; justify-content: center; gap: 6px; margin-top: 4px; }
+@media (min-width: 760px) {
+  .facts-box { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+}
+@media (min-width: 1000px) { .facts-box .facts > div { grid-template-columns: 150px 1fr; gap: 12px; } }
+.facts-box .section-title { flex-wrap: wrap; gap: 6px; }
+.facts-box .section-title h2 { font-size: 1.05rem; }
+.facts-box .facts-actions .icon-btn { width: 38px; height: 38px; min-height: 38px; }
+.facts-box .folder-pick-btn { white-space: nowrap; padding-inline: 10px; }
+.preview-col .pager-stage { background: var(--surface-2); padding: 0; }
+.preview-col .pager-stage canvas, .preview-col .pager-stage img { box-shadow: 0 0 0 1px var(--line-strong); border-radius: 4px; }

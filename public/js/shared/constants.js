@@ -47,6 +47,7 @@ export const DEFAULT_SETTINGS = {
   emailReminders: false,
   notificationDetails: false,
   autoConfirmFacts: false,
+  autoCalendar: true,
 };
 
 export const ANALYSIS_SOURCE_LABELS = {

@@ -7,6 +7,7 @@ import { loadHousehold, forgetHousehold } from './objectDialog.js';
 import { formatDateTime } from '../shared/dates.js';
 import { applyTextSize, applyTheme, themeChoice } from '../app.js';
 import { syncBackup, backupInfo, markLoggedOut, clearBackup } from '../backup.js';
+import { calendarUrl, connectCalendar } from '../calendar.js';
 
 const EVENT_LABELS = {
   registriert: 'Konto erstellt', angemeldet: 'Angemeldet', anmeldung_fehlgeschlagen: 'Anmeldung fehlgeschlagen',
@@ -14,11 +15,6 @@ const EVENT_LABELS = {
   passwort_geaendert: 'Passwort geändert', ki_freigegeben: 'KI-Auswertung erlaubt', ki_abgelehnt: 'KI-Auswertung abgelehnt',
   daten_exportiert: 'Daten exportiert', andere_geraete_abgemeldet: 'Andere Geräte abgemeldet',
 };
-
-function calendarUrl(token, scheme) {
-  const url = `${location.host}/api/calendar/${token}.ics`;
-  return scheme === 'webcal' ? `webcal://${url}` : `${location.protocol}//${url}`;
-}
 
 function b64ToUint8(base64) {
   const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
@@ -243,15 +239,18 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
 
       <section class="panel stack settings-section" aria-labelledby="s-kalender">
         <h2 id="s-kalender">Kalender</h2>
-        ${me.isDemo ? html`<p class="small na-row">Kalender-Abo${naStar('Im Demomodus nicht verfügbar')}</p>` : s.calendarToken ? html`
-          <p class="muted">Bestätigte Fristen erscheinen im iPhone-Kalender.</p>
-          <div class="row">
-            <a class="btn" href="${calendarUrl(s.calendarToken, 'webcal')}">${icon('calendar')}Im Kalender abonnieren</a>
-            <button class="btn btn-secondary" type="button" data-action="cal-copy">${icon('copy')}Link kopieren</button>
-            <button class="btn btn-ghost" type="button" data-action="cal-off">Beenden</button>
-          </div>` : html`
-          <p class="muted">Bestätigte Fristen automatisch im iPhone-Kalender.</p>
-          <p><button class="btn btn-secondary" type="button" data-action="cal-on">${icon('calendar')}Kalender verbinden</button></p>`}
+        ${me.isDemo ? html`<p class="small na-row">Kalender${naStar('Im Demomodus nicht verfügbar')}</p>` : html`
+          <label class="check"><input type="checkbox" name="autoCalendar" ${s.autoCalendar !== false ? 'checked' : ''}>
+            <span>Bestätigte Termine und Aufgaben automatisch in den Kalender</span></label>
+          ${s.autoCalendar === false ? '' : s.calendarToken ? html`
+            <p class="small"><span class="badge badge-done">${icon('check')}Verbunden</span></p>
+            <div class="row">
+              <button class="btn btn-secondary btn-small" type="button" data-action="cal-connect">${icon('calendar')}Erneut verbinden</button>
+              <button class="btn btn-secondary btn-small" type="button" data-action="cal-copy">${icon('copy')}Link kopieren</button>
+              <button class="btn btn-ghost btn-small" type="button" data-action="cal-off">Trennen</button>
+            </div>` : html`
+            <p class="muted small">Einmal mit dem iPhone-Kalender verbinden.</p>
+            <p><button class="btn" type="button" data-action="cal-connect">${icon('calendar')}Mit Kalender verbinden</button></p>`}`}
       </section>
 
       <section class="panel stack settings-section" aria-labelledby="s-push">
@@ -334,6 +333,19 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
   }
 
   root.addEventListener('change', async (e) => {
+    if (e.target.name === 'autoCalendar') {
+      const on = e.target.checked;
+      try {
+        await api.patch('/api/me', { settings: { autoCalendar: on } });
+        await refreshMe();
+        await draw();
+        toast(on ? 'Kalender: eingeschaltet.' : 'Kalender: ausgeschaltet.');
+      } catch (err) {
+        e.target.checked = !on;
+        toast(err.message, { error: true });
+      }
+      return;
+    }
     if (e.target.name === 'autoConfirmFacts') {
       const on = e.target.checked;
       let hinted = false;
@@ -444,10 +456,14 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
         return;
       }
       const action = el.dataset.action;
-      if (action === 'cal-on' || action === 'cal-off') {
-        if (action === 'cal-off' && !(await confirmDialog({ title: 'Kalender-Abo beenden?', body: 'Der bisherige Link funktioniert dann nicht mehr.', confirmLabel: 'Beenden', danger: true }))) return;
+      if (action === 'cal-connect') {
+        await busy(el, () => connectCalendar());
+        return;
+      }
+      if (action === 'cal-off') {
+        if (!(await confirmDialog({ title: 'Kalender trennen?', body: 'Der bisherige Link funktioniert dann nicht mehr.', confirmLabel: 'Trennen', danger: true }))) return;
         await busy(el, async () => {
-          await api.post('/api/me/calendar', { off: action === 'cal-off' });
+          await api.post('/api/me/calendar', { off: true });
           await refreshMe();
           await draw();
         });

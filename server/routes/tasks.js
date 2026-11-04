@@ -294,10 +294,12 @@ export function registerTaskRoutes(router, ctx) {
     if (token.length < 20) throw notFound();
     const owner = db.get("SELECT * FROM users WHERE json_extract(settings, '$.calendarToken') = ?", token);
     if (!owner) throw notFound();
-    const tasks = db.all(`${TASK_SELECT} WHERE t.user_id = ? AND t.status = 'offen' AND t.due_date IS NOT NULL ORDER BY t.due_date`, owner.id);
+    // Ausgeschaltet: Abo bleibt bestehen, ist aber leer (Einträge verschwinden beim nächsten Abruf)
+    const tasks = userSettings(owner).autoCalendar === false ? []
+      : db.all(`${TASK_SELECT} WHERE t.user_id = ? AND t.status = 'offen' AND t.due_date IS NOT NULL ORDER BY t.due_date`, owner.id);
     const stamp = icsUtc(new Date());
     const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//BriefPilot//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-      'X-WR-CALNAME:BriefPilot', 'REFRESH-INTERVAL;VALUE=DURATION:PT6H', 'X-PUBLISHED-TTL:PT6H'];
+      'X-WR-CALNAME:BriefPilot', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H'];
     for (const task of tasks) {
       lines.push('BEGIN:VEVENT', `UID:${task.id}@briefpilot`, `DTSTAMP:${stamp}`);
       if (task.due_time) {

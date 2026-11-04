@@ -1,5 +1,6 @@
 // Aufgaben und Termine: Zu prüfen, Offen, Erledigt.
 import { html, mount } from '../html.js';
+import { offerCalendarOnce } from '../calendar.js';
 import { api, download } from '../api.js';
 import { icon, whenLabel, taskKindLabel, toast } from '../ui.js';
 import { formatDate } from '../shared/dates.js';
@@ -128,6 +129,7 @@ export async function render({ root, query, isCurrent }) {
     const d = res.task?.dueDate;
     toast(d ? `Bestätigt: ${formatDate(d, { short: true })}` : 'Bestätigt.');
     await load();
+    offerCalendarOnce(Boolean(d));
   }
 
   // Bild ohne Vorschau (z. B. PDF ohne Foto): Symbol statt leerem Bild

@@ -114,3 +114,25 @@ test('Seiten löschen: einzelne PDF-Seiten und ganze Dateien, eine Seite bleibt'
   assert.doesNotMatch(after.letter.fullText || '', /Seite Nummer 2/);
   assert.match(after.letter.fullText || '', /Seite Nummer 3/);
 });
+
+test('Automatische Kalendereintragung: an = bestätigte Einträge im Abo, aus = Abo leer', async (t) => {
+  const s = await startTestServer();
+  t.after(() => s.stop());
+  const { c } = await registerUser(s);
+  assert.equal((await c.get('/api/me')).data.user.settings.autoCalendar, true, 'standardmäßig an');
+  await c.post('/api/tasks', { title: 'Arzttermin', kind: 'termin', dueDate: '2030-06-01', dueTime: '09:30' });
+  await c.post('/api/tasks', { title: 'Steuer abgeben', kind: 'frist', dueDate: '2030-07-31' });
+  const { token } = (await c.post('/api/me/calendar', {})).data;
+  const anon = s.client();
+  const read = async () => {
+    const r = await anon.call('GET', `/api/calendar/${token}.ics`);
+    return typeof r.data === 'string' ? r.data : Buffer.from(r.data).toString('utf8');
+  };
+  const on = await read();
+  assert.equal((on.match(/BEGIN:VEVENT/g) || []).length, 2);
+  assert.match(on, /Arzttermin/);
+  await c.patch('/api/me', { settings: { autoCalendar: false } });
+  const off = await read();
+  assert.match(off, /BEGIN:VCALENDAR/);
+  assert.equal((off.match(/BEGIN:VEVENT/g) || []).length, 0);
+});

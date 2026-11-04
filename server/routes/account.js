@@ -49,6 +49,7 @@ export function registerAccountRoutes(router, ctx) {
       if (s.emailReminders !== undefined) next.emailReminders = s.emailReminders === true;
       if (s.notificationDetails !== undefined) next.notificationDetails = s.notificationDetails === true;
       if (s.autoConfirmFacts !== undefined) next.autoConfirmFacts = s.autoConfirmFacts === true;
+      if (s.autoCalendar !== undefined) next.autoCalendar = s.autoCalendar === true;
       updates.settings = JSON.stringify(next);
     }
     const keys = Object.keys(updates);

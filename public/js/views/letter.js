@@ -16,6 +16,7 @@ import { setReviewCount, setInboxCount } from '../app.js';
 import { objectChips, objectTile, evidenceList, identifierStatusBadge } from './parts.js';
 import { moveSheet, fileLetterInto } from '../folderSheet.js';
 import { pagesSheet } from '../pagesSheet.js';
+import { offerCalendarOnce } from '../calendar.js';
 import { mountDecision, forgetObjects } from './assign.js';
 import { repliesPanel, chatPanel, bindAssistant } from './replies.js';
 import { loadHousehold } from './objectDialog.js';
@@ -614,6 +615,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
         toast(body.withoutDate ? 'Übernommen – ohne Datum.' : `Bestätigt. ${planned === 1 ? 'Eine Erinnerung' : `${planned} Erinnerungen`} geplant.`);
         if (res.warnings?.length) setTimeout(() => toast(res.warnings.join(' ')), 3600);
         await reload();
+        offerCalendarOnce(!body.withoutDate);
       } catch (err) {
         showError(form, err);
       }

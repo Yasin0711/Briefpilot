@@ -1167,9 +1167,12 @@ dialog.sheet::backdrop { background: rgba(10, 16, 24, 0.35); }
 .reply-actions { display: flex; gap: .25rem; justify-content: flex-end; }
 .suggest-row { display: inline-flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
 
-/* Erkannte Angaben, darunter (Desktop: daneben) die Briefvorschau */
-.facts-preview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
-@media (min-width: 760px) { .facts-preview { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .preview-panel { position: sticky; top: 64px; } }
+/* Briefvorschau, darunter die erkannten Angaben */
+.preview-panel .pager { max-width: 560px; margin-inline: auto; }
+/* Reiter klappt unter der Leiste auf */
+.tab-drop { animation: tab-drop .22s ease-out; }
+@keyframes tab-drop { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tab-drop { animation: none; } }
 .preview-panel .pager-tools { display: flex; justify-content: center; gap: 6px; margin-top: 6px; }
 .preview-panel .pager-bar { justify-content: center; }
 .facts-panel .section-title { flex-wrap: wrap; gap: 6px; }
@@ -1230,3 +1233,15 @@ dialog.sheet-full {
 .folder-add-btn { width: 52px; height: 52px; min-height: 52px; flex: none; border-radius: 14px; }
 .folder-add-btn svg { width: 26px; height: 26px; }
 .app-version { text-align: center; margin-top: 8px; }
+
+/* Dialoge: nur senkrecht scrollen, nichts ragt seitlich heraus (iOS-Datumsfelder sind sonst breiter) */
+dialog { overflow-x: hidden; overscroll-behavior: contain; }
+dialog .dialog-body, dialog form { touch-action: pan-y; max-width: 100%; min-width: 0; }
+dialog .field, dialog .field-pair > * { min-width: 0; }
+.field-pair { grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
+input.input, select.input, textarea.input { max-width: 100%; min-width: 0; box-sizing: border-box; }
+input[type="date"].input, input[type="time"].input { -webkit-appearance: none; appearance: none; display: block; width: 100%; min-height: 48px; }
+.main-wrap { overflow-x: hidden; }
+.letter-meta.wrap-meta { white-space: normal; display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.letter-meta.wrap-meta > span { min-width: 0; overflow-wrap: anywhere; }
+.object-actions { flex-wrap: wrap; }

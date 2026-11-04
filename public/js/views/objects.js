@@ -1,4 +1,4 @@
-// Ordner: Liste (gruppiert nach Art) und Detailansicht mit Nummern, Vorgängen, Briefen und Aufgaben.
+// Ordner: Liste und Detailansicht mit Briefen und Aufgaben (Verwaltung unten).
 import { html, mount, trusted } from '../html.js';
 import { api } from '../api.js';
 import { icon, toast, confirmDialog, openDialog, showError, clearErrors, busy } from '../ui.js';
@@ -152,8 +152,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
   }
 
   function draw() {
-    const { object: o, identifiers, cases, letters, tasks, successor, predecessors } = data;
-    const objectIds = identifiers.filter((i) => !i.caseId);
+    const { object: o, letters, tasks, successor, predecessors } = data;
     const t = objectType(o.type);
     mount(root, html`<div class="stack-l">
       <p><a class="btn btn-ghost btn-small" href="#/akten">${icon('chevronLeft')}Alle Ordner</a></p>
@@ -161,7 +160,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
         ${objectTile(o.type, { large: true })}
         <div class="grow">
           <h1>${o.name}</h1>
-          <div class="letter-meta">
+          <div class="letter-meta wrap-meta">
             <span>${t.label}${o.provider ? ` · ${o.provider}` : ''}</span>
             ${o.personName ? html`<span>${icon('user')} ${o.personName}</span>` : ''}
             ${o.addressLabel ? html`<span>${icon('mapPin')} ${o.addressLabel}</span>` : ''}
@@ -175,34 +174,6 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
       ${successor ? html`<div class="note">${icon('info')}<p>Nachfolger: <a href="#/akten/${successor.id}">${successor.name}</a> – neue Briefe gehören dorthin.</p></div>` : ''}
       ${predecessors.length ? html`<div class="note">${icon('history')}<p>Vorher: ${predecessors.map((p, i) => html`${i ? ', ' : ''}<a href="#/akten/${p.id}">${p.name}</a>`)}</p></div>` : ''}
       ${o.notes ? html`<p class="muted">${o.notes}</p>` : ''}
-      <div class="row">
-        <button class="btn btn-small btn-secondary" type="button" data-act="edit">${icon('edit')}Bearbeiten</button>
-        ${o.status === 'beendet'
-          ? html`<button class="btn btn-small btn-secondary" type="button" data-act="reactivate">${icon('refresh')}Wieder aktiv</button>`
-          : html`<button class="btn btn-small btn-secondary" type="button" data-act="end">${icon('history')}Beenden / Nachfolger</button>`}
-        <button class="btn btn-small btn-secondary" type="button" data-act="merge">${icon('merge')}Zusammenführen</button>
-        <button class="btn btn-small btn-danger" type="button" data-act="delete">${icon('trash')}Löschen</button>
-      </div>
-
-      <section class="panel stack" aria-labelledby="ids-h">
-        <div class="section-title"><h2 id="ids-h">Nummern</h2></div>
-        <p class="small muted">Briefe mit diesen Nummern landen hier.</p>
-        ${objectIds.length ? html`<ul class="id-list">${objectIds.map((i) => html`<li>
-            <span class="grow"><span class="row-sub">${i.kindLabel}</span><span class="row-title mono">${i.value}</span>
-              <span class="row-meta">${i.status === 'alt' ? html`<span class="badge">frühere Nummer</span>` : ''}
-                ${i.validFrom ? html`<span class="badge">ab ${formatDate(i.validFrom)}</span>` : ''}${i.validTo ? html`<span class="badge">bis ${formatDate(i.validTo)}</span>` : ''}
-                ${i.source === 'brief' ? html`<span class="badge">aus einem Brief gelernt</span>` : ''}</span></span>
-            <button class="icon-btn" type="button" data-id-edit="${i.id}" aria-label="${i.kindLabel} ${i.value} bearbeiten">${icon('edit')}</button>
-            <button class="icon-btn" type="button" data-id-delete="${i.id}" aria-label="${i.kindLabel} ${i.value} entfernen">${icon('trash')}</button>
-          </li>`)}</ul>` : html`<p class="muted">Noch keine Nummer gespeichert. Ohne Nummer kann BriefPilot Briefe nicht sicher zuordnen.</p>`}
-        <form class="id-add" data-id-add novalidate>
-          <div class="field"><label for="nk">Art</label><select class="input" id="nk" name="kind">
-            ${IDENTIFIER_KINDS.map((k) => html`<option value="${k.id}" ${k.id === (t.hints || [])[0] ? 'selected' : ''}>${k.label}</option>`)}</select></div>
-          <div class="field"><label for="nv">Nummer</label><input class="input" id="nv" name="value" maxlength="120" autocomplete="off" placeholder="z. B. SB-AB 123"></div>
-          <label class="check"><input type="checkbox" name="old"><span>frühere Nummer</span></label>
-          <button class="btn btn-small" type="submit">${icon('plus')}Hinzufügen</button>
-        </form>
-      </section>
 
       ${tasks.length ? html`<section aria-labelledby="tasks-h">
         <div class="section-title"><h2 id="tasks-h">Offene Aufgaben</h2></div>
@@ -213,28 +184,19 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
         <div class="section-title"><h2 id="letters-h">Briefe</h2>
           <a href="#/briefe?object=${o.id}">In der Briefliste</a></div>
         ${letters.length ? html`<div class="panel panel-plain"><ul class="list">${letters.map((l) => letterRow(l, {
-          note: html`<span class="link-why">${icon(l.link.origin === 'nutzer' ? 'user' : 'link')}${ORIGIN_LABEL[l.link.origin] || 'zugeordnet'}${l.link.evidence?.[0] && l.link.evidence[0].type !== 'nutzer' ? `: ${evidenceText(l.link.evidence[0])}` : ''}${l.link.caseId ? ` · Vorgang: ${cases.find((c) => c.id === l.link.caseId)?.title || ''}` : ''}</span>`,
+          note: html`<span class="link-why">${icon(l.link.origin === 'nutzer' ? 'user' : 'link')}${ORIGIN_LABEL[l.link.origin] || 'zugeordnet'}${l.link.evidence?.[0] && l.link.evidence[0].type !== 'nutzer' ? `: ${evidenceText(l.link.evidence[0])}` : ''}</span>`,
         }))}</ul></div>`
           : html`<p class="muted">Noch keine Briefe.</p>`}
       </section>
 
-      <section class="panel stack" aria-labelledby="cases-h">
-        <div class="section-title"><h2 id="cases-h">Vorgänge</h2></div>
-        <p class="small muted">Zusammengehörige Briefe, z. B. ein Schadenfall.</p>
-        ${cases.length ? html`<ul class="id-list">${cases.map((c) => html`<li>
-            <span class="grow"><span class="row-title">${c.title}</span>
-              <span class="row-meta"><span class="badge">${CASE_KINDS.find((k) => k.id === c.kind)?.label || 'Vorgang'}</span>
-                <span class="badge">${c.letterCount === 1 ? '1 Brief' : `${c.letterCount} Briefe`}</span>
-                ${c.status === 'abgeschlossen' ? html`<span class="badge badge-done">${icon('check')}abgeschlossen</span>` : html`<span class="badge badge-open">offen</span>`}</span></span>
-            <button class="btn btn-small btn-ghost" type="button" data-case-toggle="${c.id}" data-status="${c.status === 'abgeschlossen' ? 'offen' : 'abgeschlossen'}">${c.status === 'abgeschlossen' ? 'Wieder öffnen' : 'Abschließen'}</button>
-            <button class="icon-btn" type="button" data-case-delete="${c.id}" aria-label="Vorgang ${c.title} löschen">${icon('trash')}</button>
-          </li>`)}</ul>` : html`<p class="muted">Keine Vorgänge.</p>`}
-        <form class="id-add" data-case-add novalidate>
-          <div class="field"><label for="ct">Neuer Vorgang</label><input class="input" id="ct" name="title" maxlength="160" placeholder="z. B. Unfall vom 3. März"></div>
-          <div class="field"><label for="ck">Art</label><select class="input" id="ck" name="kind">${CASE_KINDS.map((k) => html`<option value="${k.id}" ${k.id === 'allgemein' ? 'selected' : ''}>${k.label}</option>`)}</select></div>
-          <button class="btn btn-small" type="submit">${icon('plus')}Anlegen</button>
-        </form>
-      </section>
+      <div class="row object-actions">
+        <button class="btn btn-small btn-secondary" type="button" data-act="edit">${icon('edit')}Bearbeiten</button>
+        ${o.status === 'beendet'
+          ? html`<button class="btn btn-small btn-secondary" type="button" data-act="reactivate">${icon('refresh')}Wieder aktiv</button>`
+          : html`<button class="btn btn-small btn-secondary" type="button" data-act="end">${icon('history')}Beenden / Nachfolger</button>`}
+        <button class="btn btn-small btn-secondary" type="button" data-act="merge">${icon('merge')}Zusammenführen</button>
+        <button class="btn btn-small btn-danger" type="button" data-act="delete">${icon('trash')}Löschen</button>
+      </div>
     </div>`);
   }
 
@@ -283,7 +245,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
     const select = await otherObjectsSelect('targetId', 'Zusammenführen mit', { allowEmpty: false });
     openDialog(html`<form class="dialog-body stack" novalidate>
       <h2>Ordner zusammenführen</h2>
-      <p class="muted">Alle Briefe, Nummern und Vorgänge von „${data.object.name}“ wandern in den gewählten Ordner. Danach gibt es „${data.object.name}“ nicht mehr. Briefe werden dabei nicht gelöscht.</p>
+      <p class="muted">Alle Briefe wandern in den gewählten Ordner, „${data.object.name}“ entfällt.</p>
       ${select}
       <div class="row"><button class="btn" type="submit">${icon('merge')}Zusammenführen</button><button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
     </form>`, (dialog, close) => {
@@ -387,7 +349,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
       } else if (act === 'delete') {
         if (await confirmDialog({
           title: 'Ordner löschen?',
-          body: `Der Ordner „${data.object.name}“ mit seinen Nummern und Vorgängen wird gelöscht. ${data.letters.length === 1 ? 'Der zugehörige Brief bleibt erhalten und wird' : data.letters.length ? `Die ${data.letters.length} zugehörigen Briefe bleiben erhalten und werden` : 'Briefe werden'} – wenn möglich – anderen Ordnern zugeordnet.`,
+          body: `Der Ordner „${data.object.name}“ wird gelöscht. ${data.letters.length === 1 ? 'Der zugehörige Brief bleibt erhalten und wird' : data.letters.length ? `Die ${data.letters.length} zugehörigen Briefe bleiben erhalten und werden` : 'Briefe werden'} – wenn möglich – anderen Ordnern zugeordnet.`,
           confirmLabel: 'Ordner löschen', danger: true,
         })) {
           await api.del(`/api/objects/${id}`);

@@ -226,10 +226,8 @@ function previewPanel(files, letter, editable) {
 
 function factsPanel(letter, persons = [], { folderRow = '', analyzing = false, viewable = false } = {}) {
   const dateStatus = {
-    erkannt: html`<span class="badge badge-review">bitte prüfen</span>`,
     unsicher: html`<span class="badge badge-review">${icon('alert')}unsicher</span>`,
     fehlt: html`<span class="badge badge-review">${icon('alert')}fehlt</span>`,
-    bestaetigt: html`<span class="badge badge-done">${icon('check')}bestätigt</span>`,
   }[letter.reviewed && letter.letterDateStatus !== 'bestaetigt' ? 'ohne' : letter.letterDateStatus];
   if (analyzing) {
     return html`<section class="panel stack facts-panel" aria-label="Brief">${folderRow}<p class="muted">Angaben erscheinen, sobald der Brief gelesen ist.</p></section>`;
@@ -247,22 +245,8 @@ function factsPanel(letter, persons = [], { folderRow = '', analyzing = false, v
     <dl class="facts">
       <div><dt>Absender</dt><dd>${letter.sender || html`<span class="muted">nicht erkannt</span>`}</dd></div>
       <div><dt>Briefdatum</dt><dd>${letter.letterDate ? formatDate(letter.letterDate) : html`<span class="muted">unbekannt</span>`} ${dateStatus}
-        ${letter.letterDateQuote && letter.letterDateStatus !== 'bestaetigt' ? html`<br><span class="small muted">Im Brief: „${letter.letterDateQuote}“</span>` : ''}</dd></div>
+</dd></div>
       <div><dt>Betreff</dt><dd>${letter.subject || html`<span class="muted">nicht erkannt</span>`}</dd></div>
-      <div><dt>Kategorie</dt><dd>${categoryLabel(letter.category)}</dd></div>
-      ${letter.recipient ? html`<div><dt>Empfänger</dt><dd>${letter.recipient}</dd></div>` : ''}
-      ${persons.length ? html`<div><dt>Betrifft</dt><dd>${persons.find((p) => p.id === letter.personId)?.name || html`<span class="muted">nicht zugeordnet</span>`}</dd></div>` : ''}
-      ${letter.identifiers?.length
-        ? html`<div><dt>Nummern im Brief</dt><dd>${letter.identifiers.map((i) => html`<div>${identifierKindLabel(i.kind)}: <span class="mono">${i.value}</span> ${identifierStatusBadge(i.status)}</div>`)}</dd></div>`
-        : letter.references?.length ? html`<div><dt>Aktenzeichen und Nummern</dt><dd>${letter.references.map((r) => html`<div>${r.label}: ${r.value}</div>`)}</dd></div>` : ''}
-      ${letter.senderAddress ? html`<div><dt>Anschrift des Absenders</dt><dd>${letter.senderAddress}</dd></div>` : ''}
-      ${letter.senderEmail ? html`<div><dt>E-Mail des Absenders</dt><dd>${letter.senderEmail}</dd></div>` : ''}
-      ${letter.amounts?.length ? html`<div><dt>Beträge</dt><dd>${letter.amounts.map((a) => html`<div>${a.label}: ${a.amount} ${a.currency === 'EUR' ? '€' : a.currency}</div>`)}</dd></div>` : ''}
-      <div><dt>Brief erhalten am</dt><dd>${letter.receivedDate ? formatDate(letter.receivedDate)
-        : letter.receivedSuggested ? html`<span class="suggest-row">Zugestellt am ${formatDate(letter.receivedSuggested)}?
-            <button class="icon-btn icon-btn-small" type="button" data-action="confirm-delivery" aria-label="Zustelldatum bestätigen" title="Bestätigen">${icon('check')}</button></span>
-          ${letter.receivedSuggestedQuote ? html`<span class="small muted">„${letter.receivedSuggestedQuote}“</span>` : ''}`
-        : html`<span class="muted">nicht angegeben</span>`}</dd></div>
     </dl>
   </section>`;
 }
@@ -392,6 +376,16 @@ export async function render({ root, params, query, state, navigate, isCurrent }
   function showTab(next) {
     tab = next;
     draw();
+    if (tab) dropIntoView();
+  }
+
+  /** Geöffneter Reiter klappt unter der Leiste auf: Seite so stellen, dass die Leiste an ihrem Platz oben steht. */
+  function dropIntoView() {
+    const anchor = root.querySelector('[data-tabs-anchor]');
+    const sc = scroller();
+    if (!anchor || !sc) return;
+    const top = anchor.getBoundingClientRect().bottom - sc.getBoundingClientRect().top + sc.scrollTop;
+    if (sc.scrollTop > top) sc.scrollTop = top;
   }
 
   /** Was vor dem Ablegen noch offen ist (kurz). */
@@ -452,40 +446,14 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     const drafts = data.replies.filter((r) => r.status !== 'gesendet').length;
     const reviewCount = tasks.filter((t) => t.status === 'zu_pruefen').length;
     mount(root, html`<div class="stack-l">
-      <p><a class="btn btn-ghost btn-small" href="#/briefe">${icon('chevronLeft')}Alle Briefe</a></p>
+      <p data-tabs-anchor><a class="btn btn-ghost btn-small" href="#/briefe">${icon('chevronLeft')}Alle Briefe</a></p>
       <h1 class="visually-hidden">${letter.subject || (analyzing ? 'Neuer Brief' : 'Brief ohne Betreff')}</h1>
       <div class="tabs letter-tabs" role="tablist" aria-label="Ansicht">
         <button class="tab" role="tab" type="button" data-tab="erklaerung" aria-selected="${tab === 'erklaerung'}">Erklärung</button>
         <button class="tab" role="tab" type="button" data-tab="aufgaben" aria-selected="${tab === 'aufgaben'}">Aufgaben${reviewCount ? html` <span class="tab-count">${reviewCount}</span>` : ''}</button>
         <button class="tab" role="tab" type="button" data-tab="antworten" aria-selected="${tab === 'antworten'}">Antwort${drafts ? html` <span class="tab-count">${drafts}</span>` : ''}</button>
       </div>
-
-      ${analyzing ? html`<div class="note" role="status"><span class="spinner" aria-hidden="true"></span><div><strong>Wird gelesen …</strong><p>Meist unter einer Minute.</p></div></div>` : ''}
-      ${letter.analysisStatus === 'fehler' ? html`<div class="note note-danger" role="alert">${icon('alert')}<div class="stack"><div><strong>Die Auswertung hat nicht geklappt.</strong><p>${letter.analysisError}</p></div>
-        <p><button class="btn btn-small" type="button" data-action="reanalyze">${icon('refresh')}Erneut auswerten</button></p></div></div>` : ''}
-      ${letter.analysisStatus === 'nicht_moeglich' ? html`<div class="note note-warn" role="status">${icon('info')}<div class="stack"><div><strong>Gespeichert, aber nicht gelesen.</strong><p>${letter.analysisError}</p></div>
-        <div class="row"><button class="btn btn-small" type="button" data-action="edit-facts">${icon('edit')}Angaben selbst eintragen</button>
-        <button class="btn btn-small btn-secondary" type="button" data-action="add-task">${icon('plus')}Aufgabe anlegen</button></div></div></div>` : ''}
-      ${letter.injectionWarning ? html`<div class="note note-danger" role="alert">${icon('shield')}<div><strong>Vorsicht bei diesem Schreiben</strong><p>Enthält Anweisungen an eine KI – wurden ignoriert.</p></div></div>` : ''}
-      ${duplicateNote()}
-      ${analyzing ? '' : assignmentPanel()}
-
-      <div class="facts-preview">
-      ${factsPanel(letter, persons, {
-        analyzing,
-        viewable: files.some((f) => f.role !== 'original' && (f.kind === 'pdf' || f.kind === 'image')),
-        folderRow: html`<div class="row-meta folder-row">
-          ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
-          ${letter.isDemoContent ? '' : html`<button class="btn btn-small btn-secondary folder-pick-btn" type="button" data-action="pick-folder">${icon('folderPlus')}Ordner wählen</button>`}
-          ${letter.analysisSource === 'beispiel' && sourceLabel ? html`<span class="badge badge-demo">${icon('info')}${sourceLabel}</span>` : ''}
-        </div>`,
-      })}
-      ${previewPanel(files, letter, editable)}
-      </div>
-      ${split ? html`<section class="panel stack">${originalView(files, { split, editable, letterId: letter.id })}</section>` : ''}
-
-      <div class="detail-grid">
-        <div class="stack-l ${tab ? '' : 'no-tab'}">
+      ${tab ? html`<div class="tab-drop stack-l" data-drop>
           ${tab === 'erklaerung' ? html`<div data-panel="erklaerung" class="stack-l">
             ${analyzing ? html`<p class="muted">Erscheint, sobald der Brief gelesen ist.</p>` : explanation(data, settings, today, correcting, openSteps)}
             ${analyzing ? '' : chatPanel(data, state)}
@@ -497,7 +465,31 @@ export async function render({ root, params, query, state, navigate, isCurrent }
               : html`<p class="muted">${analyzing ? 'Erscheint, sobald der Brief gelesen ist.' : 'Keine Aufgaben.'}</p>`}
           </div>` : ''}
           <div data-panel="antworten" ${tab === 'antworten' ? '' : html`hidden`}>${tab === 'antworten' ? repliesPanel(data, state) : ''}</div>
-          ${(tab === 'erklaerung' || !tab) && !analyzing ? html`<section class="panel stack">
+      </div>` : ''}
+
+      ${analyzing ? html`<div class="note" role="status"><span class="spinner" aria-hidden="true"></span><div><strong>Wird gelesen …</strong><p>Meist unter einer Minute.</p></div></div>` : ''}
+      ${letter.analysisStatus === 'fehler' ? html`<div class="note note-danger" role="alert">${icon('alert')}<div class="stack"><div><strong>Die Auswertung hat nicht geklappt.</strong><p>${letter.analysisError}</p></div>
+        <p><button class="btn btn-small" type="button" data-action="reanalyze">${icon('refresh')}Erneut auswerten</button></p></div></div>` : ''}
+      ${letter.analysisStatus === 'nicht_moeglich' ? html`<div class="note note-warn" role="status">${icon('info')}<div class="stack"><div><strong>Gespeichert, aber nicht gelesen.</strong><p>${letter.analysisError}</p></div>
+        <div class="row"><button class="btn btn-small" type="button" data-action="edit-facts">${icon('edit')}Angaben selbst eintragen</button>
+        <button class="btn btn-small btn-secondary" type="button" data-action="add-task">${icon('plus')}Aufgabe anlegen</button></div></div></div>` : ''}
+      ${letter.injectionWarning ? html`<div class="note note-danger" role="alert">${icon('shield')}<div><strong>Vorsicht bei diesem Schreiben</strong><p>Enthält Anweisungen an eine KI – wurden ignoriert.</p></div></div>` : ''}
+      ${duplicateNote()}
+      ${analyzing ? '' : assignmentPanel()}
+
+      ${previewPanel(files, letter, editable)}
+      ${factsPanel(letter, persons, {
+        analyzing,
+        viewable: files.some((f) => f.role !== 'original' && (f.kind === 'pdf' || f.kind === 'image')),
+        folderRow: html`<div class="row-meta folder-row">
+          ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
+          ${letter.isDemoContent ? '' : html`<button class="btn btn-small btn-secondary folder-pick-btn" type="button" data-action="pick-folder">${icon('folderPlus')}Ordner wählen</button>`}
+          ${letter.analysisSource === 'beispiel' && sourceLabel ? html`<span class="badge badge-demo">${icon('info')}${sourceLabel}</span>` : ''}
+        </div>`,
+      })}
+      ${split ? html`<section class="panel stack">${originalView(files, { split, editable, letterId: letter.id })}</section>` : ''}
+
+      ${!analyzing ? html`<section class="panel stack more-panel">
             <h2>Weitere Möglichkeiten</h2>
             <div class="row">
               <button class="btn btn-small btn-secondary" type="button" data-tab="antworten">${icon('reply')}Antwort schreiben</button>
@@ -509,8 +501,6 @@ export async function render({ root, params, query, state, navigate, isCurrent }
             </div>
             <details class="history"><summary>${icon('history')} Verlauf (${data.events.length})</summary>${historyList(data.events)}</details>
           </section>` : ''}
-        </div>
-      </div>
       <p class="upload-note">Hochgeladen am ${formatUploaded(letter.uploadedAt)}</p>
       ${analyzing ? '' : fileBar()}
     </div>`);
@@ -658,9 +648,8 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       // Erneutes Tippen auf den gewählten Reiter schließt ihn (keine Ansicht gewählt)
       tab = tabBtn.classList.contains('tab') && tab === tabBtn.dataset.tab ? null : tabBtn.dataset.tab;
       draw();
-      const tabEl = root.querySelector(`.tabs [data-tab="${tab || tabBtn.dataset.tab}"]`);
-      tabEl?.focus();
-      if (!tabBtn.classList.contains('tab')) tabEl?.scrollIntoView({ block: 'start' });
+      root.querySelector(`.tabs [data-tab="${tab || tabBtn.dataset.tab}"]`)?.focus({ preventScroll: true });
+      if (tab) dropIntoView();
       return;
     }
     const el = e.target.closest('[data-action]');
@@ -818,24 +807,8 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     openDialog(html`<form class="dialog-body stack" novalidate>
       <h2>Angaben korrigieren</h2>
       <div class="field"><label for="f-sender">Absender</label><input class="input" id="f-sender" name="sender" value="${l.sender || ''}" maxlength="200"></div>
+      <div class="field"><label for="f-date">Briefdatum</label><input class="input" type="date" id="f-date" name="letterDate" value="${l.letterDate || ''}"></div>
       <div class="field"><label for="f-subject">Betreff</label><input class="input" id="f-subject" name="subject" value="${l.subject || ''}" maxlength="300"></div>
-      <div class="field-pair">
-        <div class="field"><label for="f-date">Briefdatum</label><input class="input" type="date" id="f-date" name="letterDate" value="${l.letterDate || ''}"></div>
-        <div class="field"><label for="f-recv">Erhalten am</label><input class="input" type="date" id="f-recv" name="receivedDate" max="${today}" value="${l.receivedDate || ''}"></div>
-      </div>
-      <div class="field"><label for="f-cat">Kategorie</label><select class="input" id="f-cat" name="category">
-        ${CATEGORIES.map((c) => html`<option value="${c.id}" ${c.id === l.category ? 'selected' : ''}>${c.label}</option>`)}</select></div>
-      <div class="field"><label for="f-refs">Nummern im Brief</label>
-        <textarea class="input" id="f-refs" name="references" rows="4">${(l.identifiers?.length
-          ? l.identifiers.map((i) => `${identifierKindLabel(i.kind)}: ${i.value}`)
-          : (l.references || []).map((r) => `${r.label}: ${r.value}`)).join('\n')}</textarea>
-        <p class="hint">Eine pro Zeile, z. B. „Kundennummer: 12345“.</p></div>
-      ${persons.length ? html`<div class="field"><label for="f-person">Betrifft</label><select class="input" id="f-person" name="personId">
-        <option value="">–</option>${persons.map((p) => html`<option value="${p.id}" ${p.id === l.personId ? 'selected' : ''}>${p.name}</option>`)}</select></div>` : ''}
-      <div class="field"><label for="f-saddr">Anschrift des Absenders <span class="muted">(für Antworten)</span></label>
-        <textarea class="input" id="f-saddr" name="senderAddress" rows="2" maxlength="300">${l.senderAddress || ''}</textarea></div>
-      <div class="field"><label for="f-smail">E-Mail des Absenders <span class="muted">(freiwillig)</span></label>
-        <input class="input" type="email" id="f-smail" name="senderEmail" value="${l.senderEmail || ''}" maxlength="254"></div>
       <div class="row"><button class="btn" type="submit">Speichern</button><button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
     </form>`, (dialog, close) => {
       const form = dialog.querySelector('form');
@@ -843,19 +816,9 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       form.addEventListener('submit', async (ev) => {
         ev.preventDefault();
         const v = formValues(form);
-        const references = v.references.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
-          const idx = line.indexOf(':');
-          return idx > 0 ? { label: line.slice(0, idx).trim(), value: line.slice(idx + 1).trim() } : { label: 'Nummer', value: line };
-        });
         await busy(form.querySelector('[type=submit]'), async () => {
           try {
-            const body = {
-              sender: v.sender, subject: v.subject, letterDate: v.letterDate || null, receivedDate: v.receivedDate || null,
-              category: v.category, senderAddress: v.senderAddress || null, senderEmail: v.senderEmail || null,
-            };
-            // Nummern nur senden, wenn sie geändert wurden (sonst bleibt die automatische Erkennung aktiv)
-            if (v.references.trim() !== form.querySelector('#f-refs').defaultValue.trim()) body.references = references;
-            if (persons.length) body.personId = v.personId || null;
+            const body = { sender: v.sender, subject: v.subject, letterDate: v.letterDate || null };
             await api.patch(`/api/letters/${id}`, body);
             close();
             toast('Angaben gespeichert.');

@@ -243,13 +243,13 @@ function factsPanel(letter, persons = [], { folderRow = '', analyzing = false, v
           ? html`<span class="icon-btn is-done" role="img" aria-label="Alle Angaben bestätigt" title="Bestätigt">${icon('check')}</span>`
           : html`<button class="icon-btn icon-btn-primary" type="button" data-action="review" aria-label="Alle Angaben bestätigen" title="Alle bestätigen">${icon('check')}</button>`}
       </span></div>
-    ${folderRow}
     <dl class="facts">
       <div><dt>Absender</dt><dd>${letter.sender || html`<span class="muted">nicht erkannt</span>`}</dd></div>
       <div><dt>Briefdatum</dt><dd>${letter.letterDate ? formatDate(letter.letterDate) : html`<span class="muted">unbekannt</span>`} ${dateStatus}
 </dd></div>
       <div><dt>Betreff</dt><dd>${letter.subject || html`<span class="muted">nicht erkannt</span>`}</dd></div>
     </dl>
+    ${folderRow}
   </section>`;
 }
 
@@ -443,7 +443,6 @@ export async function render({ root, params, query, state, navigate, isCurrent }
   function draw() {
     const { letter, files, tasks, links } = data;
     const analyzing = ['wartet', 'laeuft'].includes(letter.analysisStatus);
-    const sourceLabel = ANALYSIS_SOURCE_LABELS[letter.analysisSource];
     const editable = !letter.isDemoContent && !analyzing;
     const drafts = data.replies.filter((r) => r.status !== 'gesendet').length;
     const reviewCount = tasks.filter((t) => t.status === 'zu_pruefen').length;
@@ -483,10 +482,9 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       ${factsPanel(letter, persons, {
         analyzing,
         viewable: files.some((f) => f.role !== 'original' && (f.kind === 'pdf' || f.kind === 'image')),
-        folderRow: html`<div class="row-meta folder-row">
-          ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
-          ${letter.analysisSource === 'beispiel' && sourceLabel ? html`<span class="badge badge-demo">${icon('info')}${sourceLabel}</span>` : ''}
-        </div>`,
+        folderRow: html`<p class="facts-folder">${icon('folder')}<span>${links.length
+          ? links.map((l, i) => html`${i ? ', ' : ''}<a href="#/akten/${l.objectId}">${l.name}</a>`)
+          : 'Kein Ordner'}</span></p>`,
       })}
       ${split ? html`<section class="panel stack">${originalView(files, { split, editable, letterId: letter.id })}</section>` : ''}
 

@@ -50,6 +50,14 @@ export function registerAccountRoutes(router, ctx) {
       if (s.notificationDetails !== undefined) next.notificationDetails = s.notificationDetails === true;
       if (s.autoConfirmFacts !== undefined) next.autoConfirmFacts = s.autoConfirmFacts === true;
       if (s.autoCalendar !== undefined) next.autoCalendar = s.autoCalendar === true;
+      // Eigene Angaben für Antworten (Absender im Brief)
+      if (s.profile !== undefined) {
+        const p = s.profile && typeof s.profile === 'object' ? s.profile : {};
+        const clean = (v, max) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, max);
+        const email = clean(p.email, 254);
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw badRequest('Bitte eine gültige E-Mail-Adresse eintragen.');
+        next.profile = { name: clean(p.name, 120), street: clean(p.street, 160), zip: clean(p.zip, 12), city: clean(p.city, 100), phone: clean(p.phone, 40), email };
+      }
       updates.settings = JSON.stringify(next);
     }
     const keys = Object.keys(updates);

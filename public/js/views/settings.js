@@ -155,6 +155,7 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
   async function draw() {
     const me = state.me;
     const s = me.settings;
+    const pr = s.profile || {};
     const [sessions, push, household] = await Promise.all([
       api.get('/api/me/sessions'),
       pushState(state.status).catch(() => ({ available: false, reason: 'Benachrichtigungen konnten nicht geprüft werden.' })),
@@ -191,6 +192,22 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
           <div class="row"><button class="btn btn-secondary" type="submit">Speichern</button>
             <button class="btn btn-ghost" type="button" data-action="password">${icon('lock')}Passwort ändern</button></div>
         </form>`}
+      </section>
+
+      <section class="panel stack settings-section" aria-labelledby="s-absender">
+        <h2 id="s-absender">Meine Angaben</h2>
+        <p class="muted">Werden in Antworten automatisch eingesetzt.</p>
+        <form class="stack" data-form="sender" novalidate>
+          <div class="field"><label for="pr-name">Vor- und Nachname</label><input class="input" id="pr-name" name="name" value="${pr.name ?? (me.isGuest ? '' : me.name || '')}" maxlength="120" autocomplete="name"></div>
+          <div class="field"><label for="pr-street">Straße und Hausnummer</label><input class="input" id="pr-street" name="street" value="${pr.street || ''}" maxlength="160" autocomplete="street-address"></div>
+          <div class="field-pair">
+            <div class="field"><label for="pr-zip">PLZ</label><input class="input" id="pr-zip" name="zip" value="${pr.zip || ''}" maxlength="12" inputmode="numeric" autocomplete="postal-code"></div>
+            <div class="field"><label for="pr-city">Ort</label><input class="input" id="pr-city" name="city" value="${pr.city || ''}" maxlength="100" autocomplete="address-level2"></div>
+          </div>
+          <div class="field"><label for="pr-phone">Telefon <span class="muted">(freiwillig)</span></label><input class="input" id="pr-phone" name="phone" type="tel" value="${pr.phone || ''}" maxlength="40" autocomplete="tel"></div>
+          <div class="field"><label for="pr-email">E-Mail <span class="muted">(freiwillig)</span></label><input class="input" id="pr-email" name="email" type="email" value="${pr.email ?? (me.isGuest || me.isDemo ? '' : me.email || '')}" maxlength="254" autocomplete="email"></div>
+          <div class="row"><button class="btn" type="submit">${icon('check')}Speichern</button></div>
+        </form>
       </section>
 
       <section class="panel stack settings-section" aria-labelledby="s-haushalt">
@@ -403,6 +420,8 @@ export async function render({ root, state, navigate, refreshMe, isCurrent }) {
       try {
         if (form.dataset.form === 'profile') {
           await api.patch('/api/me', { name: v.name });
+        } else if (form.dataset.form === 'sender') {
+          await api.patch('/api/me', { settings: { profile: { name: v.name, street: v.street, zip: v.zip, city: v.city, phone: v.phone, email: v.email } } });
         } else if (form.dataset.form === 'reminders') {
           await api.patch('/api/me', { settings: { reminderOffsets: v.reminderOffsets || [], reminderTime: v.reminderTime, emailReminders: v.emailReminders, notificationDetails: v.notificationDetails } });
         }

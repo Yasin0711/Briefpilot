@@ -192,15 +192,23 @@ export function replyDefaults(db, user, letter) {
       ORDER BY is_primary DESC, CASE kind WHEN 'haushalt' THEN 0 ELSE 1 END, created_at LIMIT 1`,
     user.id, today
   );
+  // Eigenes Profil (Einstellungen → Meine Angaben) hat Vorrang vor Haushalt und Konto
+  let profile = {};
+  try {
+    profile = JSON.parse(user.settings || '{}').profile || {};
+  } catch {
+    profile = {};
+  }
+  const profileAddress = [profile.street, [profile.zip, profile.city].filter(Boolean).join(' ')].filter(Boolean).join('\n');
   return {
     recipient: { name: letter.sender || '', address: letter.sender_address || '', email: letter.sender_email || '' },
     sender: {
-      name: me?.name || (user.name && !user.is_demo ? user.name : user.name?.replace(/\s*\(Demo\)$/, '') || ''),
-      address: addressText(home),
-      email: user.is_demo || String(user.email || '').endsWith('@gast.invalid') ? '' : user.email || '',
-      phone: '',
+      name: profile.name || me?.name || (user.name && !user.is_demo ? user.name : user.name?.replace(/\s*\(Demo\)$/, '') || ''),
+      address: profileAddress || addressText(home),
+      email: profile.email || (user.is_demo || String(user.email || '').endsWith('@gast.invalid') ? '' : user.email || ''),
+      phone: profile.phone || '',
     },
-    place: home?.city || '',
+    place: profile.city || home?.city || '',
   };
 }
 

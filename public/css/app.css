@@ -1274,3 +1274,23 @@ dialog .viewer { z-index: 10; }
   .status-tabs .tab { font-size: .76rem; padding: 6px 0; letter-spacing: -0.01em; }
 }
 .app-version { text-align: center; margin: 16px 0 8px; padding-bottom: 8px; }
+
+/* Bezug wählen (wie Ordnerauswahl) */
+.ref-folder-li { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); }
+.ref-folder-li .move-row { border-bottom: 0; flex: 1; min-width: 0; }
+.ref-folder-pick { flex: none; width: 56px; background: none; border: 0; border-left: 1px solid var(--line); display: grid; place-items: center; cursor: pointer; }
+.ref-circle { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line-strong); display: grid; place-items: center; color: transparent; flex: none; }
+.ref-circle svg { width: 16px; height: 16px; }
+.ref-circle.is-on { background: var(--action); border-color: var(--action); color: #fff; }
+.ref-doc svg { width: 28px; height: 28px; fill: none; }
+.move-folder.is-muted svg { color: var(--muted); fill: color-mix(in srgb, var(--muted) 15%, transparent); }
+.ref-crumb { display: flex; align-items: center; gap: 8px; padding: 0 14px 6px; }
+.ref-crumb .move-link { display: inline-flex; align-items: center; gap: 2px; }
+.ref-crumb strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.move-row .grow { min-width: 0; }
+.move-row .row-title, .move-row .row-sub { overflow: hidden; text-overflow: ellipsis; }
+.facts-folder { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; font-size: .82rem; color: var(--muted); min-width: 0; }
+.facts-folder svg { width: 15px; height: 15px; flex: none; }
+.facts-folder span { min-width: 0; overflow-wrap: anywhere; }
+.facts-folder a { color: inherit; text-decoration: none; }
+.facts-folder a:hover { text-decoration: underline; }

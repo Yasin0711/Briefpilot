@@ -155,3 +155,24 @@ test('Kalender: erledigte Aufgaben verschwinden, wieder geöffnete kommen zurüc
   await c.post(`/api/tasks/${task.id}/reopen`, {});
   assert.equal(await events(), 1, 'wieder offen → wieder im Kalender');
 });
+
+test('Profil „Meine Angaben“ füllt Antworten automatisch aus', async (t) => {
+  const s = await startTestServer();
+  t.after(() => s.stop());
+  const { c } = await registerUser(s);
+  const bad = await c.patch('/api/me', { settings: { profile: { email: 'kein-mail' } } });
+  assert.equal(bad.status, 400);
+  const ok = await c.patch('/api/me', { settings: { profile: { name: 'Hans Muster', street: 'Hauptstraße 5', zip: '66111', city: 'Saarbrücken', phone: '0681 123', email: 'hans@example.org' } } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.data.user.settings.profile.city, 'Saarbrücken');
+  const pdf = buildPdf([[{ type: 'text', x: 70, y: 700, text: 'Stadtwerke Rechnung 89,40 EUR' }]]);
+  const up = await c.upload(pdf, 'application/pdf');
+  const letter = (await c.post('/api/letters', { fileIds: [up.data.id] })).data;
+  await s.app.ctx.analyzer.idle();
+  const reply = (await c.post(`/api/letters/${letter.id}/replies`, { mode: 'text', subject: 'Frage', body: 'Sehr geehrte Damen und Herren,\nbitte um Rückruf.' })).data.reply;
+  assert.equal(reply.sender.name, 'Hans Muster');
+  assert.equal(reply.sender.address, 'Hauptstraße 5\n66111 Saarbrücken');
+  assert.equal(reply.sender.phone, '0681 123');
+  assert.equal(reply.sender.email, 'hans@example.org');
+  assert.equal(reply.place, 'Saarbrücken');
+});

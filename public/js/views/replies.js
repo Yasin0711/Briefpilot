@@ -4,6 +4,7 @@ import { html, mount } from '../html.js';
 import { api, download } from '../api.js';
 import { icon, toast, openDialog, showError, clearErrors, busy, confirmDialog, naStar, scroller, actionSheet } from '../ui.js';
 import { shareFile } from '../context.js';
+import { refSheet } from '../folderSheet.js';
 import { formatDate } from '../shared/dates.js';
 
 const SENT_VIA = { email: 'per E-Mail aus BriefPilot', post: 'per Post', eigenes_programm: 'mit eigenem E-Mail-Programm', kopiert: 'Text kopiert' };
@@ -175,53 +176,13 @@ export function bindAssistant(root, ctx) {
 
   /** Auswahl weiterer Unterlagen: ganze Ordner und einzelne Briefe. */
   async function pickReferences() {
-    let objects = [];
-    let letters = [];
-    try {
-      [objects, letters] = await Promise.all([
-        api.get('/api/objects').then((d) => d.objects || []),
-        api.get('/api/letters?limit=300').then((d) => d.letters || []),
-      ]);
-    } catch (err) {
-      toast(err.message, { error: true });
-      return;
-    }
-    letters = letters.filter((l) => l.id !== letterId);
     const r = refsOf(letterId);
-    openDialog(html`<form class="dialog-body stack" novalidate>
-      <h2>Unterlagen als Bezug</h2>
-      <input class="input" type="search" placeholder="Suchen …" data-ref-filter aria-label="Unterlagen durchsuchen">
-      ${objects.length ? html`<fieldset class="field"><legend class="field-label">Ganze Ordner</legend>
-        <div class="folder-pick">${objects.map((o) => html`<label class="check" data-ref-item="${o.name.toLowerCase()}"><input type="checkbox" name="o" value="${o.id}" data-label="${o.name}" ${r.objects.has(o.id) ? 'checked' : ''}><span>${o.name} <span class="muted small">(${o.letterCount || 0})</span></span></label>`)}</div>
-      </fieldset>` : ''}
-      ${letters.length ? html`<fieldset class="field"><legend class="field-label">Einzelne Briefe</legend>
-        <div class="folder-pick">${letters.map((l) => {
-          const title = l.subject || l.sender || 'Brief ohne Betreff';
-          return html`<label class="check" data-ref-item="${`${title} ${l.sender || ''}`.toLowerCase()}"><input type="checkbox" name="l" value="${l.id}" data-label="${title}" ${r.letters.has(l.id) ? 'checked' : ''}><span>${title}${l.letterDate ? html` <span class="muted small">${formatDate(l.letterDate, { short: true })}</span>` : ''}</span></label>`;
-        })}</div>
-      </fieldset>` : html`<p class="muted">Keine weiteren Briefe.</p>`}
-      <div class="row"><button class="btn" type="submit">${icon('check')}Übernehmen</button>
-        <button class="btn btn-secondary" type="button" data-close>Abbrechen</button></div>
-    </form>`, (dialog, close) => {
-      const form = dialog.querySelector('form');
-      dialog.querySelector('[data-close]').addEventListener('click', () => close());
-      form.querySelector('[data-ref-filter]').addEventListener('input', (ev) => {
-        const q = ev.target.value.trim().toLowerCase();
-        form.querySelectorAll('[data-ref-item]').forEach((el) => {
-          el.hidden = Boolean(q) && !el.dataset.refItem.includes(q);
-        });
-      });
-      form.addEventListener('submit', (ev) => {
-        ev.preventDefault();
-        r.objects.clear();
-        r.letters.clear();
-        form.querySelectorAll('[name=o]:checked').forEach((c) => r.objects.set(c.value, c.dataset.label));
-        form.querySelectorAll('[name=l]:checked').forEach((c) => r.letters.set(c.value, c.dataset.label));
-        close();
-        const box = root.querySelector('[data-refs]');
-        if (box) mount(box, refChips(letterId));
-      });
-    });
+    const picked = await refSheet({ exclude: letterId, objects: r.objects, letters: r.letters });
+    if (!picked) return;
+    r.objects = picked.objects;
+    r.letters = picked.letters;
+    const box = root.querySelector('[data-refs]');
+    if (box) mount(box, refChips(letterId));
   }
 
   const aiOn = () => Boolean(root.querySelector('[data-ai-reply]'));

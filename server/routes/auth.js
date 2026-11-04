@@ -36,6 +36,13 @@ export function registerAuthRoutes(router, ctx) {
   let dummyHash = null;
   const getDummyHash = async () => (dummyHash ||= await hashPassword('dummy-passwort-für-zeitausgleich', config.passwordHashCost));
 
+  // App-Version: ändert sich mit jedem Deploy → geöffnete Apps laden sich neu
+  const APP_VERSION = (process.env.RENDER_GIT_COMMIT || '').slice(0, 12) || `start-${Date.now().toString(36)}`;
+  router.get('/api/version', (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ version: APP_VERSION }));
+  }, { auth: false });
+
   router.get('/api/status', () => ({
     features: featureStatus(config),
     demoEnabled: config.demo.enabled,

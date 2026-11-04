@@ -2,7 +2,7 @@
 import { html, mount } from './html.js';
 import { api, setUnauthorizedHandler, setMutationHandler } from './api.js';
 import { syncBackup, scheduleBackup, hasRestorableBackup, restoreFromDevice, requestPersistentStorage } from './backup.js';
-import { icon, LOGO, scroller, actionSheet } from './ui.js';
+import { icon, LOGO, scroller, actionSheet, toast } from './ui.js';
 import { setPendingFiles } from './pending.js';
 import { installContextMenus } from './context.js';
 import { installLetterThumbs } from './pdfview.js';
@@ -272,8 +272,54 @@ async function start() {
   window.addEventListener('hashchange', route);
   route();
   if ('serviceWorker' in navigator && window.isSecureContext) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(() => {});
   }
+  installUpdateCheck();
+}
+
+/**
+ * Neue Version nach einem Deploy: Auf dem iPhone läuft die Home-Bildschirm-App im Hintergrund
+ * weiter und lädt beim erneuten Öffnen nichts neu. Daher beim Start die Version merken und
+ * beim Zurückkehren in die App vergleichen – bei Änderung neu laden (nicht mitten in einer Eingabe).
+ */
+let loadedVersion = null;
+async function currentVersion() {
+  try {
+    const res = await fetch('/api/version', { cache: 'no-store' });
+    return res.ok ? (await res.json()).version : null;
+  } catch {
+    return null;
+  }
+}
+function busyEditing() {
+  const el = document.activeElement;
+  // Offene Dialoge, Vollbild, Kamera oder Scanner (ungespeicherte Seiten) nicht unterbrechen
+  if (document.querySelector('dialog[open], .viewer, .scanner') || location.hash.startsWith('#/scannen')) return true;
+  return Boolean(el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && el.value);
+}
+async function checkForUpdate() {
+  const v = await currentVersion();
+  if (!v) return;
+  if (!loadedVersion) {
+    loadedVersion = v;
+    return;
+  }
+  if (v === loadedVersion) return;
+  navigator.serviceWorker?.getRegistration().then((r) => r?.update()).catch(() => {});
+  if (busyEditing()) {
+    toast('Neue Version da – lädt beim nächsten Öffnen.');
+    return;
+  }
+  location.reload();
+}
+function installUpdateCheck() {
+  checkForUpdate();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkForUpdate();
+  });
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) checkForUpdate();
+  });
 }
 
 export { applyTextSize, applyTheme };

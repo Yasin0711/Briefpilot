@@ -1,7 +1,7 @@
 // Service Worker: macht BriefPilot installierbar, hält die App-Oberfläche offline bereit
 // und zeigt Push-Benachrichtigungen. Briefe und persönliche Daten werden bewusst NICHT
 // zwischengespeichert – sie liegen nur auf dem Server.
-const VERSION = 'briefpilot-v24';
+const VERSION = 'briefpilot-v25';
 const SHELL = [
   '/', '/index.html', '/css/app.css', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png',
   '/js/app.js', '/js/api.js', '/js/pdfview.js', '/js/viewer.js', '/js/backup.js', '/js/html.js', '/js/ui.js', '/js/context.js', '/js/pending.js',
@@ -30,7 +30,8 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/')) return; // Daten nie zwischenspeichern
   // Erst Netz (immer aktuelle Version), bei fehlender Verbindung die gespeicherte Oberfläche
   event.respondWith(
-    fetch(event.request)
+    // no-cache: iOS soll Oberflächen-Dateien immer beim Server nachfragen (304 = schnell)
+    fetch(event.request.mode === 'navigate' ? new Request(url.href, { cache: 'no-cache', credentials: 'same-origin' }) : new Request(event.request, { cache: 'no-cache' }))
       .then((res) => {
         if (res.ok && SHELL.includes(url.pathname)) {
           const copy = res.clone();

@@ -75,3 +75,13 @@ test('Einstellung „automatisch übernehmen“ ist aus und lässt sich speicher
   const r = await c.patch('/api/me', { settings: { autoConfirmFacts: true } });
   assert.equal(r.data.user.settings.autoConfirmFacts, true);
 });
+
+test('Versionsnummer: 1.01 … 1.99, dann 2.00, 2.03', async () => {
+  const { versionLabel } = await import('../server/routes/auth.js');
+  assert.equal(versionLabel(1), '1.01');
+  assert.equal(versionLabel(12), '1.12');
+  assert.equal(versionLabel(99), '1.99');
+  assert.equal(versionLabel(100), '2.00');
+  assert.equal(versionLabel(103), '2.03');
+  assert.equal(versionLabel(0), null);
+});

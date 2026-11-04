@@ -14,6 +14,7 @@ import { identifierKindLabel } from '../shared/identifiers.js';
 import { formatDate, formatDateTime, computeRelativeEnd, todayIn, isValidIsoDate, isWeekend } from '../shared/dates.js';
 import { setReviewCount, setInboxCount } from '../app.js';
 import { objectChips, objectTile, evidenceList, identifierStatusBadge } from './parts.js';
+import { moveSheet, fileLetterInto } from '../folderSheet.js';
 import { mountDecision, forgetObjects } from './assign.js';
 import { repliesPanel, chatPanel, bindAssistant } from './replies.js';
 import { loadHousehold } from './objectDialog.js';
@@ -205,7 +206,7 @@ function previewPanel(files, letter, editable) {
   const pages = files.filter((f) => f.role !== 'original' && (f.kind === 'pdf' || f.kind === 'image'));
   const office = files.filter((f) => f.kind === 'office');
   if (!pages.length && !office.length) return '';
-  return html`<div class="preview-col" aria-label="Brief">
+  return html`<section class="panel preview-panel" aria-label="Brief">
     ${pages.length ? html`<div class="pager" data-pager data-letter="${letter.id}" data-files="${JSON.stringify(pages.map((f) => ({ id: f.id, kind: f.kind })))}">
       <div class="pager-stage" data-pager-stage title="Antippen zum Vergrößern"><span class="spinner" aria-hidden="true"></span></div>
       <div class="pager-bar">
@@ -220,24 +221,23 @@ function previewPanel(files, letter, editable) {
     </div>` : ''}
     ${office.map((f) => html`<p class="stack small"><span>${/presentation/.test(f.mime) ? 'PowerPoint' : /spreadsheet/.test(f.mime) ? 'Excel' : 'Word'}-Datei</span>
       <a class="btn btn-small btn-secondary" href="/api/files/${f.id}">${icon('download')}Laden</a></p>`)}
-  </div>`;
+  </section>`;
 }
 
-function factsPanel(letter, persons = [], { folderRow = '', preview = '', analyzing = false } = {}) {
+function factsPanel(letter, persons = [], { folderRow = '', analyzing = false, viewable = false } = {}) {
   const dateStatus = {
     erkannt: html`<span class="badge badge-review">bitte prüfen</span>`,
     unsicher: html`<span class="badge badge-review">${icon('alert')}unsicher</span>`,
     fehlt: html`<span class="badge badge-review">${icon('alert')}fehlt</span>`,
     bestaetigt: html`<span class="badge badge-done">${icon('check')}bestätigt</span>`,
-  }[letter.letterDateStatus];
+  }[letter.reviewed && letter.letterDateStatus !== 'bestaetigt' ? 'ohne' : letter.letterDateStatus];
   if (analyzing) {
-    return html`<section class="panel facts-box ${preview ? '' : 'no-preview'}" aria-label="Brief">
-      <div class="facts-col stack">${folderRow}<p class="muted">Angaben erscheinen, sobald der Brief gelesen ist.</p></div>${preview}</section>`;
+    return html`<section class="panel stack facts-panel" aria-label="Brief">${folderRow}<p class="muted">Angaben erscheinen, sobald der Brief gelesen ist.</p></section>`;
   }
-  return html`<section class="panel facts-box ${preview ? '' : 'no-preview'}" aria-labelledby="facts-h">
-    <div class="facts-col stack">
+  return html`<section class="panel stack facts-panel" aria-labelledby="facts-h">
     <div class="section-title"><h2 id="facts-h">Erkannte Angaben</h2>
       <span class="facts-actions">
+        ${viewable ? html`<button class="icon-btn" type="button" data-view-letter="${letter.id}" data-title="${letter.subject || 'Brief'}" aria-label="Brief öffnen" title="Brief öffnen">${icon('eye')}</button>` : ''}
         <button class="icon-btn" type="button" data-action="edit-facts" aria-label="Angaben bearbeiten" title="Bearbeiten">${icon('edit')}</button>
         ${letter.reviewed
           ? html`<span class="icon-btn is-done" role="img" aria-label="Alle Angaben bestätigt" title="Bestätigt">${icon('check')}</span>`
@@ -264,8 +264,6 @@ function factsPanel(letter, persons = [], { folderRow = '', preview = '', analyz
           ${letter.receivedSuggestedQuote ? html`<span class="small muted">„${letter.receivedSuggestedQuote}“</span>` : ''}`
         : html`<span class="muted">nicht angegeben</span>`}</dd></div>
     </dl>
-    </div>
-    ${preview}
   </section>`;
 }
 
@@ -472,15 +470,18 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       ${duplicateNote()}
       ${analyzing ? '' : assignmentPanel()}
 
+      <div class="facts-preview">
       ${factsPanel(letter, persons, {
         analyzing,
-        preview: previewPanel(files, letter, editable),
+        viewable: files.some((f) => f.role !== 'original' && (f.kind === 'pdf' || f.kind === 'image')),
         folderRow: html`<div class="row-meta folder-row">
           ${objectChips(links.map((l) => ({ id: l.objectId, name: l.name, type: l.type })), { link: true })}
           ${letter.isDemoContent ? '' : html`<button class="btn btn-small btn-secondary folder-pick-btn" type="button" data-action="pick-folder">${icon('folderPlus')}Ordner wählen</button>`}
           ${letter.analysisSource === 'beispiel' && sourceLabel ? html`<span class="badge badge-demo">${icon('info')}${sourceLabel}</span>` : ''}
         </div>`,
       })}
+      ${previewPanel(files, letter, editable)}
+      </div>
       ${split ? html`<section class="panel stack">${originalView(files, { split, editable, letterId: letter.id })}</section>` : ''}
 
       <div class="detail-grid">
@@ -631,63 +632,16 @@ export async function render({ root, params, query, state, navigate, isCurrent }
 
   /** „Ordner wählen“: vorhandenen Ordner antippen oder neuen anlegen – der Brief liegt dann direkt darin. */
   async function pickFolder() {
-    let objects = [];
+    const target = await moveSheet({ title: 'Zuordnen', item: data.letter.subject || data.letter.sender || 'Brief', current: data.links.map((l) => l.objectId) });
+    if (!target) return;
     try {
-      objects = (await api.get('/api/objects')).objects.filter((o) => o.status !== 'beendet');
+      await fileLetterInto(id, target);
+      forgetObjects();
+      refreshCounts();
+      await load();
     } catch (err) {
       toast(err.message, { error: true });
-      return;
     }
-    objects.sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }));
-    const current = new Set(data.links.map((l) => l.objectId));
-    openDialog(html`<div class="dialog-body stack">
-      <div class="row"><h2 class="grow">Ordner wählen</h2><button class="icon-btn" type="button" data-close aria-label="Schließen">${icon('x')}</button></div>
-      <input class="input" type="search" placeholder="Suchen …" data-folder-filter aria-label="Ordner suchen">
-      <ul class="pick-list">${objects.map((o) => html`<li data-item="${o.name.toLowerCase()}"><button class="pick-item ${current.has(o.id) ? 'is-on' : ''}" type="button" data-pick="${o.id}">
-        ${icon('folder')}<span class="grow">${o.name}</span><span class="small muted">${o.letterCount || 0}</span>${current.has(o.id) ? icon('check') : ''}</button></li>`)}</ul>
-      <form class="row" data-new-folder novalidate>
-        <label class="visually-hidden" for="nf-name">Neuer Ordner</label>
-        <input class="input grow" id="nf-name" name="name" maxlength="120" placeholder="Neuer Ordner …" autocomplete="off">
-        <button class="btn" type="submit">${icon('folderPlus')}Anlegen</button>
-      </form>
-    </div>`, (dialog, close) => {
-      dialog.querySelector('[data-close]').addEventListener('click', () => close());
-      dialog.querySelector('[data-folder-filter]').addEventListener('input', (ev) => {
-        const q = ev.target.value.trim().toLowerCase();
-        dialog.querySelectorAll('[data-item]').forEach((li) => {
-          li.hidden = Boolean(q) && !li.dataset.item.includes(q);
-        });
-      });
-      const done = async (msg) => {
-        close();
-        forgetObjects();
-        refreshCounts();
-        toast(msg);
-        await load();
-      };
-      dialog.addEventListener('click', async (ev) => {
-        const pick = ev.target.closest('[data-pick]');
-        if (!pick) return;
-        try {
-          await api.put(`/api/letters/${id}/links`, { objectIds: [pick.dataset.pick] });
-          await done(`Abgelegt in „${objects.find((o) => o.id === pick.dataset.pick)?.name}“.`);
-        } catch (err) {
-          toast(err.message, { error: true });
-        }
-      });
-      dialog.querySelector('[data-new-folder]').addEventListener('submit', async (ev) => {
-        ev.preventDefault();
-        const name = ev.target.name.value.trim();
-        if (!name) return;
-        try {
-          const res = await api.post('/api/objects', { type: 'sonstiges', name, identifiers: [], letterId: id });
-          await api.put(`/api/letters/${id}/links`, { objectIds: [res.object.id] });
-          await done(`Abgelegt in „${res.object.name}“.`);
-        } catch (err) {
-          toast(err.message, { error: true });
-        }
-      });
-    });
   }
 
   // Aufgeklappte Punkte merken (toggle steigt nicht auf – daher in der Capture-Phase)

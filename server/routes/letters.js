@@ -332,7 +332,7 @@ export function registerLetterRoutes(router, ctx) {
       params.push(category);
     }
     const filter = query.get('filter');
-    if (filter === 'datum_pruefen') where.push("l.letter_date_status IN ('fehlt', 'unsicher') AND l.analysis_status IN ('fertig', 'nicht_moeglich', 'fehler')");
+    if (filter === 'datum_pruefen') where.push("l.letter_date_status IN ('fehlt', 'unsicher') AND l.reviewed_at IS NULL AND l.analysis_status IN ('fertig', 'nicht_moeglich', 'fehler')");
     if (filter === 'ungeprueft') where.push("l.reviewed_at IS NULL AND l.analysis_status = 'fertig'");
     if (filter === 'zuordnung') where.push("l.assignment_status IN ('pruefen', 'vorschlag', 'neue_akte')");
     if (filter === 'ohne_akte') where.push('NOT EXISTS (SELECT 1 FROM letter_links ll WHERE ll.letter_id = l.id)');

@@ -1,12 +1,12 @@
-// Zuordnung eines Briefes zu Ordner: Auswahl mit Nachweisen, Nummern merken, neuer Ordner, kein Ordner.
+// Zuordnung eines Briefes zu einem Ordner: ein Vorschlag, „Zuordnen“ oder Ordner aus der Liste wählen/neu anlegen.
 // Wird im Eingang „Zuordnen“ und in der Brief-Ansicht verwendet.
 import { html, mount } from '../html.js';
 import { api } from '../api.js';
 import { icon, toast, busy } from '../ui.js';
-import { OBJECT_TYPES, objectType } from '../shared/constants.js';
-import { identifierKindLabel, identifierKind } from '../shared/identifiers.js';
-import { objectTile, evidenceList, identifierStatusBadge } from './parts.js';
-import { openObjectDialog, guessType, objectLevelIdentifiers } from './objectDialog.js';
+import { objectType } from '../shared/constants.js';
+import { objectTile, evidenceList } from './parts.js';
+import { objectLevelIdentifiers } from './objectDialog.js';
+import { moveSheet, filedAnimation } from '../folderSheet.js';
 
 let objectsCache = null;
 /** Alle Ordner (für „anderen Ordner wählen“); wird nach Änderungen neu geladen. */
@@ -34,7 +34,8 @@ function learnable(identifiers, candidate) {
 }
 
 /**
- * Baut die Entscheidung in einen Container.
+ * Baut die Entscheidung in einen Container: höchstens EIN Vorschlag, darunter nur
+ * „Zuordnen“ und der Ordner-Knopf (alle Ordner wie in der Dateien-App, unten rechts „Neuer Ordner“).
  * @param {HTMLElement} container
  * @param {{ letter: { id, sender, subject, category }, assignment: object|null, current?: string[],
  *           onDone: (result) => void, onCancel?: () => void }} options
@@ -42,184 +43,85 @@ function learnable(identifiers, candidate) {
 export function mountDecision(container, { letter, assignment, current = [], onDone, onCancel }) {
   const info = assignment || {};
   const identifiers = info.identifiers || [];
-  // Höchstens EINE Empfehlung (die beste); bereits zugeordnete Ordner bleiben sichtbar.
-  // Weitere Ordner lassen sich über „Anderen Ordner wählen“ hinzufügen.
-  const allCandidates = [...(info.candidates || [])];
-  const best = allCandidates.find((c) => !current.includes(c.objectId));
-  const candidates = [...allCandidates.filter((c) => current.includes(c.objectId)), ...(best ? [best] : [])];
-  const selected = new Set(current.length ? current : candidates.filter((c) => c.preselected).map((c) => c.objectId));
-  let learnChecked = null; // Set der gewählten Nummern (Schlüssel = value); null = Vorgabe
-  let allObjects = null;
-
-  const cardFor = (id) => candidates.find((c) => c.objectId === id);
+  const best = (info.candidates || []).find((c) => !current.includes(c.objectId)) || null;
+  const proposal = !best && info.proposal ? info.proposal : null;
 
   function draw() {
-    const single = selected.size === 1 ? cardFor([...selected][0]) : null;
-    const toLearn = single ? learnable(identifiers, single) : [];
-    if (learnChecked === null || !single) learnChecked = new Set(toLearn.filter((i) => i.status === 'neu').map((i) => i.value));
-    const others = (allObjects || []).filter((o) => !candidates.some((c) => c.objectId === o.id));
     mount(container, html`<div class="decision stack">
-      ${info.proposal && !candidates.length && !current.length ? html`<div class="proposal panel stack">
-        <div class="field"><label for="proposal-${letter.id}">Neuer Ordner (${info.proposal.typeLabel})</label>
-          <input class="input" id="proposal-${letter.id}" data-proposal-name maxlength="120" value="${info.proposal.name}"></div>
-        <div class="row"><button class="btn" type="button" data-accept-proposal>${icon('check')}Ordner anlegen und Brief ablegen</button></div>
-      </div>` : ''}
-      ${candidates.length ? html`<fieldset class="choices">
-        <legend class="visually-hidden">Mögliche Ordner</legend>
-        ${candidates.map((c) => html`<label class="choice ${selected.has(c.objectId) ? 'is-on' : ''}">
-          <input type="checkbox" value="${c.objectId}" data-choice ${selected.has(c.objectId) ? 'checked' : ''}>
-          <span class="choice-check" aria-hidden="true">${icon('check')}</span>
-          ${objectTile(c.type)}
-          <span class="choice-title"><span class="row-title">${c.name}</span>
-            <span class="row-sub">${objectType(c.type).label}${c.caseTitle ? ` · Vorgang: ${c.caseTitle}` : ''}${c.fuzzy ? ' · nur ähnliche Nummer' : ''}</span></span>
-          ${c.evidence?.length ? html`<span class="choice-evidence">${evidenceList(c.evidence)}</span>` : ''}
-        </label>`)}
-      </fieldset>
-`
-        : html`<p class="muted">${current.length ? '' : 'BriefPilot hat keinen passenden Ordner gefunden.'}</p>`}
-
-      <div class="field decision-other">
-        <label for="other-${letter.id}">${candidates.length ? 'Anderen Ordner wählen' : 'Ordner wählen'}</label>
-        ${allObjects === null
-          ? html`<button class="btn btn-secondary btn-small" type="button" data-load-objects>${icon('folder')}Alle Ordner anzeigen</button>`
-          : others.length
-            ? html`<select class="input" id="other-${letter.id}" data-other>
-                <option value="">Ordner auswählen …</option>
-                ${OBJECT_TYPES.filter((t) => others.some((o) => o.type === t.id)).map((t) => html`<optgroup label="${t.plural}">
-                  ${others.filter((o) => o.type === t.id).map((o) => html`<option value="${o.id}">${o.name}${o.status === 'beendet' ? ' (beendet)' : ''}</option>`)}</optgroup>`)}
-              </select>`
-            : html`<p class="small muted">Keine weiteren Ordner vorhanden.</p>`}
+      ${best ? html`<div class="decision-suggest">
+          ${objectTile(best.type)}
+          <span class="grow"><span class="row-title">${best.name}</span>
+            <span class="row-sub">${objectType(best.type).label}${best.fuzzy ? ' · nur ähnliche Nummer' : ''}</span>
+            ${best.evidence?.length ? html`<span class="choice-evidence">${evidenceList(best.evidence)}</span>` : ''}</span>
+        </div>`
+        : proposal ? html`<div class="decision-suggest">
+          ${objectTile(proposal.type)}
+          <span class="grow"><span class="row-title">${proposal.name}</span><span class="row-sub">Neuer Ordner</span></span>
+        </div>`
+        : html`<p class="muted">Kein passender Ordner gefunden.</p>`}
+      <div class="decision-actions">
+        <button class="btn" type="button" data-save>${icon('check')}Zuordnen</button>
+        <button class="icon-btn folder-add-btn" type="button" data-sheet aria-label="Ordner wählen oder neu anlegen" title="Ordner wählen">${icon('folderAdd')}</button>
       </div>
-
-      ${toLearn.length ? html`<fieldset class="learn">
-        <legend class="field-label">Nummern für „${single.name}“ merken?</legend>
-        <p class="hint">Dann ordnet BriefPilot künftige Briefe mit dieser Nummer selbst zu.</p>
-        ${toLearn.map((i) => html`<label class="check"><input type="checkbox" data-learn="${i.value}" ${learnChecked.has(i.value) ? 'checked' : ''}>
-          <span>${identifierKindLabel(i.kind)}: <strong>${i.value}</strong> ${identifierStatusBadge(i.status)}
-          ${identifierKind(i.kind).scope === 'issuer' && letter.sender ? html`<span class="row-sub">gilt zusammen mit dem Absender ${letter.sender}</span>` : ''}</span></label>`)}
-      </fieldset>` : ''}
-
-      <div class="row">
-        <button class="btn" type="button" data-save ${selected.size ? '' : 'disabled'}>${icon('check')}${selected.size > 1 ? `${selected.size} Ordner zuordnen` : 'Zuordnen'}</button>
-        <button class="btn btn-secondary" type="button" data-new>${icon('plus')}Neuer Ordner</button>
-        <button class="btn btn-ghost" type="button" data-none>Gehört zu keinem Ordner</button>
-        ${onCancel ? html`<button class="btn btn-ghost" type="button" data-cancel>Abbrechen</button>` : ''}
-      </div>
+      ${onCancel ? html`<p><button class="btn btn-ghost btn-small" type="button" data-cancel>Abbrechen</button></p>` : ''}
     </div>`);
   }
 
-  async function save(button, body, message) {
+  async function finish(target, button, { created = false, learn = [] } = {}) {
     await busy(button, async () => {
       try {
-        const res = await api.put(`/api/letters/${letter.id}/links`, body);
+        const res = await api.put(`/api/letters/${letter.id}/links`, { objectIds: [target.id], learn });
         forgetObjects();
-        toast(`${message}${res.learned ? ` ${res.learned === 1 ? 'Eine Nummer' : `${res.learned} Nummern`} gemerkt.` : ''}${reassignedText(res.reassigned)}`);
-        onDone?.(res);
+        await filedAnimation(target.name);
+        if (res.learned || res.reassigned?.zugeordnet) toast(`${res.learned ? `${res.learned === 1 ? 'Eine Nummer' : `${res.learned} Nummern`} gemerkt.` : ''}${reassignedText(res.reassigned)}`.trim());
+        onDone?.({ ...res, created });
       } catch (err) {
         toast(err.message, { error: true });
       }
     });
   }
 
-  container.addEventListener('change', (e) => {
-    const choice = e.target.closest('[data-choice]');
-    if (choice) {
-      if (choice.checked) selected.add(choice.value);
-      else selected.delete(choice.value);
-      learnChecked = null;
-      draw();
-      container.querySelector(`[data-choice][value="${choice.value}"]`)?.focus();
-      return;
-    }
-    const other = e.target.closest('[data-other]');
-    if (other && other.value) {
-      const o = allObjects.find((x) => x.id === other.value);
-      candidates.push({ objectId: o.id, name: o.name, type: o.type, evidence: [], manual: true });
-      selected.add(o.id);
-      learnChecked = null;
-      draw();
-      container.querySelector(`[data-choice][value="${o.id}"]`)?.focus();
-      return;
-    }
-    const learn = e.target.closest('[data-learn]');
-    if (learn) {
-      if (learn.checked) learnChecked.add(learn.dataset.learn);
-      else learnChecked.delete(learn.dataset.learn);
-    }
-  });
+  async function openSheet(button) {
+    const target = await moveSheet({ title: 'Zuordnen', item: letter.subject || letter.sender || 'Brief', current });
+    if (target) await finish(target, button, { created: target.created });
+  }
 
   container.addEventListener('click', async (e) => {
-    if (e.target.closest('[data-load-objects]')) {
-      try {
-        allObjects = await loadObjects();
-        draw();
-        container.querySelector('[data-other]')?.focus();
-      } catch (err) {
-        toast(err.message, { error: true });
-      }
-      return;
-    }
     if (e.target.closest('[data-cancel]')) {
       onCancel?.();
       return;
     }
+    const sheetBtn = e.target.closest('[data-sheet]');
+    if (sheetBtn) {
+      await openSheet(sheetBtn);
+      return;
+    }
     const saveBtn = e.target.closest('[data-save]');
-    if (saveBtn && selected.size) {
-      const objectIds = [...selected];
-      const single = objectIds.length === 1 ? cardFor(objectIds[0]) : null;
-      const learn = single ? learnable(identifiers, single)
-        .filter((i) => learnChecked?.has(i.value))
-        .map((i) => ({ objectId: single.objectId, kind: i.kind, value: i.value, status: i.status === 'alt' ? 'alt' : 'aktuell' })) : [];
-      const names = objectIds.map((id) => cardFor(id)?.name).filter(Boolean);
-      await save(saveBtn, { objectIds, learn }, `Zugeordnet: ${names.join(', ')}.`);
+    if (!saveBtn) return;
+    if (best) {
+      // Neue Nummern (z. B. nach Vertragswechsel) gleich merken, damit Folgebriefe von selbst passen
+      const learn = learnable(identifiers, best).filter((i) => i.status === 'neu')
+        .map((i) => ({ objectId: best.objectId, kind: i.kind, value: i.value, status: 'aktuell' }));
+      await finish({ id: best.objectId, name: best.name }, saveBtn, { learn });
       return;
     }
-    const noneBtn = e.target.closest('[data-none]');
-    if (noneBtn) {
-      await save(noneBtn, { objectIds: [], none: true }, 'Gespeichert: Der Brief gehört zu keinem Ordner.');
-      return;
-    }
-    const acceptBtn = e.target.closest('[data-accept-proposal]');
-    if (acceptBtn && info.proposal) {
-      const name = container.querySelector('[data-proposal-name]')?.value.trim() || info.proposal.name;
-      await busy(acceptBtn, async () => {
+    if (proposal) {
+      await busy(saveBtn, async () => {
         try {
           const res = await api.post('/api/objects', {
-            type: info.proposal.type, name, provider: info.proposal.provider || '', letterId: letter.id,
-            identifiers: (info.proposal.identifiers || []).map((i) => ({ kind: i.kind, value: i.value, status: 'aktuell' })),
+            type: proposal.type, name: proposal.name, provider: proposal.provider || '', letterId: letter.id,
+            identifiers: (proposal.identifiers || []).map((i) => ({ kind: i.kind, value: i.value, status: 'aktuell' })),
           });
           forgetObjects();
-          toast(`Ordner „${name}“ angelegt – der Brief liegt jetzt dort.${reassignedText(res.reassigned)}`);
-          onDone?.(res);
+          await filedAnimation(res.object?.name || proposal.name);
+          onDone?.({ ...res, created: true });
         } catch (err) {
           toast(err.message, { error: true });
         }
       });
       return;
     }
-    if (e.target.closest('[data-new]')) {
-      const ids = objectLevelIdentifiers(identifiers);
-      const type = guessType(ids, letter.category);
-      const plate = ids.find((i) => i.kind === 'kennzeichen')?.value;
-      openObjectDialog({
-        letterId: letter.id,
-        prefill: info.proposal ? {
-          type: info.proposal.type,
-          name: info.proposal.name,
-          provider: info.proposal.provider || '',
-          identifiers: ids.slice(0, 6).map((i) => ({ kind: i.kind, value: i.value, status: i.status === 'alt' ? 'alt' : 'aktuell' })),
-        } : {
-          type,
-          name: plate ? `Fahrzeug · ${plate}` : letter.sender ? `${objectType(type).label} · ${letter.sender}`.slice(0, 120) : '',
-          provider: letter.sender || '',
-          identifiers: ids.slice(0, 6).map((i) => ({ kind: i.kind, value: i.value, status: i.status === 'alt' ? 'alt' : 'aktuell' })),
-        },
-        onSaved: (res) => {
-          forgetObjects();
-          onDone?.(res);
-        },
-      });
-    }
+    await openSheet(saveBtn);
   });
 
   draw();

@@ -12,6 +12,7 @@
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server/index.js",
     "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch server/index.js",
     "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 \"test/*.test.js\"",
-    "ki-test": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/ki-test.js"
+    "ki-test": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/ki-test.js",
+    "version": "node scripts/version.mjs"
   }
 }

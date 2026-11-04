@@ -5,65 +5,13 @@ import { html } from './html.js';
 import { api, download } from './api.js';
 import { icon, toast, actionSheet, openDialog, confirmDialog } from './ui.js';
 import { formatDate } from './shared/dates.js';
+import { moveSheet, filedAnimation } from './folderSheet.js';
 
 const HOLD_MS = 500;
 
-/** Ordnerauswahl: vorhandenen Ordner antippen oder neuen anlegen. Liefert die Ordner-ID (oder null). */
-export function chooseFolder({ title = 'Ordner wählen', current = [] } = {}) {
-  return new Promise((resolve) => {
-    api.get('/api/objects').then(({ objects }) => {
-      const list = objects.filter((o) => o.status !== 'beendet').sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }));
-      const on = new Set(current);
-      let settled = false;
-      const finish = (v) => {
-        if (!settled) {
-          settled = true;
-          resolve(v);
-        }
-      };
-      openDialog(html`<div class="dialog-body stack">
-        <div class="row"><h2 class="grow">${title}</h2><button class="icon-btn" type="button" data-close aria-label="Schließen">${icon('x')}</button></div>
-        <input class="input" type="search" placeholder="Suchen …" data-folder-filter aria-label="Ordner suchen">
-        <ul class="pick-list">${list.map((o) => html`<li data-item="${o.name.toLowerCase()}"><button class="pick-item ${on.has(o.id) ? 'is-on' : ''}" type="button" data-pick="${o.id}">
-          ${icon('folder')}<span class="grow">${o.name}</span><span class="small muted">${o.letterCount || 0}</span>${on.has(o.id) ? icon('check') : ''}</button></li>`)}</ul>
-        <form class="row" data-new-folder novalidate>
-          <label class="visually-hidden" for="cf-name">Neuer Ordner</label>
-          <input class="input grow" id="cf-name" name="name" maxlength="120" placeholder="Neuer Ordner …" autocomplete="off">
-          <button class="btn" type="submit">${icon('folderPlus')}Anlegen</button>
-        </form>
-      </div>`, (dialog, close) => {
-        dialog.addEventListener('close', () => finish(null));
-        dialog.querySelector('[data-close]').addEventListener('click', () => close());
-        dialog.querySelector('[data-folder-filter]').addEventListener('input', (ev) => {
-          const q = ev.target.value.trim().toLowerCase();
-          dialog.querySelectorAll('[data-item]').forEach((li) => {
-            li.hidden = Boolean(q) && !li.dataset.item.includes(q);
-          });
-        });
-        dialog.addEventListener('click', (ev) => {
-          const pick = ev.target.closest('[data-pick]');
-          if (!pick) return;
-          finish({ id: pick.dataset.pick, name: list.find((o) => o.id === pick.dataset.pick)?.name });
-          close();
-        });
-        dialog.querySelector('[data-new-folder]').addEventListener('submit', async (ev) => {
-          ev.preventDefault();
-          const name = ev.target.name.value.trim();
-          if (!name) return;
-          try {
-            const res = await api.post('/api/objects', { type: 'sonstiges', name, identifiers: [] });
-            finish({ id: res.object.id, name: res.object.name });
-            close();
-          } catch (err) {
-            toast(err.message, { error: true });
-          }
-        });
-      });
-    }).catch((err) => {
-      toast(err.message, { error: true });
-      resolve(null);
-    });
-  });
+/** Ordnerauswahl wie in der Dateien-App (siehe folderSheet.js). Liefert { id, name } oder null. */
+export function chooseFolder({ title = 'Ordner wählen', current = [], action = 'Bewegen', item = '' } = {}) {
+  return moveSheet({ title, current, action, item });
 }
 
 /** Datei mit dem Teilen-Menü des Geräts teilen; ohne Teilen-Funktion wird sie heruntergeladen. */
@@ -148,18 +96,18 @@ async function letterMenu(id, name, refresh) {
     actions: [
       { label: 'Verschieben', icon: 'folderOpen', onSelect: async () => {
         const d = await detail();
-        const target = await chooseFolder({ title: 'Verschieben nach …', current: d.links.map((l) => l.objectId) });
+        const target = await chooseFolder({ title: 'Verschieben', current: d.links.map((l) => l.objectId), item: name });
         if (!target) return;
         await api.put(`/api/letters/${id}/links`, { objectIds: [target.id] });
-        toast(`Verschoben nach „${target.name}“.`);
+        await filedAnimation(target.name);
         refresh();
       } },
       { label: 'Kopieren', icon: 'copy', onSelect: async () => {
         const d = await detail();
-        const target = await chooseFolder({ title: 'Zusätzlich ablegen in …', current: d.links.map((l) => l.objectId) });
+        const target = await chooseFolder({ title: 'Kopieren', action: 'Kopieren', current: d.links.map((l) => l.objectId), item: name });
         if (!target) return;
         await api.put(`/api/letters/${id}/links`, { objectIds: [...new Set([...d.links.map((l) => l.objectId), target.id])] });
-        toast(`Auch in „${target.name}“ abgelegt.`);
+        await filedAnimation(target.name);
         refresh();
       } },
       { label: 'Teilen', icon: 'send', onSelect: () => shareFile(`/api/letters/${id}/pdf`, `${(name || 'Brief').replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 60)}.pdf`, name || 'Brief').catch((e) => toast(e.message, { error: true })) },

@@ -1,4 +1,5 @@
 // Registrierung, Anmeldung, Abmeldung, Passwort zurücksetzen, Demo-Zugang.
+import fs from 'node:fs';
 import { HttpError, badRequest, readJson, serializeCookie, deviceLabel } from '../lib/http.js';
 import {
   hashPassword, verifyPassword, passwordProblem, normalizeEmail, isValidEmail, createSession,
@@ -31,6 +32,21 @@ export function clearSessionCookie(res, config) {
   res.setHeader('Set-Cookie', serializeCookie(SESSION_COOKIE, '', { maxAge: 0, secure: config.secureCookies }));
 }
 
+/** Laufende Nummer der Version = Anzahl aller gespeicherten Stände (version.json, siehe scripts/version.mjs). */
+function readBuildNumber() {
+  try {
+    return Number(JSON.parse(fs.readFileSync(new URL('../../version.json', import.meta.url), 'utf8')).build) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** 1 → „1.01“, 99 → „1.99“, 100 → „2.00“, 103 → „2.03“. */
+export function versionLabel(n) {
+  if (!n) return null;
+  return `${1 + Math.floor(n / 100)}.${String(n % 100).padStart(2, '0')}`;
+}
+
 export function registerAuthRoutes(router, ctx) {
   const { db, config, limiter, mailer } = ctx;
   let dummyHash = null;
@@ -38,9 +54,10 @@ export function registerAuthRoutes(router, ctx) {
 
   // App-Version: ändert sich mit jedem Deploy → geöffnete Apps laden sich neu
   const APP_VERSION = (process.env.RENDER_GIT_COMMIT || '').slice(0, 12) || `start-${Date.now().toString(36)}`;
+  const APP_LABEL = versionLabel(readBuildNumber());
   router.get('/api/version', (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify({ version: APP_VERSION }));
+    res.end(JSON.stringify({ version: APP_VERSION, label: APP_LABEL }));
   }, { auth: false });
 
   router.get('/api/status', () => ({

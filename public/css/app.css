@@ -1273,3 +1273,4 @@ dialog .viewer { z-index: 10; }
   .tabs.status-tabs { padding: 3px; gap: 2px; }
   .status-tabs .tab { font-size: .76rem; padding: 6px 0; letter-spacing: -0.01em; }
 }
+.app-version { text-align: center; margin: 16px 0 8px; padding-bottom: 8px; }

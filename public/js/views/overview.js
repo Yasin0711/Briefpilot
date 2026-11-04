@@ -121,12 +121,7 @@ function draw(root, state, data) {
       <div class="section-title"><h2>Zuletzt hinzugefügt</h2><a href="#/briefe">Alle Briefe</a></div>
       <div class="panel panel-plain"><ul class="list">${data.recentLetters.map((l) => letterRow(l))}</ul></div>
     </section>` : ''}
-    <p class="app-version small muted" data-app-version></p>
   </div>`);
-  fetch('/api/version', { cache: 'no-store' }).then((r) => r.json()).then(({ label }) => {
-    const el = root.querySelector('[data-app-version]');
-    if (el && label) el.textContent = `Version ${label}`;
-  }).catch(() => {});
 
 }
 

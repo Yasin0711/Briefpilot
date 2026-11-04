@@ -1263,3 +1263,13 @@ input[type="date"].input, input[type="time"].input { -webkit-appearance: none; a
 .page-tile[aria-selected="true"] .page-circle { background: var(--action); color: #fff; }
 .page-no { font-size: .85rem; color: var(--muted); }
 dialog .viewer { z-index: 10; }
+
+/* Aufgaben: vier Reiter passen nebeneinander (Zahl klein darunter) */
+.tabs.status-tabs { overflow: hidden; gap: 4px; }
+.status-tabs .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; min-width: 0; padding: 6px 2px; font-size: .86rem; line-height: 1.15; }
+.status-tabs .tab-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.status-tabs .tab-num { font-size: .78rem; font-weight: 600; opacity: .75; }
+@media (max-width: 360px) {
+  .tabs.status-tabs { padding: 3px; gap: 2px; }
+  .status-tabs .tab { font-size: .76rem; padding: 6px 0; letter-spacing: -0.01em; }
+}

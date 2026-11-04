@@ -8,7 +8,8 @@ import { letterThumb } from './parts.js';
 
 const TABS = [
   { id: 'zu_pruefen', label: 'Zu prüfen' },
-  { id: 'offen', label: 'Offen' },
+  { id: 'aufgaben', label: 'Aufgaben' },
+  { id: 'termine', label: 'Termine' },
   { id: 'erledigt', label: 'Erledigt' },
 ];
 
@@ -59,12 +60,14 @@ function deliveryRow(d) {
 }
 
 export async function render({ root, query, isCurrent }) {
-  let status = TABS.some((t) => t.id === query.get('status')) ? query.get('status') : null;
+  // Alte Links mit ?status=offen landen bei „Aufgaben“
+  const asked = query.get('status') === 'offen' ? 'aufgaben' : query.get('status');
+  let status = TABS.some((t) => t.id === asked) ? asked : null;
 
   async function load() {
     if (!status) {
       const probe = await api.get('/api/tasks?status=zu_pruefen');
-      status = probe.counts.zu_pruefen ? 'zu_pruefen' : 'offen';
+      status = probe.counts.zu_pruefen ? 'zu_pruefen' : 'aufgaben';
     }
     const data = await api.get(`/api/tasks?status=${status}`);
     if (!isCurrent()) return;
@@ -73,15 +76,16 @@ export async function render({ root, query, isCurrent }) {
     const { today } = data;
     const empty = {
       zu_pruefen: 'Nichts zu prüfen. Neue Vorschläge aus Ihren Briefen erscheinen hier.',
-      offen: 'Keine offenen Aufgaben. Bestätigte Fristen und Termine erscheinen hier.',
+      aufgaben: 'Keine offenen Aufgaben.',
+      termine: 'Keine Termine.',
       erledigt: 'Noch nichts erledigt.',
     }[status];
 
     mount(root, html`<div class="stack-l">
       <div class="page-head"><div><h1>Aufgaben und Termine</h1>
         </div></div>
-      <div class="tabs" role="tablist" aria-label="Status">
-        ${TABS.map((t) => html`<button class="tab" role="tab" type="button" data-status="${t.id}" aria-selected="${t.id === status}">${t.label}${data.counts[t.id] ? ` (${data.counts[t.id]})` : ''}</button>`)}
+      <div class="tabs status-tabs" role="tablist" aria-label="Status">
+        ${TABS.map((t) => html`<button class="tab" role="tab" type="button" data-status="${t.id}" aria-selected="${t.id === status}"><span class="tab-label">${t.label}</span><span class="tab-num">${data.counts[t.id] || 0}</span></button>`)}
       </div>
       ${data.tasks.length || data.deliveries?.length ? html`<div class="panel panel-plain"><ul class="list">${status === 'zu_pruefen' ? (data.deliveries || []).map(deliveryRow) : ''}${data.tasks.map((t) => {
         const date = t.status === 'zu_pruefen' ? (t.isRelative ? null : t.suggestedDate) : t.dueDate;

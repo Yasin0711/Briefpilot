@@ -67,9 +67,14 @@ export function registerTaskRoutes(router, ctx) {
     const where = ['t.user_id = ?'];
     const params = [user.id];
     if (status) {
-      if (!['zu_pruefen', 'offen', 'erledigt'].includes(status)) throw badRequest('Unbekannter Status.');
-      where.push('t.status = ?');
-      params.push(status);
+      if (!['zu_pruefen', 'offen', 'aufgaben', 'termine', 'erledigt'].includes(status)) throw badRequest('Unbekannter Status.');
+      // „Aufgaben“ und „Termine“ teilen die offenen Einträge nach Art auf
+      if (status === 'aufgaben') where.push("t.status = 'offen' AND t.kind <> 'termin'");
+      else if (status === 'termine') where.push("t.status = 'offen' AND t.kind = 'termin'");
+      else {
+        where.push('t.status = ?');
+        params.push(status);
+      }
     }
     const order = status === 'erledigt'
       ? 't.completed_at DESC'
@@ -78,6 +83,9 @@ export function registerTaskRoutes(router, ctx) {
     const counts = Object.fromEntries(
       db.all('SELECT status, COUNT(*) AS n FROM tasks WHERE user_id = ? GROUP BY status', user.id).map((r) => [r.status, r.n])
     );
+    const split = db.get("SELECT SUM(kind = 'termin') AS termine, SUM(kind <> 'termin') AS aufgaben FROM tasks WHERE user_id = ? AND status = 'offen'", user.id);
+    counts.termine = split?.termine || 0;
+    counts.aufgaben = split?.aufgaben || 0;
     // Zustelldatum-Vorschläge (gelber Brief) gehören auch zu „Zu prüfen“
     const deliveries = db.all(
       `SELECT l.id, l.subject, l.sender, l.received_suggested, l.received_suggested_quote,

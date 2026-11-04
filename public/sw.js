@@ -1,7 +1,7 @@
 // Service Worker: macht BriefPilot installierbar, hält die App-Oberfläche offline bereit
 // und zeigt Push-Benachrichtigungen. Briefe und persönliche Daten werden bewusst NICHT
 // zwischengespeichert – sie liegen nur auf dem Server.
-const VERSION = 'briefpilot-v29';
+const VERSION = 'briefpilot-v30';
 const SHELL = [
   '/', '/index.html', '/css/app.css', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png',
   '/js/app.js', '/js/api.js', '/js/pdfview.js', '/js/viewer.js', '/js/backup.js', '/js/html.js', '/js/ui.js', '/js/context.js', '/js/pending.js', '/js/folderSheet.js', '/js/pagesSheet.js',

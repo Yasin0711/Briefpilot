@@ -10,6 +10,13 @@ export function calendarUrl(token, scheme = 'webcal') {
   return scheme === 'webcal' ? `webcal://${url}` : `${location.protocol}//${url}`;
 }
 
+/** Läuft die automatische Kalendereintragung? Dann keine Einzel-Dateien (.ics) anbieten –
+ *  die ließen sich beim Erledigen nicht wieder entfernen und gäbe es doppelt. */
+export function autoCalendarActive() {
+  const s = state.me?.settings || {};
+  return s.autoCalendar !== false && Boolean(s.calendarToken);
+}
+
 /** Abo anlegen (falls nötig) und den Kalender des Geräts zum Abonnieren öffnen. */
 export async function connectCalendar() {
   let token = state.me?.settings?.calendarToken;

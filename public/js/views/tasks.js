@@ -1,6 +1,6 @@
 // Aufgaben und Termine: Zu prüfen, Offen, Erledigt.
 import { html, mount } from '../html.js';
-import { offerCalendarOnce } from '../calendar.js';
+import { offerCalendarOnce, autoCalendarActive } from '../calendar.js';
 import { api, download } from '../api.js';
 import { icon, whenLabel, taskKindLabel, toast } from '../ui.js';
 import { formatDate } from '../shared/dates.js';
@@ -106,7 +106,7 @@ export async function render({ root, query, isCurrent }) {
           <span class="row">
             ${t.status === 'zu_pruefen' && href ? html`<a class="btn btn-small" href="${href}">Prüfen</a>` : ''}
             ${t.status === 'offen' ? html`<button class="btn btn-small btn-secondary" type="button" data-done="${t.id}" aria-label="${t.title} als erledigt markieren">${icon('check')}Erledigt</button>` : ''}
-            ${t.status === 'offen' && t.dueDate ? html`<button class="icon-btn" type="button" data-ics="${t.id}" aria-label="In Kalender übernehmen" title="In Kalender übernehmen (.ics)">${icon('calendar')}</button>` : ''}
+            ${t.status === 'offen' && t.dueDate && !autoCalendarActive() ? html`<button class="icon-btn" type="button" data-ics="${t.id}" aria-label="In Kalender übernehmen" title="In Kalender übernehmen (.ics)">${icon('calendar')}</button>` : ''}
             ${t.status === 'erledigt' ? html`<button class="btn btn-small btn-ghost" type="button" data-reopen="${t.id}">Wieder öffnen</button>` : ''}
           </span>
         </li>`;

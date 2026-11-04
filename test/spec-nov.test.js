@@ -136,3 +136,22 @@ test('Automatische Kalendereintragung: an = bestätigte Einträge im Abo, aus = 
   assert.match(off, /BEGIN:VCALENDAR/);
   assert.equal((off.match(/BEGIN:VEVENT/g) || []).length, 0);
 });
+
+test('Kalender: erledigte Aufgaben verschwinden, wieder geöffnete kommen zurück', async (t) => {
+  const s = await startTestServer();
+  t.after(() => s.stop());
+  const { c } = await registerUser(s);
+  const task = (await c.post('/api/tasks', { title: 'Rechnung zahlen', kind: 'zahlung', dueDate: '2030-03-01' })).data.task;
+  const { token } = (await c.post('/api/me/calendar', {})).data;
+  const anon = s.client();
+  const events = async () => {
+    const r = await anon.call('GET', `/api/calendar/${token}.ics`);
+    const text = typeof r.data === 'string' ? r.data : Buffer.from(r.data).toString('utf8');
+    return (text.match(/BEGIN:VEVENT/g) || []).length;
+  };
+  assert.equal(await events(), 1);
+  assert.equal((await c.post(`/api/tasks/${task.id}/done`, {})).status, 200);
+  assert.equal(await events(), 0, 'erledigt → nicht mehr im Kalender');
+  await c.post(`/api/tasks/${task.id}/reopen`, {});
+  assert.equal(await events(), 1, 'wieder offen → wieder im Kalender');
+});

@@ -16,7 +16,7 @@ import { setReviewCount, setInboxCount } from '../app.js';
 import { objectChips, objectTile, evidenceList, identifierStatusBadge } from './parts.js';
 import { moveSheet, fileLetterInto } from '../folderSheet.js';
 import { pagesSheet } from '../pagesSheet.js';
-import { offerCalendarOnce } from '../calendar.js';
+import { offerCalendarOnce, autoCalendarActive } from '../calendar.js';
 import { mountDecision, forgetObjects } from './assign.js';
 import { repliesPanel, chatPanel, bindAssistant } from './replies.js';
 import { loadHousehold } from './objectDialog.js';
@@ -149,7 +149,7 @@ function taskCard(task, letter, settings, today, correcting) {
         <button class="btn btn-small" type="button" data-action="done" data-id="${task.id}">${icon('check')}Erledigt</button>
         <button class="btn btn-small btn-secondary" type="button" data-action="correct" data-id="${task.id}">${icon('edit')}Datum ändern</button>
         <button class="btn btn-small btn-secondary" type="button" data-action="reminders" data-id="${task.id}">${icon('bell')}Erinnerungen</button>
-        ${task.dueDate ? html`<button class="btn btn-small btn-ghost" type="button" data-action="ics" data-id="${task.id}">${icon('calendar')}In Kalender übernehmen</button>` : ''}
+        ${task.dueDate && !autoCalendarActive() ? html`<button class="btn btn-small btn-ghost" type="button" data-action="ics" data-id="${task.id}">${icon('calendar')}In Kalender übernehmen</button>` : ''}
       </div>` : ''}
     ${task.status === 'erledigt' ? html`<div class="row"><button class="btn btn-small btn-secondary" type="button" data-action="reopen" data-id="${task.id}">Wieder öffnen</button></div>` : ''}
   </article>`;

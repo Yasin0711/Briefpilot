@@ -179,15 +179,15 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
     pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
     ctx.closePath();
     const good = confidence >= MIN_CONFIDENCE;
-    ctx.fillStyle = good ? 'rgba(255, 204, 0, 0.18)' : 'rgba(110, 168, 255, 0.14)';
+    ctx.fillStyle = good ? 'rgba(10, 132, 255, 0.18)' : 'rgba(255, 255, 255, 0.10)';
     ctx.fill();
     ctx.lineWidth = 3;
-    ctx.strokeStyle = good ? '#FFCC00' : '#6EA8FF';
+    ctx.strokeStyle = good ? '#0A84FF' : 'rgba(255, 255, 255, 0.75)';
     ctx.stroke();
     for (const p of pts) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
-      ctx.fillStyle = good ? '#FFCC00' : '#6EA8FF';
+      ctx.fillStyle = good ? '#0A84FF' : 'rgba(255, 255, 255, 0.75)';
       ctx.fill();
     }
   }

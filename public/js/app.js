@@ -229,7 +229,7 @@ function applyTheme() {
   else if (choice === 'dunkel') root.dataset.theme = 'dark';
   else delete root.dataset.theme;
   const dark = choice === 'dunkel' || (choice === 'auto' && darkQuery?.matches);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0b1726' : '#eaf3ff');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#000000' : '#f2f2f7');
 }
 darkQuery?.addEventListener?.('change', applyTheme);
 

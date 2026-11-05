@@ -161,7 +161,7 @@ export function openEditor({ source, corners, rotation = 0, filter = 'farbe', de
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, 140, 140);
     ctx.drawImage(source, p.x * source.width - zoomW / 2, p.y * source.height - zoomW / 2, zoomW, zoomW, 0, 0, 140, 140);
-    ctx.strokeStyle = '#FFCC00';
+    ctx.strokeStyle = '#0A84FF';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(70, 50);

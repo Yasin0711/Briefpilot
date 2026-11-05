@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {
   parseGermanDates, parseRelativeDeadline, addPeriod, computeRelativeEnd, zonedTimeToUtc, parseTimes,
+  needsReceivedDate,
 } from '../public/js/shared/dates.js';
 import { normalizeAnalysis, verifyQuote, looksLikeInjection } from '../server/analysis/validate.js';
 import { analyzeWithRules } from '../server/analysis/rules.js';
@@ -187,4 +188,23 @@ test('ZIP-Export ist gültig', () => {
   const zip = createZip([{ name: 'daten.json', data: '{"a":1}' }]);
   assert.equal(zip.readUInt32LE(0), 0x04034b50);
   assert.equal(zip.readUInt32LE(zip.length - 22), 0x06054b50);
+});
+
+test('Zugangsdatum nur bei Bedarf: Frist ohne „nach Zugang“ wird ab Briefdatum gerechnet', () => {
+  const result = normalizeAnalysis({
+    letter_date: '2026-10-14', letter_date_quote: 'Musterstadt, 14.10.2026',
+    actions: [{ title: 'Bezahlen', kind: 'zahlung', date: null, is_relative: true, relative_text: 'innerhalb von 14 Tagen', quote: 'Bitte zahlen Sie den Betrag innerhalb von 14 Tagen.' }],
+  }, { fullText: LETTER_TEXT, today: '2026-10-26', source: 'ki' });
+  const a = result.actions[0];
+  assert.equal(a.suggestedDate, '2026-10-28', '14.10. + 14 Tage');
+  assert.equal(needsReceivedDate(a), false);
+  assert.ok(!a.notes.some((n) => n.includes('steht so nicht')), 'gerechnetes Datum ist kein Fehler');
+  const zugang = normalizeAnalysis({
+    letter_date: '2026-10-14', letter_date_quote: 'Musterstadt, 14.10.2026',
+    actions: [{ title: 'Widerspruch', kind: 'frist', is_relative: true, relative_text: 'innerhalb eines Monats nach Zugang', quote: 'Widerspruch innerhalb eines Monats nach Zugang dieses Bescheids.' }],
+  }, { fullText: LETTER_TEXT, today: '2026-10-26', source: 'ki' }).actions[0];
+  assert.equal(zugang.suggestedDate, null);
+  assert.equal(needsReceivedDate(zugang), true);
+  assert.equal(needsReceivedDate({ isRelative: false }), false);
+  assert.equal(needsReceivedDate({ is_relative: 1, relative_rule: JSON.stringify({ anchor: 'zugang', amount: 1, unit: 'monate' }) }), true);
 });

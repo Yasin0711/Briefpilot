@@ -8,7 +8,7 @@ import {
   IDENTIFIER_KIND_IDS, kindFromLabel, normalizeIdentifier, extractIdentifiers, identifierKindLabel, compactAddressText,
 } from '../../public/js/shared/identifiers.js';
 import {
-  isValidIsoDate, isValidTime, parseGermanDates, parseRelativeDeadline, daysBetween,
+  isValidIsoDate, isValidTime, parseGermanDates, parseRelativeDeadline, daysBetween, addPeriod,
 } from '../../public/js/shared/dates.js';
 
 const str = (v, max = 500) => (typeof v === 'string' ? v.replace(/\u0000/g, '').trim().slice(0, max) : '');
@@ -155,9 +155,16 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
       isRelative = true;
       relativeText = relativeText || relativeFromQuote.text;
     }
+    const relativeRule = isRelative ? mergeRules(parseRelativeDeadline(relativeText || ''), parseRelativeDeadline(quote || '')) : null;
+    let computedFromLetter = false;
     if (isRelative) {
-      // Das Enddatum hängt vom Zugang ab – das fragt die Aufgabe selbst ab, kein zusätzlicher Hinweis
+      // Nur „ab Zugang/Zustellung/Bekanntgabe“ braucht das Zugangsdatum. Sonst ab Briefdatum rechnen
+      // (früheres Ende = sichere Seite); die Aufgabe bleibt wie jede andere „zu prüfen“.
       date = null;
+      if (relativeRule && relativeRule.anchor !== 'zugang' && letterDate) {
+        date = addPeriod(letterDate, relativeRule.amount, relativeRule.unit);
+        computedFromLetter = Boolean(date);
+      }
     }
 
     // Textstelle prüfen
@@ -170,7 +177,7 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
     }
 
     // Datum gegen Textstelle prüfen
-    if (date) {
+    if (date && !computedFromLetter) {
       if (quoteDates.length > 0 && !quoteDates.includes(date)) {
         notes.push('Datum stimmt nicht mit der Textstelle überein – nicht übernommen.');
         date = null;
@@ -201,7 +208,7 @@ export function normalizeAnalysis(raw, { fullText: providedText, today, source }
       suggestedTime: time,
       isRelative,
       relativeText,
-      relativeRule: isRelative ? mergeRules(parseRelativeDeadline(relativeText || ''), parseRelativeDeadline(quote || '')) : null,
+      relativeRule,
       quote,
       page,
       quoteFound: quoteState === 'gefunden' || quoteState === 'aehnlich' ? 1 : quoteState === 'nicht_gefunden' || !quote ? 0 : null,

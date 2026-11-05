@@ -8,6 +8,9 @@ import { liveCameraAvailable, openCamera } from '../scanner/camera.js';
 import { takePendingFiles } from '../pending.js';
 import { openEditor } from '../scanner/editor.js';
 import { FILTERS, MAX_SOURCE_SIDE, decodeImage, toCanvas, detectCorners, renderPage, cleanOriginal, imageproc } from '../scanner/processing.js';
+import { afterBack } from '../scanner/overlay.js';
+import { letterPickSheet } from '../folderSheet.js';
+import { lastPage } from '../app.js';
 
 const ALL_ACCEPT = 'application/pdf,image/*,.heic,.heif,.pptx,.docx,.xlsx,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const BULK_STATUS = { wartet: 'wartet', laedt: 'wird übertragen …', fertig: 'gespeichert – wird gelesen', doppelt: 'schon vorhanden – übersprungen', fehler: 'Fehler' };
@@ -40,17 +43,41 @@ function isFullFrame(corners) {
   return corners.every((p, i) => Math.abs(p.x - full[i].x) < 0.01 && Math.abs(p.y - full[i].y) < 0.01);
 }
 
+/*
+ * Scan-Sitzung: bleibt erhalten, solange die App offen ist. So lassen sich mehrere Briefe nacheinander
+ * scannen („Brief speichern“ in der Kamera, oder erneut auf „Hinzufügen“), ohne den Scanner zu verlassen.
+ * draft = Brief, der gerade entsteht: { no, pages, target: { id, subject } | null }
+ * letters = schon gespeicherte (oder gerade übertragene) Briefe dieser Sitzung.
+ */
+const session = { letters: [], draft: null, nextNo: 1, nextKey: 1 };
+let nextId = 1;
+
+function newDraft(target = null) {
+  return { no: target ? null : session.nextNo++, pages: [], target };
+}
+
+function resetSession() {
+  for (const e of session.letters) if (e.thumb) URL.revokeObjectURL(e.thumb);
+  for (const p of session.draft?.pages || []) if (p.thumb) URL.revokeObjectURL(p.thumb);
+  session.letters = [];
+  session.nextNo = 1;
+  session.draft = newDraft();
+}
+
 export async function render({ root, query, state, navigate, refreshMe }) {
   /** Seite: { id, kind: 'image'|'pdf', blob, size, thumb, source, corners, rotation, filter, cropped, needsCheck,
    *           busy, fileId, originalFileId, duplicate, name } */
-  const pages = [];
-  let nextId = 1;
+  if (!session.draft) session.draft = newDraft();
+  // ?zu=<Brief-ID>: Seiten zu einem bestehenden Brief hinzufügen
+  const zu = /^[\w-]{8,64}$/.test(query.get('zu') || '') ? query.get('zu') : null;
+  if (zu && !session.draft.pages.length) session.draft = newDraft({ id: zu, subject: null });
+  let pages = session.draft.pages;
   let uploading = false;
   let saved = false;
   let liveFailed = false;
   let keepOriginals = readPref(KEEP_KEY, 'nein') === 'ja';
-  // ?zu=<Brief-ID>: Seiten zu einem bestehenden Brief hinzufügen
-  const targetLetter = /^[\w-]{8,64}$/.test(query.get('zu') || '') ? query.get('zu') : null;
+  let cam = null; // Steuerung der offenen Kamera (siehe openCamera → onMount)
+  const target = () => session.draft.target;
   const controller = new AbortController(); // schließt Kamera und Editor, wenn die Seite verlassen wird
   const maxMb = state.status?.limits?.maxFileMb || 15;
   const maxPages = state.status?.limits?.maxPages || 20;
@@ -179,36 +206,69 @@ export async function render({ root, query, state, navigate, refreshMe }) {
     draw();
   }
 
+  /** Gescannte Briefe dieser Sitzung (oben links in der Kamera, hier als Liste). */
+  function lettersSection() {
+    if (!session.letters.length) return '';
+    const status = (e) => {
+      if (e.status === 'speichert') return html`<span class="row-sub">${e.target ? 'Seiten werden angehängt …' : 'Wird gespeichert …'}</span>
+        <div class="progress progress-s"><span data-entry-bar="${e.key}" style="width:${Math.round((e.progress || 0) * 100)}%"></span></div>`;
+      if (e.status === 'fehler') return html`<span class="row-sub scan-entry-error">${e.error || 'Speichern hat nicht geklappt.'}</span>`;
+      return html`<span class="row-sub">${e.pageCount} ${e.pageCount === 1 ? 'Seite' : 'Seiten'} · ${e.target ? 'angehängt' : 'gespeichert'}</span>`;
+    };
+    return html`<section class="stack" aria-labelledby="scan-letters-h" data-scan-letters>
+      <h2 id="scan-letters-h">Gescannte Briefe</h2>
+      <ul class="list panel panel-plain scan-letters">${session.letters.map((e) => html`<li class="scan-entry" data-entry="${e.key}">
+        <span class="scan-entry-thumb" aria-hidden="true">${e.thumb ? html`<img src="${e.thumb}" alt="">` : icon('file')}</span>
+        <span class="grow scan-entry-main"><span class="row-title">${e.target ? `Zu „${e.target.subject || 'Brief'}“` : `Brief ${e.no}`}</span>${status(e)}</span>
+        <span class="scan-entry-actions">
+          ${e.status === 'gespeichert' ? html`
+            <button class="icon-btn" type="button" data-entry-add="${e.key}" aria-label="Seiten hinzufügen" title="Seiten hinzufügen">${icon('plus')}</button>
+            <a class="btn btn-small btn-secondary" href="#/briefe/${e.letterId}">Öffnen</a>` : ''}
+          ${e.status === 'fehler' ? html`<button class="btn btn-small btn-secondary" type="button" data-entry-retry="${e.key}">${icon('refresh')}Erneut</button>` : ''}
+          ${e.status === 'speichert' ? html`<span class="spinner spinner-s" aria-hidden="true"></span>` : ''}
+        </span></li>`)}</ul>
+      ${pages.length ? '' : html`<button class="btn btn-block" type="button" data-scan-finish ${session.letters.some((e) => e.status === 'speichert') ? 'disabled' : ''}>${icon('check')}Fertig</button>`}
+    </section>`;
+  }
+
   function draw() {
     const live = liveCameraAvailable() && !liveFailed;
     const count = pages.length;
     const working = pages.some((p) => p.busy);
     const hasImages = pages.some((p) => p.kind === 'image');
+    const t = target();
     const scanBtn = (label, cls) => (live
       ? html`<button class="btn ${cls}" type="button" data-live>${icon('camera')}${label}</button>`
       : html`<label class="btn ${cls} capture-btn">${icon('camera')}${label}
           <input type="file" accept="image/*" capture="environment" data-camera aria-label="${label}"></label>`);
     const filesBtn = (cls) => html`<label class="btn btn-secondary ${cls} capture-btn">${icon('folder')}Dateien
       <input type="file" accept="${ALL_ACCEPT}" multiple data-files aria-label="Dateien hochladen"></label>`;
+    const multi = session.letters.length > 0;
+    const heading = t ? `Seiten für „${t.subject || 'Brief'}“` : multi ? `Brief ${session.draft.no}` : '';
 
     mount(root, html`<div class="stack-l">
-      ${targetLetter ? html`<div class="row"><h1 class="grow">Seiten hinzufügen</h1><a class="btn btn-small btn-ghost" href="#/briefe/${targetLetter}">Abbrechen</a></div>` : html`<h1 class="visually-hidden">Scannen</h1>`}
+      ${zu && t?.id === zu && !multi ? html`<div class="row"><h1 class="grow">Seiten hinzufügen</h1><a class="btn btn-small btn-ghost" href="#/briefe/${zu}">Abbrechen</a></div>` : html`<h1 class="visually-hidden">Scannen</h1>`}
       ${consentCard()}
-      ${!count && !bulk ? html`<div class="scan-start">
+      ${lettersSection()}
+      ${!count && !bulk && !multi ? html`<div class="scan-start">
         ${scanBtn('Scannen', 'btn-scan btn-block scan-start-main')}
         ${filesBtn('btn-block')}
+        ${state.status?.mailImport?.enabled ? html`<a class="btn btn-ghost btn-block" href="#/email-import">${icon('mail')}E-Mail importieren</a>` : ''}
       </div>` : ''}
+      ${!count && multi ? html`<div class="row">${scanBtn('Nächsten Brief scannen', 'btn-secondary grow')}${filesBtn('')}</div>` : ''}
 
       ${bulk ? bulkSection() : ''}
 
       ${count ? html`<section class="stack" aria-labelledby="pages-h">
+        ${heading ? html`<p class="scan-draft-head"><strong>${heading}</strong>${t && !zu ? html` <button class="btn btn-ghost btn-small" type="button" data-untarget>Als eigenen Brief</button>` : ''}</p>` : ''}
         <div class="row"><h2 id="pages-h" class="grow">${count === 1 ? '1 Seite' : `${count} Seiten`}</h2>
           ${scanBtn('Weitere', 'btn-small btn-secondary')}${filesBtn('btn-small')}</div>
         <ol class="pages">${pages.map((p, i) => pageItem(p, i))}</ol>
         ${hasImages ? html`<label class="check"><input type="checkbox" data-keep ${keepOriginals ? 'checked' : ''} ${uploading ? 'disabled' : ''}>
           <span>Originalfotos aufbewahren</span></label>` : ''}
         <div data-progress hidden class="stack"><p data-progress-text class="small" aria-live="polite"></p><div class="progress"><span data-bar></span></div></div>
-        <button class="btn btn-block" type="button" data-submit ${working || uploading ? 'disabled' : ''}>${icon('check')}${working ? 'Wird bearbeitet …' : targetLetter ? 'Zum Brief hinzufügen' : 'Brief speichern'}</button>
+        <button class="btn btn-block" type="button" data-submit ${working || uploading ? 'disabled' : ''}>${icon('check')}${working ? 'Wird bearbeitet …' : t ? 'Zum Brief hinzufügen' : 'Brief speichern'}</button>
+        ${t ? '' : html`<button class="btn btn-secondary btn-block" type="button" data-attach ${working || uploading ? 'disabled' : ''}>${icon('plus')}Zu einem Brief hinzufügen</button>`}
       </section>` : ''}
 
       ${aiNote()}
@@ -221,7 +281,7 @@ export async function render({ root, query, state, navigate, refreshMe }) {
   /** Dateien aus dem Ordner: Fotos werden Seiten dieses Briefs, PDFs und Office-Dateien je ein eigenes Dokument. */
   function handlePicked(files) {
     const isImage = (f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name);
-    if (targetLetter) {
+    if (target()) {
       addFiles(files); // alles wird Seite des bestehenden Briefs
       return;
     }
@@ -285,14 +345,23 @@ export async function render({ root, query, state, navigate, refreshMe }) {
 
   // ---------- Kamera ----------
 
+  function lastThumb() {
+    return [...pages].reverse().find((p) => p.kind === 'image' && p.thumb)?.thumb || null;
+  }
+
   function startCamera() {
-    const lastImage = [...pages].reverse().find((p) => p.kind === 'image' && p.thumb);
     openCamera({
       pageCount: pages.length,
-      lastThumb: lastImage?.thumb || null,
+      lastThumb: lastThumb(),
       signal: controller.signal,
+      letterCount: session.letters.length,
+      titlePrefix: cameraTitle(),
+      saveLabel: target() ? 'Hinzufügen' : 'Brief speichern',
+      onMount: (handle) => {
+        cam = handle;
+      },
       onCapture: async (shot) => {
-        if (pages.length >= maxPages) throw new Error(`Höchstens ${maxPages} Seiten pro Brief. Tippen Sie auf „Fertig“.`);
+        if (pages.length >= maxPages) throw new Error(`Höchstens ${maxPages} Seiten pro Brief. Tippen Sie auf „Brief speichern“.`);
         const page = { id: nextId++, kind: 'image', busy: true, rotation: 0 };
         await processInto(page, shot.canvas, {
           found: shot.corners ? { corners: shot.corners, confidence: shot.confidence } : null,
@@ -301,18 +370,63 @@ export async function render({ root, query, state, navigate, refreshMe }) {
         pages.push(page);
         return { thumbUrl: page.thumb };
       },
+      // Galerie: Bilder werden Seiten dieses Briefs, die Kamera bleibt offen
+      onGallery: async (files) => {
+        await addFiles(files);
+        cam?.setPages(pages.length, lastThumb());
+      },
+      // Brief speichern, ohne den Scanner zu verlassen – danach beginnt der nächste Brief
+      onSave: async () => {
+        const entry = finishDraft();
+        if (!entry) return;
+        cam?.setPages(0, null);
+        cam?.setLetters(session.letters.length);
+        cam?.setTitle(cameraTitle(), 'Brief speichern');
+        cam?.setHint(entry.target ? 'Seiten werden angehängt …' : `Brief ${entry.no} wird gespeichert – nächsten Brief hinlegen`);
+      },
+      onList: () => focus('[data-scan-letters] h2'),
       onFiles: (files) => handlePicked(files),
       fileAccept: ALL_ACCEPT,
-      onClose: () => {
+      onClose: ({ failed = false } = {}) => {
+        cam = null;
+        if (failed) return; // onError zeigt die Seite mit Foto-Dialog und Dateien
+        // Nichts gescannt: zurück dorthin, wo man herkam
+        if (!pages.length && !session.letters.length && !bulk && !controller.signal.aborted) {
+          afterBack().then(() => {
+            if (root.isConnected) location.hash = lastPage('#/');
+          });
+          return;
+        }
         draw();
-        focus(pages.length ? '[data-submit]' : '[data-live]');
+        focus(pages.length ? '[data-submit]' : '[data-scan-letters] h2');
       },
       onError: (err) => {
+        cam = null;
         liveFailed = true;
         draw();
         toast(err.message, { error: true });
       },
     });
+  }
+
+  /** Neuer Brief (erneut „Hinzufügen“ oder „Nächsten Brief scannen“): bisherigen speichern, Kamera öffnen. */
+  function nextLetter() {
+    if (cam?.isOpen()) return;
+    if (pages.length) {
+      try {
+        const entry = finishDraft();
+        if (entry) toast(entry.target ? 'Seiten werden angehängt.' : `Brief ${entry.no} wird gespeichert.`);
+      } catch (err) {
+        toast(err.message, { error: true });
+        return;
+      }
+    } else if (target() && !zu) {
+      session.draft = newDraft();
+      pages = session.draft.pages;
+    }
+    draw();
+    if (liveCameraAvailable() && !liveFailed) startCamera();
+    else root.querySelector('[data-camera]')?.click();
   }
 
   // ---------- Dateien und Kamera-App ----------
@@ -470,6 +584,133 @@ export async function render({ root, query, state, navigate, refreshMe }) {
     });
   }
 
+  /**
+   * Seiten eines Briefs übertragen und den Brief anlegen (oder an einen bestehenden anhängen).
+   * Unabhängig von der Anzeige – läuft auch weiter, während die Kamera offen ist.
+   * @returns {Promise<{ outcome: 'gespeichert'|'abgebrochen'|'vorhanden', id?: string }>}
+   */
+  async function saveDraft(d, { onText = () => {}, onBar = () => {} } = {}) {
+    const list = d.pages;
+    const steps = [];
+    list.forEach((p, i) => {
+      steps.push({ p, i, role: 'seite' });
+      if (keepOriginals && p.kind === 'image' && p.source) steps.push({ p, i, role: 'original' });
+    });
+    for (let s = 0; s < steps.length; s++) {
+      const { p, i, role } = steps[s];
+      const onProgress = (fraction) => onBar((s + fraction) / steps.length);
+      if (role === 'seite' && !p.fileId) {
+        onText(`Seite ${i + 1} von ${list.length} wird sicher übertragen …`);
+        let res;
+        try {
+          res = await api.upload(p.blob, onProgress);
+        } catch (err) {
+          // Bei vielen Dateien sagen, welche nicht geklappt hat
+          err.message = `${p.kind === 'pdf' && p.name ? `„${p.name}“` : `Seite ${i + 1}`}: ${err.message}`;
+          throw err;
+        }
+        p.fileId = res.id;
+        p.duplicate = res.duplicateOf || null;
+        if (res.sanitized) toast(res.sanitized.message);
+      } else if (role === 'original' && !p.originalFileId) {
+        onText(`Originalfoto von Seite ${i + 1} wird übertragen …`);
+        const res = await api.upload(p.source, onProgress, { 'X-File-Role': 'original' });
+        p.originalFileId = res.id;
+      }
+    }
+    onBar(1);
+    const known = d.target ? null : list.find((p) => p.duplicate);
+    if (known) {
+      const choice = await askDuplicate(known);
+      if (choice === 'abbrechen') return { outcome: 'abgebrochen' };
+      if (choice === 'oeffnen') return { outcome: 'vorhanden', id: known.duplicate.letterId };
+    }
+    if (d.target) {
+      // Seiten an einen bestehenden Brief anhängen
+      await api.post(`/api/letters/${d.target.id}/pages`, { fileIds: list.map((p) => p.fileId) });
+      return { outcome: 'gespeichert', id: d.target.id };
+    }
+    onText('Brief wird angelegt …');
+    const originalIds = keepOriginals ? list.filter((p) => p.originalFileId).map((p) => p.originalFileId) : [];
+    const { id } = await api.post('/api/letters', { fileIds: list.map((p) => p.fileId), originalIds });
+    return { outcome: 'gespeichert', id };
+  }
+
+  /** Eintrag in der Liste „Gescannte Briefe“; das erste Seitenbild bleibt als Vorschau. */
+  function addEntry(d, status = 'speichert') {
+    const first = d.pages.find((p) => p.thumb);
+    const entry = { key: session.nextKey++, no: d.no, target: d.target, pageCount: d.pages.length, thumb: first?.thumb || null, status, progress: 0, draft: d };
+    d.pages.forEach((p) => {
+      if (p.thumb && p !== first) URL.revokeObjectURL(p.thumb);
+    });
+    session.letters.push(entry);
+    return entry;
+  }
+
+  /** Seiten, die an einen Brief dieser Sitzung gehängt wurden, zählen bei diesem Brief mit (keine eigene Zeile). */
+  function mergeIntoSessionLetter(entry) {
+    if (!entry.target) return;
+    const host = session.letters.find((x) => x !== entry && !x.target && x.letterId === entry.target.id);
+    if (!host) return;
+    host.pageCount += entry.pageCount;
+    if (entry.thumb) URL.revokeObjectURL(entry.thumb);
+    session.letters.splice(session.letters.indexOf(entry), 1);
+  }
+
+  function redraw() {
+    if (root.isConnected && !uploading) draw();
+  }
+
+  /** Brief im Hintergrund speichern (Kamera bleibt offen). */
+  async function saveInBackground(entry) {
+    entry.status = 'speichert';
+    entry.error = null;
+    redraw();
+    try {
+      const res = await saveDraft(entry.draft, {
+        onBar: (f) => {
+          entry.progress = f;
+          const bar = root.querySelector(`[data-entry-bar="${entry.key}"]`);
+          if (bar) bar.style.width = `${Math.round(f * 100)}%`;
+        },
+      });
+      if (res.outcome === 'abgebrochen') {
+        session.letters.splice(session.letters.indexOf(entry), 1);
+        toast(`Brief ${entry.no} nicht gespeichert.`);
+      } else {
+        entry.status = 'gespeichert';
+        entry.letterId = res.id;
+        entry.draft = null;
+        mergeIntoSessionLetter(entry);
+        cam?.setHint(entry.target ? 'Seiten angehängt' : `Brief ${entry.no} gespeichert`);
+      }
+    } catch (err) {
+      entry.status = 'fehler';
+      entry.error = err.message;
+      toast(err.message, { error: true });
+    }
+    cam?.setLetters(session.letters.length);
+    redraw();
+  }
+
+  /** Aktuellen Brief abschließen und einen neuen beginnen – das Speichern läuft im Hintergrund. */
+  function finishDraft() {
+    const d = session.draft;
+    if (!d.pages.length) return null;
+    if (d.pages.some((p) => p.busy)) throw new Error('Einen Moment – die Seite wird noch bearbeitet.');
+    const entry = addEntry(d);
+    session.draft = newDraft();
+    pages = session.draft.pages;
+    saveInBackground(entry);
+    return entry;
+  }
+
+  function cameraTitle() {
+    const t = target();
+    if (t) return 'Anhängen · ';
+    return session.letters.length ? `Brief ${session.draft.no} · ` : '';
+  }
+
   async function submit(button) {
     if (uploading || !pages.length || pages.some((p) => p.busy)) return;
     uploading = true;
@@ -480,71 +721,42 @@ export async function render({ root, query, state, navigate, refreshMe }) {
     root.querySelectorAll('.page-tools button, [data-keep]').forEach((b) => {
       b.disabled = true;
     });
-    const steps = [];
-    pages.forEach((p, i) => {
-      steps.push({ p, i, role: 'seite' });
-      if (keepOriginals && p.kind === 'image' && p.source) steps.push({ p, i, role: 'original' });
-    });
+    const d = session.draft;
     let outcome = 'fehler';
     await busy(button, async () => {
       try {
-        for (let s = 0; s < steps.length; s++) {
-          const { p, i, role } = steps[s];
-          const onProgress = (fraction) => {
-            bar.style.width = `${Math.round(((s + fraction) / steps.length) * 100)}%`;
-          };
-          if (role === 'seite' && !p.fileId) {
-            text.textContent = `Seite ${i + 1} von ${pages.length} wird sicher übertragen …`;
-            let res;
-            try {
-              res = await api.upload(p.blob, onProgress);
-            } catch (err) {
-              // Bei vielen Dateien sagen, welche nicht geklappt hat
-              err.message = `${p.kind === 'pdf' && p.name ? `„${p.name}“` : `Seite ${i + 1}`}: ${err.message}`;
-              throw err;
-            }
-            p.fileId = res.id;
-            p.duplicate = res.duplicateOf || null;
-            if (res.sanitized) toast(res.sanitized.message);
-          } else if (role === 'original' && !p.originalFileId) {
-            text.textContent = `Originalfoto von Seite ${i + 1} wird übertragen …`;
-            const res = await api.upload(p.source, onProgress, { 'X-File-Role': 'original' });
-            p.originalFileId = res.id;
-          }
-        }
-        bar.style.width = '100%';
-        const known = pages.find((p) => p.duplicate);
-        if (known) {
-          const choice = await askDuplicate(known);
-          if (choice === 'abbrechen') {
-            outcome = 'abgebrochen';
-            return;
-          }
-          if (choice === 'oeffnen') {
-            outcome = 'gespeichert';
-            saved = true; // Seiten bewusst verworfen; Zwischen-Uploads räumt der Server auf
-            navigate(`/briefe/${known.duplicate.letterId}`);
-            return;
-          }
-        }
-        if (targetLetter) {
-          // Seiten an einen bestehenden Brief anhängen
-          await api.post(`/api/letters/${targetLetter}/pages`, { fileIds: pages.map((p) => p.fileId) });
-          outcome = 'gespeichert';
-          saved = true;
-          pages.forEach((p) => p.thumb && URL.revokeObjectURL(p.thumb));
-          toast('Seiten hinzugefügt. Der Brief wird neu gelesen.');
-          navigate(`/briefe/${targetLetter}`);
+        const res = await saveDraft(d, {
+          onText: (t) => {
+            text.textContent = t;
+          },
+          onBar: (f) => {
+            bar.style.width = `${Math.round(f * 100)}%`;
+          },
+        });
+        outcome = res.outcome;
+        if (res.outcome === 'abgebrochen') return;
+        // Mehrere Briefe in dieser Sitzung: in der Liste bleiben, sonst den Brief öffnen
+        if (session.letters.length) {
+          const entry = addEntry(d, 'gespeichert');
+          entry.letterId = res.id;
+          entry.draft = null;
+          mergeIntoSessionLetter(entry);
+          session.draft = newDraft();
+          pages = session.draft.pages;
+          toast(d.target ? 'Seiten hinzugefügt.' : `Brief ${entry.no} gespeichert.`);
           return;
         }
-        text.textContent = 'Brief wird angelegt …';
-        const originalIds = keepOriginals ? pages.filter((p) => p.originalFileId).map((p) => p.originalFileId) : [];
-        const { id } = await api.post('/api/letters', { fileIds: pages.map((p) => p.fileId), originalIds });
-        outcome = 'gespeichert';
         saved = true;
-        pages.forEach((p) => p.thumb && URL.revokeObjectURL(p.thumb));
-        toast('Brief gespeichert. Er wird jetzt gelesen.');
-        navigate(`/briefe/${id}`);
+        d.pages.forEach((p) => p.thumb && URL.revokeObjectURL(p.thumb));
+        d.pages.length = 0;
+        resetSession();
+        pages = session.draft.pages;
+        if (res.outcome === 'vorhanden') {
+          navigate(`/briefe/${res.id}`);
+          return;
+        }
+        toast(d.target ? 'Seiten hinzugefügt. Der Brief wird neu gelesen.' : 'Brief gespeichert. Er wird jetzt gelesen.');
+        navigate(`/briefe/${res.id}`);
       } catch (err) {
         text.textContent = err.message;
         toast(err.message, { error: true });
@@ -562,6 +774,8 @@ export async function render({ root, query, state, navigate, refreshMe }) {
         p.hidden = false;
         p.querySelector('[data-progress-text]').textContent = text.textContent;
       }
+    } else if (root.isConnected && session.letters.length) {
+      draw();
     }
   }
 
@@ -630,12 +844,60 @@ export async function render({ root, query, state, navigate, refreshMe }) {
       return;
     }
     const submitBtn = e.target.closest('[data-submit]');
-    if (submitBtn) submit(submitBtn);
+    if (submitBtn) {
+      submit(submitBtn);
+      return;
+    }
+    // Statt eines eigenen Briefs: an einen bestehenden Brief anhängen
+    if (e.target.closest('[data-attach]')) {
+      const chosen = await letterPickSheet({
+        first: session.letters.filter((x) => x.status === 'gespeichert' && !x.target).map((x) => ({ id: x.letterId, subject: `Brief ${x.no}` })),
+      });
+      if (!chosen) return;
+      session.draft.target = chosen;
+      draw();
+      submit(root.querySelector('[data-submit]'));
+      return;
+    }
+    if (e.target.closest('[data-untarget]')) {
+      session.draft.target = null;
+      session.draft.no = session.nextNo++;
+      draw();
+      return;
+    }
+    const add = e.target.closest('[data-entry-add]');
+    if (add) {
+      // Weitere Seiten zu einem gerade gescannten Brief
+      const entry = session.letters.find((x) => String(x.key) === add.dataset.entryAdd);
+      if (!entry || pages.length) {
+        if (pages.length) toast('Bitte zuerst den aktuellen Brief speichern.', { error: true });
+        return;
+      }
+      session.draft = newDraft({ id: entry.letterId, subject: entry.target?.subject || `Brief ${entry.no}` });
+      pages = session.draft.pages;
+      draw();
+      if (liveCameraAvailable() && !liveFailed) startCamera();
+      return;
+    }
+    const retry = e.target.closest('[data-entry-retry]');
+    if (retry) {
+      const entry = session.letters.find((x) => String(x.key) === retry.dataset.entryRetry);
+      if (entry?.draft) saveInBackground(entry);
+      return;
+    }
+    if (e.target.closest('[data-scan-finish]')) {
+      const done = session.letters.filter((x) => x.status === 'gespeichert');
+      const one = done.length === 1 ? done[0].letterId : null;
+      saved = true;
+      resetSession();
+      pages = session.draft.pages;
+      navigate(one ? `/briefe/${one}` : '/briefe');
+    }
   });
 
   // Warnung beim Schließen des Tabs, solange Seiten noch nicht gespeichert sind
   const onBeforeUnload = (e) => {
-    if (pages.length && !saved) {
+    if ((pages.length && !saved) || session.letters.some((x) => x.status === 'speichert')) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -652,9 +914,15 @@ export async function render({ root, query, state, navigate, refreshMe }) {
   // Direkt in den Scanner – außer beim Hochladen von Dateien oder solange die KI-Frage offen ist
   const consentOpen = state.status?.ai?.enabled && !['ja', 'nein'].includes(state.me.aiConsent);
   if (!pending && query.get('modus') !== 'datei' && !consentOpen && liveCameraAvailable()) startCamera();
+  // Erneut auf „Hinzufügen“ (Plus in der Mitte), während der Scanner offen ist: nächster Brief
+  const onScanNew = () => nextLetter();
+  window.addEventListener('bp:scan-new', onScanNew);
   return () => {
     controller.abort();
+    cam = null;
     window.removeEventListener('beforeunload', onBeforeUnload);
-    pages.forEach((p) => p.thumb && URL.revokeObjectURL(p.thumb));
+    window.removeEventListener('bp:scan-new', onScanNew);
+    // Ungespeicherte Seiten bleiben für die Rückkehr erhalten; sonst beginnt die nächste Sitzung frisch
+    if (!session.draft.pages.length && !session.letters.some((x) => x.status === 'speichert')) resetSession();
   };
 }

@@ -732,7 +732,7 @@ a.deadline-row:hover { background: var(--c-fill); text-decoration: none; }
 body.scanner-open { overflow: hidden; }
 .scanner {
   position: fixed; inset: 0; z-index: 60; background: var(--c-camera); color: var(--c-on-camera);
-  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
 }
@@ -764,7 +764,26 @@ body.scanner-open { overflow: hidden; }
   background: var(--c-camera-bar); color: var(--c-on-camera); padding: var(--sp-2) var(--sp-4); border-radius: var(--r-round); font-weight: var(--fw-medium); font-size: var(--fs-subhead); text-align: center;
   -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
 }
-.scanner-bottom { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; padding: 12px 18px 18px; min-height: 112px; }
+.scanner-bottom {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-5) var(--sp-5); min-height: 108px;
+  background: var(--c-camera-bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+}
+.scanner-bottom .scanner-upload { justify-self: end; }
+/* Ablage über der Leiste: Vorschau der Seiten (antippen = ansehen) und „Brief speichern“ */
+.scanner-tray {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-3) var(--sp-5) var(--sp-2);
+  background: var(--c-camera-bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+}
+.scanner-tray[hidden] { display: none; }
+.scanner-tray .scanner-thumb { width: 40px; height: 52px; }
+.scanner-save {
+  min-height: var(--touch); padding: 0 var(--sp-5); border: 0; border-radius: var(--r-btn); background: var(--c-camera-accent); color: var(--c-on-accent);
+  font: inherit; font-weight: var(--fw-semibold); display: inline-flex; align-items: center; gap: var(--sp-2); cursor: pointer;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.scanner-save svg { width: 20px; height: 20px; }
+.scanner-save:disabled { opacity: 0.5; }
+.scanner-list[hidden], .scanner-icon[hidden] { display: none; }
 .scanner-files {
   justify-self: start; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 64px; padding: 6px;
   color: var(--c-on-camera); font-size: var(--fs-caption); cursor: pointer; border-radius: var(--r-card);
@@ -1510,3 +1529,27 @@ dialog .viewer { z-index: 10; }
 .settings-section .check > input[type="checkbox"]:checked::before { transform: translateX(20px); }
 .settings-section .check > input[type="checkbox"]:focus-visible { box-shadow: var(--focus); }
 .settings-section .check > input[type="checkbox"]:disabled { opacity: 0.5; cursor: default; }
+/* Zurück-Knopf zeigt die vorherige Ebene (z. B. Ordnername) */
+.back-btn { max-width: 100%; min-width: 0; }
+.back-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70vw; }
+
+/* Scan-Sitzung: Liste der gerade gescannten Briefe */
+.scan-letters { margin: 0; }
+.scan-entry { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); min-height: 64px; }
+.scan-entry-thumb {
+  flex: none; width: 36px; height: 48px; border-radius: var(--r-xs); overflow: hidden; background: var(--c-fill); box-shadow: var(--shadow-page);
+  display: grid; place-items: center; color: var(--c-label-3);
+}
+.scan-entry-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.scan-entry-thumb svg { width: 18px; height: 18px; }
+.scan-entry-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.scan-entry-main .row-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scan-entry-error { color: var(--c-red-text); }
+.scan-entry-actions { display: inline-flex; align-items: center; gap: var(--sp-2); flex: none; }
+.progress.progress-s { height: 3px; margin-top: 2px; }
+.scan-draft-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin: 0; }
+/* Website aus einem QR-Code im Brief */
+.facts-link { display: inline-flex; align-items: center; gap: var(--sp-1); max-width: 100%; min-width: 0; color: var(--c-accent); }
+.facts-link-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.facts-link svg { width: 14px; height: 14px; flex: none; }
+.facts dd:has(.facts-link) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

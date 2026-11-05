@@ -72,6 +72,7 @@ export function serializeLetter(row) {
   return {
     ...serializeLetterSummary(row),
     letterDateQuote: row.letter_date_quote,
+    qrLinks: row.qr_links ? parseJson(row.qr_links, []) : null,
     references: parseJson(row.refs_json, []),
     amounts: parseJson(row.amounts_json, []),
     summary: parseJson(row.summary_json, null),

@@ -9,7 +9,7 @@ import { briefeTabs, objectTile, letterRow, evidenceText } from './parts.js';
 import { openObjectDialog } from './objectDialog.js';
 import { forgetObjects } from './assign.js';
 import { taskRow } from './overview.js';
-import { setInboxCount } from '../app.js';
+import { setInboxCount, backButton, setNavTitle } from '../app.js';
 
 function idSummary(identifiers = []) {
   const current = identifiers.filter((i) => i.status !== 'alt').slice(0, 3);
@@ -148,6 +148,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
   async function load() {
     data = await api.get(`/api/objects/${id}`);
     if (!isCurrent()) return;
+    setNavTitle(data.object.name);
     draw();
   }
 
@@ -155,7 +156,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
     const { object: o, letters, tasks, successor, predecessors } = data;
     const t = objectType(o.type);
     mount(root, html`<div class="stack-l">
-      <p><a class="btn btn-ghost btn-small" href="#/akten">${icon('chevronLeft')}Alle Ordner</a></p>
+      <p>${backButton('#/akten', 'Alle Ordner')}</p>
       <header class="letter-head">
         ${objectTile(o.type, { large: true })}
         <div class="grow">

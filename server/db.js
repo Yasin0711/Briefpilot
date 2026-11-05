@@ -355,6 +355,10 @@ const MIGRATIONS = [
   ALTER TABLE letters ADD COLUMN received_suggested TEXT;
   ALTER TABLE letters ADD COLUMN received_suggested_quote TEXT;
   `,
+  `
+  -- Websites aus QR-Codes im Brief (JSON-Liste; NULL = noch nicht geprüft)
+  ALTER TABLE letters ADD COLUMN qr_links TEXT;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

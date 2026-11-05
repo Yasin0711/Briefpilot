@@ -2,8 +2,7 @@
 import { html, mount } from './html.js';
 import { api, setUnauthorizedHandler, setMutationHandler } from './api.js';
 import { syncBackup, scheduleBackup, backupNow, hasRestorableBackup, restoreFromDevice, requestPersistentStorage } from './backup.js';
-import { icon, LOGO, scroller, actionSheet, toast } from './ui.js';
-import { setPendingFiles } from './pending.js';
+import { icon, LOGO, scroller, toast } from './ui.js';
 import { installContextMenus } from './context.js';
 import { installLetterThumbs } from './pdfview.js';
 import { installViewerLinks } from './viewer.js';
@@ -100,31 +99,17 @@ function renderNav(active) {
     </ul>`);
 }
 
-const IMPORT_ACCEPT = 'application/pdf,image/*,.heic,.heif,.pptx,.docx,.xlsx';
-
-/** Plus in der Mitte: Auswahl, was hinzugefügt werden soll (nutzt die vorhandenen Scan- und Importwege). */
-function openAddSheet() {
-  const take = (files, opts = {}) => {
-    setPendingFiles(files, opts);
-    navigate(`/scannen?modus=datei&t=${Date.now()}`);
-  };
-  actionSheet({
-    title: 'Hinzufügen',
-    actions: [
-      { label: 'Dokument scannen', icon: 'camera', onSelect: () => navigate(`/scannen?t=${Date.now()}`) },
-      { label: 'Foto aufnehmen', icon: 'image', file: { accept: 'image/*', capture: 'environment', onFiles: (f) => take(f, { fromCamera: true }) } },
-      { label: 'Vorhandenes Bild auswählen', icon: 'image', file: { accept: 'image/*,.heic,.heif', multiple: true, onFiles: (f) => take(f) } },
-      { label: 'PDF oder Datei importieren', icon: 'file', file: { accept: IMPORT_ACCEPT, multiple: true, onFiles: (f) => take(f) } },
-      ...(state.status?.mailImport?.enabled ? [{ label: 'E-Mail importieren', icon: 'mail', onSelect: () => navigate('/email-import') }] : []),
-    ],
-  });
+/** Plus in der Mitte: öffnet sofort den Scanner. Im Scanner beginnt es den nächsten Brief. */
+function openScanner() {
+  if (parseHash().path === '/scannen') window.dispatchEvent(new CustomEvent('bp:scan-new'));
+  else navigate(`/scannen?t=${Date.now()}`);
 }
 
 document.addEventListener('click', (e) => {
   const add = e.target.closest('.nav-scan');
   if (!add || !state.me) return;
   e.preventDefault();
-  openAddSheet();
+  openScanner();
 });
 
 function renderBanner() {
@@ -134,6 +119,70 @@ function renderBanner() {
   } else {
     mount(slot, '');
   }
+}
+
+/* ---------- Zurück-Navigation: Stapel der besuchten Ebenen ----------
+ * Hauptbereiche (Übersicht, Briefe, Ordner, Aufgaben …) beginnen einen neuen Stapel. Wer von dort tiefer geht
+ * (Ordner → Brief), kommt mit „Zurück“ oben links genau eine Ebene zurück – samt Reiter/Filter (Query).
+ * Ist eine Seite schon im Stapel, wird bis dorthin gekürzt (Zurückgehen legt nichts Neues an). */
+const NAV_KEY = 'bp-nav-stack';
+const NAV_ROOTS = { '/': 'Übersicht', '/briefe': 'Alle Briefe', '/zuordnen': 'Zuordnen', '/akten': 'Alle Ordner', '/aufgaben': 'Aufgaben', '/einstellungen': 'Einstellungen' };
+const NAV_SKIP = new Set(['/scannen', '/anmelden', '/registrieren', '/passwort-vergessen', '/passwort-neu']);
+let navStack = (() => {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(NAV_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+})();
+function saveNav() {
+  try {
+    sessionStorage.setItem(NAV_KEY, JSON.stringify(navStack.slice(-20)));
+  } catch {
+    /* ohne Speicher weiter */
+  }
+}
+function trackNav(path) {
+  if (NAV_SKIP.has(path)) return;
+  const hash = location.hash || '#/';
+  if (NAV_ROOTS[path]) {
+    navStack = [{ path, hash, title: NAV_ROOTS[path] }];
+  } else {
+    const at = navStack.findIndex((e) => e.path === path);
+    if (at >= 0) {
+      navStack = navStack.slice(0, at + 1);
+      navStack[at].hash = hash;
+    } else {
+      navStack.push({ path, hash, title: '' });
+    }
+  }
+  saveNav();
+}
+/** Titel der aktuellen Ebene (z. B. Ordnername) für den Zurück-Knopf der nächsten Ebene. */
+export function setNavTitle(title) {
+  const { path } = parseHash();
+  const top = navStack[navStack.length - 1];
+  if (top && top.path === path && title) {
+    top.title = String(title).slice(0, 40);
+    saveNav();
+  }
+}
+/** Ziel für „Zurück“: die vorherige Ebene, sonst der übliche Elternbereich. */
+export function backTarget(fallbackHash, fallbackLabel) {
+  const { path } = parseHash();
+  const at = navStack.findIndex((e) => e.path === path);
+  const prev = at > 0 ? navStack[at - 1] : null;
+  if (prev) return { href: prev.hash, label: prev.title || NAV_ROOTS[prev.path] || 'Zurück' };
+  return { href: fallbackHash, label: fallbackLabel };
+}
+/** Die zuletzt besuchte Seite (z. B. um nach dem Schließen des Scanners dorthin zurückzukehren). */
+export function lastPage(fallback = '#/') {
+  return navStack[navStack.length - 1]?.hash || fallback;
+}
+export function backButton(fallbackHash, fallbackLabel) {
+  const t = backTarget(fallbackHash, fallbackLabel);
+  return html`<a class="btn btn-ghost btn-small back-btn" href="${t.href}" data-back-link>${icon('chevronLeft')}<span class="back-label">${t.label}</span></a>`;
 }
 
 function parseHash() {
@@ -177,6 +226,7 @@ async function route() {
     navigate('/');
     return;
   }
+  trackNav(path);
   document.title = `${match.title} – BriefPilot`;
   renderNav(match.nav);
   renderBanner();

@@ -58,7 +58,10 @@ const { hashDistance } = imageproc;
  *           onError: (err) => void, signal?: AbortSignal }} options
  *   shot = { canvas, corners, confidence }
  */
-export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, onClose, onError, onFiles, fileAccept = '', signal }) {
+export async function openCamera({
+  pageCount = 0, lastThumb = null, onCapture, onClose, onError, onFiles, fileAccept = '', signal,
+  onGallery = null, onSave = null, saveLabel = 'Brief speichern', letterCount = 0, onList = null, titlePrefix = '', onMount = null,
+}) {
   const root = document.createElement('div');
   root.className = 'scanner';
   root.setAttribute('role', 'dialog');
@@ -89,10 +92,15 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
   let armed = true;
   let lostFrames = 0;
   let lastShotHash = null;
+  let failed = false; // Kamera ließ sich nicht starten – die Seite zeigt dann „Dateien“/Foto-Dialog
+  let letters = letterCount;
+  let prefix = titlePrefix;
+  let saveText = saveLabel;
 
   mount(root, html`
     <div class="scanner-top">
-      <button class="scanner-icon" type="button" data-close aria-label="Kamera schließen">${icon('x')}</button>
+      <button class="scanner-chip scanner-list" type="button" data-list aria-label="Gescannte Briefe" ${letters ? '' : html`hidden`}>${icon('layers')}<span data-letters>${letters}</span></button>
+      <button class="scanner-icon" type="button" data-close aria-label="Kamera schließen" ${letters ? html`hidden` : ''}>${icon('x')}</button>
       <span class="scanner-title" data-title aria-live="polite"></span>
       <span class="row">
         <button class="scanner-icon" type="button" data-torch aria-pressed="false" aria-label="Licht einschalten" hidden>${icon('bolt')}</button>
@@ -105,13 +113,17 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
       <div class="scanner-flash" data-flash aria-hidden="true"></div>
       <p class="scanner-hint" data-hint aria-live="polite">Kamera wird gestartet …</p>
     </div>
+    <div class="scanner-tray" data-tray ${count ? '' : html`hidden`}>
+      <button class="scanner-finish" type="button" data-done aria-label="Seiten ansehen">
+        <span class="scanner-thumb"><img data-thumb alt="" ${thumb ? html`src="${thumb}"` : ''}><span class="scanner-count" data-count>${count}</span></span></button>
+      ${onSave ? html`<button class="scanner-save" type="button" data-save>${icon('check')}<span data-save-label>${saveText}</span></button>` : ''}
+    </div>
     <div class="scanner-bottom">
-      ${onFiles ? html`<label class="scanner-files">${icon('folder')}<span>Dateien</span>
-        <input class="visually-hidden" type="file" multiple accept="${fileAccept}" data-pick aria-label="Dateien hochladen"></label>` : html`<span></span>`}
+      ${onGallery ? html`<label class="scanner-files scanner-gallery">${icon('image')}<span>Bilder</span>
+        <input class="visually-hidden" type="file" multiple accept="image/*,.heic,.heif" data-gallery aria-label="Bilder aus der Galerie"></label>` : html`<span></span>`}
       <button class="scanner-shutter" type="button" data-shoot aria-label="Seite aufnehmen"><span class="scanner-ring" data-ring></span></button>
-      <button class="scanner-finish" type="button" data-done aria-label="Fertig – Seiten ansehen" ${count ? '' : html`hidden`}>
-        <span class="scanner-thumb"><img data-thumb alt="" ${thumb ? html`src="${thumb}"` : ''}><span class="scanner-count" data-count>${count}</span></span>
-        <span>Fertig</span></button>
+      ${onFiles ? html`<label class="scanner-files scanner-upload">${icon('folder')}<span>Dateien</span>
+        <input class="visually-hidden" type="file" multiple accept="${fileAccept}" data-pick aria-label="Dateien hochladen"></label>` : html`<span></span>`}
     </div>`);
 
   const $ = (sel) => root.querySelector(sel);
@@ -122,9 +134,36 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
     if (hint.textContent !== text) hint.textContent = text;
   };
   const updateTitle = () => {
-    $('[data-title]').textContent = `Seite ${count + 1}`;
+    $('[data-title]').textContent = `${prefix}Seite ${count + 1}`;
   };
   updateTitle();
+
+  /** Stand von außen setzen (Bilder aus der Galerie, Brief gespeichert, neuer Brief …). */
+  function setPages(n, url = null) {
+    count = n;
+    thumb = url;
+    const img = $('[data-thumb]');
+    if (url) img.src = url;
+    else img.removeAttribute('src');
+    $('[data-count]').textContent = String(n);
+    $('[data-tray]').hidden = !n;
+    updateTitle();
+  }
+  function setLetters(n) {
+    letters = n;
+    $('[data-letters]').textContent = String(n);
+    $('[data-list]').hidden = !n;
+    $('[data-close]').hidden = Boolean(n);
+  }
+  function setTitle(text, label = null) {
+    prefix = text || '';
+    if (label) {
+      saveText = label;
+      const el = $('[data-save-label]');
+      if (el) el.textContent = label;
+    }
+    updateTitle();
+  }
 
   function close() {
     if (closed) return;
@@ -139,11 +178,12 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
     root.remove();
     document.body.classList.remove('scanner-open');
     previousFocus?.focus?.();
-    onClose?.();
+    onClose?.({ failed });
   }
   // Zurück-Taste schließt nur die Kamera; Seitenwechsel schließt sie ebenfalls
   const releaseBack = trapBackButton(close);
   closeOnAbort(signal, close);
+  onMount?.({ setPages, setLetters, setTitle, setHint: (t) => setHint(t), close, isOpen: () => !closed });
 
   function onKey(e) {
     if (e.key === 'Escape') close();
@@ -279,9 +319,7 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
       const thumbBtn = $('[data-thumb]');
       if (thumb) thumbBtn.src = thumb;
       $('[data-count]').textContent = String(count);
-      root.querySelectorAll('[data-done]').forEach((b) => {
-        b.hidden = false;
-      });
+      $('[data-tray]').hidden = false;
       updateTitle();
       armed = false;
     } catch (err) {
@@ -291,10 +329,23 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
     }
   }
 
+  // Bilder aus der Galerie: werden Seiten dieses Briefs – die Kamera bleibt offen
   // Ordner-Symbol: Dateien statt Kamera – Kamera schließen und Dateien weitergeben
-  root.addEventListener('change', (e) => {
-    if (!e.target.matches('[data-pick]') || !e.target.files?.length) return;
+  root.addEventListener('change', async (e) => {
+    if (!e.target.files?.length) return;
     const files = [...e.target.files];
+    e.target.value = '';
+    if (e.target.matches('[data-gallery]')) {
+      setHint(files.length === 1 ? 'Bild wird übernommen …' : `${files.length} Bilder werden übernommen …`);
+      try {
+        await onGallery?.(files);
+        setHint('Übernommen. Weiter scannen – oder speichern');
+      } catch (err) {
+        setHint(err?.message || 'Die Bilder konnten nicht übernommen werden.');
+      }
+      return;
+    }
+    if (!e.target.matches('[data-pick]')) return;
     close();
     onFiles?.(files);
   });
@@ -302,6 +353,24 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
   root.addEventListener('click', async (e) => {
     if (e.target.closest('[data-close]') || e.target.closest('[data-done]')) {
       close();
+      return;
+    }
+    if (e.target.closest('[data-list]')) {
+      close();
+      onList?.();
+      return;
+    }
+    const saveBtn = e.target.closest('[data-save]');
+    if (saveBtn && count && !capturing) {
+      saveBtn.disabled = true;
+      try {
+        await onSave?.();
+        armed = false;
+      } catch (err) {
+        setHint(err?.message || 'Speichern hat nicht geklappt.');
+      } finally {
+        saveBtn.disabled = false;
+      }
       return;
     }
     if (e.target.closest('[data-shoot]')) {
@@ -338,6 +407,7 @@ export async function openCamera({ pageCount = 0, lastThumb = null, onCapture, o
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } },
     });
   } catch (err) {
+    failed = true;
     close();
     const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
     onError?.(new Error(denied

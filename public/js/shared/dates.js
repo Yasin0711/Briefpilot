@@ -157,6 +157,24 @@ export function computeRelativeEnd(rule, { receivedDate, letterDate } = {}) {
   return { date: addPeriod(start, rule.amount, rule.unit), reason: null, start };
 }
 
+/**
+ * Braucht diese Aufgabe das Zugangsdatum? Nur, wenn die Frist laut Brief ab Zugang/Zustellung/Bekanntgabe läuft.
+ * Fristen ohne klaren Beginn oder ab Briefdatum rechnen ab Briefdatum (früher = sichere Seite).
+ */
+export function needsReceivedDate(task) {
+  const rule = task?.relativeRule ?? task?.relative_rule ?? null;
+  const parsed = typeof rule === 'string' ? (() => { try { return JSON.parse(rule); } catch { return null; } })() : rule;
+  const relative = Boolean(task?.isRelative ?? task?.is_relative);
+  return relative && parsed?.anchor === 'zugang';
+}
+
+/** Vorschlag fürs Fristende einer relativen Frist, die nicht vom Zugang abhängt (ab Briefdatum). */
+export function letterDateDeadline(task, letterDate) {
+  const rule = task?.relativeRule ?? null;
+  if (!rule || needsReceivedDate(task) || !isValidIsoDate(letterDate)) return null;
+  return addPeriod(letterDate, rule.amount, rule.unit);
+}
+
 export function daysBetween(fromIso, toIsoDate) {
   const a = Date.parse(fromIso + 'T00:00:00Z');
   const b = Date.parse(toIsoDate + 'T00:00:00Z');

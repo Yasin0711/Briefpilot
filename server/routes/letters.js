@@ -520,7 +520,7 @@ export function registerLetterRoutes(router, ctx) {
     if (letter.analysis_status === 'laeuft' || letter.analysis_status === 'wartet') throw badRequest('Der Brief wird bereits ausgewertet.');
     if (letter.is_demo_content) throw badRequest('Beispielbriefe haben eine vorbereitete Auswertung und können nicht neu ausgewertet werden.');
     limiter.hit(`reanalyze:${user.id}`, 30, 3600_000);
-    db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", new Date().toISOString(), letter.id);
+    db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, qr_links = NULL, updated_at = ? WHERE id = ?", new Date().toISOString(), letter.id);
     analyzer.enqueue(letter.id);
     return { ok: true };
   });
@@ -590,7 +590,7 @@ export function registerLetterRoutes(router, ctx) {
       }
       db.run('UPDATE letters SET duplicate_of = NULL, duplicate_status = NULL WHERE duplicate_of = ?', source.id);
       db.run('DELETE FROM letters WHERE id = ?', source.id); // nur der Datensatz – die Seiten gehören jetzt zum Ziel
-      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", now, target.id);
+      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, qr_links = NULL, updated_at = ? WHERE id = ?", now, target.id);
     });
     logLetterEvent(db, user.id, target.id, 'zusammengefuehrt', { mit: source.subject || source.sender || 'Brief' });
     analyzer.enqueue(target.id);
@@ -598,6 +598,25 @@ export function registerLetterRoutes(router, ctx) {
   });
 
   /** Weitere Seiten (bereits hochgeladen, noch ohne Brief) hinten an einen Brief anhängen. */
+  /** Websites aus QR-Codes (im Browser erkannt) speichern – nur http(s), höchstens fünf. */
+  router.post('/api/letters/:id/qr', async (req, res, { user, params }) => {
+    const letter = ownLetter(user, params.id);
+    const body = await readJson(req);
+    const raw = Array.isArray(body.links) ? body.links.slice(0, 5) : [];
+    const links = [];
+    for (const v of raw) {
+      if (typeof v !== 'string' || v.length > 600) continue;
+      try {
+        const u = new URL(v);
+        if ((u.protocol === 'https:' || u.protocol === 'http:') && u.hostname.includes('.') && !links.includes(u.href)) links.push(u.href);
+      } catch {
+        /* keine gültige Adresse */
+      }
+    }
+    db.run('UPDATE letters SET qr_links = ? WHERE id = ?', JSON.stringify(links), letter.id);
+    return { links };
+  });
+
   router.post('/api/letters/:id/pages', async (req, res, { user, params }) => {
     const letter = ownLetter(user, params.id);
     checkEditable(letter);
@@ -612,7 +631,7 @@ export function registerLetterRoutes(router, ctx) {
     db.tx(() => {
       const maxPos = db.get("SELECT COALESCE(MAX(position), -1) AS p FROM files WHERE letter_id = ? AND role = 'seite'", letter.id).p;
       ids.forEach((id, i) => db.run('UPDATE files SET letter_id = ?, position = ? WHERE id = ?', letter.id, maxPos + 1 + i, id));
-      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", now, letter.id);
+      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, qr_links = NULL, updated_at = ? WHERE id = ?", now, letter.id);
     });
     logLetterEvent(db, user.id, letter.id, 'seiten_hinzu', { seiten: ids.length });
     analyzer.enqueue(letter.id);
@@ -631,7 +650,7 @@ export function registerLetterRoutes(router, ctx) {
     db.tx(() => {
       db.run('DELETE FROM files WHERE id = ?', page.id);
       pages.filter((p) => p.id !== page.id).forEach((p, i) => db.run('UPDATE files SET position = ? WHERE id = ?', i, p.id));
-      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", now, letter.id);
+      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, qr_links = NULL, updated_at = ? WHERE id = ?", now, letter.id);
     });
     await storage.remove(page.storage_key);
     logLetterEvent(db, user.id, letter.id, 'seite_entfernt');
@@ -704,7 +723,7 @@ export function registerLetterRoutes(router, ctx) {
       }
       db.all("SELECT id FROM files WHERE letter_id = ? AND role = 'seite' ORDER BY position", letter.id)
         .forEach((p, i) => db.run('UPDATE files SET position = ? WHERE id = ?', i, p.id));
-      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", now, letter.id);
+      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, qr_links = NULL, updated_at = ? WHERE id = ?", now, letter.id);
     });
     for (const f of [...dropFiles, ...replace.map((r) => r.old)]) await storage.remove(f.storage_key).catch(() => {});
     logLetterEvent(db, user.id, letter.id, 'seite_entfernt', { seiten: removing });
@@ -731,7 +750,7 @@ export function registerLetterRoutes(router, ctx) {
       );
       moving.forEach((p, i) => db.run('UPDATE files SET letter_id = ?, position = ? WHERE id = ?', newLetterId, i, p.id));
       pages.filter((p) => !ids.includes(p.id)).forEach((p, i) => db.run('UPDATE files SET position = ? WHERE id = ?', i, p.id));
-      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, updated_at = ? WHERE id = ?", now, letter.id);
+      db.run("UPDATE letters SET analysis_status = 'wartet', analysis_error = NULL, qr_links = NULL, updated_at = ? WHERE id = ?", now, letter.id);
     });
     logLetterEvent(db, user.id, letter.id, 'getrennt', { seiten: moving.length });
     logLetterEvent(db, user.id, newLetterId, 'hochgeladen', { seiten: moving.length, ausBrief: letter.subject || 'Brief' });

@@ -8,6 +8,7 @@ import { scheduleReminders, cancelReminders } from '../domain/reminders.js';
 import { TASK_KIND_IDS, REMINDER_OFFSET_IDS, taskKindLabel } from '../../public/js/shared/constants.js';
 import {
   isValidIsoDate, isValidTime, todayIn, daysBetween, computeRelativeEnd, zonedTimeToUtc, addDays,
+  needsReceivedDate,
 } from '../../public/js/shared/dates.js';
 
 const TASK_SELECT = `SELECT t.*, l.subject AS letter_subject, l.sender AS letter_sender,
@@ -90,7 +91,10 @@ export function registerTaskRoutes(router, ctx) {
     const deliveries = db.all(
       `SELECT l.id, l.subject, l.sender, l.received_suggested, l.received_suggested_quote,
         (SELECT f.id || ':' || f.kind || ':' || f.size FROM files f WHERE f.letter_id = l.id AND f.role = 'seite' ORDER BY f.position LIMIT 1) AS first_file
-       FROM letters l WHERE l.user_id = ? AND l.received_suggested IS NOT NULL AND l.received_date IS NULL ORDER BY l.uploaded_at DESC LIMIT 50`, user.id
+       FROM letters l WHERE l.user_id = ? AND l.received_suggested IS NOT NULL AND l.received_date IS NULL
+         AND EXISTS (SELECT 1 FROM tasks t WHERE t.letter_id = l.id AND t.is_relative = 1 AND t.status <> 'erledigt'
+                     AND json_extract(t.relative_rule, '$.anchor') = 'zugang')
+       ORDER BY l.uploaded_at DESC LIMIT 50`, user.id
     );
     if (deliveries.length) counts.zu_pruefen = (counts.zu_pruefen || 0) + deliveries.length;
     return {
@@ -180,12 +184,14 @@ export function registerTaskRoutes(router, ctx) {
       throw badRequest('Bitte bestätigen Sie, dass Sie die Angaben mit dem Brief verglichen haben.', { field: 'checked' });
     }
 
-    if (task.is_relative && body.withoutDate !== true && !body.receivedDate) {
+    // Zugangsdatum nur, wenn die Frist laut Brief ab Zugang läuft
+    const needsReceived = needsReceivedDate(task);
+    if (needsReceived && body.withoutDate !== true && !body.receivedDate) {
       throw badRequest('Diese Frist hängt davon ab, wann Sie den Brief erhalten haben. Bitte geben Sie das Zugangsdatum an.', { field: 'receivedDate' });
     }
 
     // Schnell-Bestätigung mit Zugangsdatum: Fristende aus der Regel berechnen
-    if (task.is_relative && body.receivedDate && !body.dueDate && body.withoutDate !== true && task.relative_rule) {
+    if (needsReceived && body.receivedDate && !body.dueDate && body.withoutDate !== true && task.relative_rule) {
       checkDate(body.receivedDate, 'receivedDate', 'Zugangsdatum');
       const computed = computeRelativeEnd(JSON.parse(task.relative_rule), { receivedDate: body.receivedDate, letterDate: letter?.letter_date }).date;
       if (!computed) throw badRequest('Das Fristende ließ sich nicht berechnen. Bitte im Brief bestätigen.', { field: 'dueDate' });
@@ -201,7 +207,7 @@ export function registerTaskRoutes(router, ctx) {
       }
       dueDate = body.dueDate;
 
-      if (task.is_relative) {
+      if (needsReceived) {
         if (!body.receivedDate) {
           throw badRequest('Diese Frist hängt davon ab, wann Sie den Brief erhalten haben. Bitte geben Sie das Zugangsdatum an.', { field: 'receivedDate' });
         }

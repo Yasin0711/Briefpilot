@@ -3,7 +3,7 @@ import { html, mount } from '../html.js';
 import { offerCalendarOnce, autoCalendarActive } from '../calendar.js';
 import { api, download } from '../api.js';
 import { icon, whenLabel, taskKindLabel, toast } from '../ui.js';
-import { formatDate } from '../shared/dates.js';
+import { formatDate, needsReceivedDate } from '../shared/dates.js';
 import { setReviewCount } from '../app.js';
 import { letterThumb } from './parts.js';
 
@@ -24,7 +24,7 @@ function thumb(t) {
 
 /** Zeile „Zu prüfen“: Vorschau · Titel (öffnet die Prüfung im Brief) · Datum als Text · Kalender · Bestätigen. */
 function reviewRow(t, date, href) {
-  const relative = t.isRelative;
+  const relative = needsReceivedDate(t);
   const dateText = relative ? (t.relativeText || 'Frist ab Zugang') : date ? formatDate(date, { short: true }) : 'ohne Datum';
   const pickLabel = relative ? 'Zugang' : 'Frist';
   const pickValue = relative ? '' : (date || '');
@@ -89,7 +89,7 @@ export async function render({ root, query, isCurrent }) {
         ${TABS.map((t) => html`<button class="tab" role="tab" type="button" data-status="${t.id}" aria-selected="${t.id === status}"><span class="tab-label">${t.label}</span><span class="tab-num">${data.counts[t.id] || 0}</span></button>`)}
       </div>
       ${data.tasks.length || data.deliveries?.length ? html`<div class="panel panel-plain"><ul class="list">${status === 'zu_pruefen' ? (data.deliveries || []).map(deliveryRow) : ''}${data.tasks.map((t) => {
-        const date = t.status === 'zu_pruefen' ? (t.isRelative ? null : t.suggestedDate) : t.dueDate;
+        const date = t.status === 'zu_pruefen' ? (needsReceivedDate(t) ? null : t.suggestedDate) : t.dueDate;
         const href = t.letterId ? `#/briefe/${t.letterId}?aufgabe=${t.id}` : null;
         if (t.status === 'zu_pruefen') return reviewRow(t, date, href);
         return html`<li class="deadline-row" data-ctx="task" data-id="${t.id}" data-name="${t.title}">
@@ -98,7 +98,7 @@ export async function render({ root, query, isCurrent }) {
             ${href ? html`<a class="row-title" href="${href}">${t.title}</a>` : html`<span class="row-title">${t.title}</span>`}
             <span class="row-sub">${taskKindLabel(t.kind)}${t.letterSender ? ` – ${t.letterSender}` : ''}</span>
             ${t.status === 'zu_pruefen'
-              ? html`<span class="badge badge-review">${icon('alert')}${t.isRelative ? 'Zugangsdatum fehlt' : date ? 'Datum bestätigen' : 'prüfen'}</span>`
+              ? html`<span class="badge badge-review">${icon('alert')}${needsReceivedDate(t) ? 'Zugangsdatum fehlt' : date ? 'Datum bestätigen' : 'prüfen'}</span>`
               : t.status === 'offen'
                 ? (t.dueDate ? html`${whenLabel(t.dueDate, today)}<span class="small muted"> – ${formatDate(t.dueDate, { weekday: true })}${t.dueTime ? `, ${t.dueTime} Uhr` : ''}</span>` : html`<span class="small muted">ohne Datum</span>`)
                 : html`<span class="small muted">erledigt</span>`}

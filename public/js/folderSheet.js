@@ -291,3 +291,79 @@ export function refSheet({ exclude = '', objects: curObjects, letters: curLetter
     });
   });
 }
+
+/**
+ * Einen Brief wählen, an den neue Seiten angehängt werden – aufgebaut wie die Ordnerauswahl.
+ * Oben stehen die Briefe dieser Scan-Sitzung, darunter alle anderen (neueste zuerst). Suche nach Betreff/Absender.
+ * @param {{ first?: { id: string, subject: string }[], exclude?: string[] }} opts
+ * @returns {Promise<{ id: string, subject: string } | null>}
+ */
+export function letterPickSheet({ first = [], exclude = [] } = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => {
+      if (!settled) {
+        settled = true;
+        resolve(v);
+      }
+    };
+    api.get('/api/letters').then(({ letters }) => {
+      const skip = new Set(exclude);
+      const firstIds = new Set(first.map((l) => l.id));
+      const recent = letters.filter((l) => !skip.has(l.id) && !firstIds.has(l.id) && !l.isDemoContent)
+        .sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
+      const top = first.filter((l) => !skip.has(l.id));
+      const all = [...top, ...recent];
+      let chosen = null;
+      const row = (l, sub) => html`<li data-item="${`${l.subject || ''} ${l.sender || ''}`.toLowerCase()}">
+        <button class="move-row" type="button" role="option" aria-selected="false" data-pick="${l.id}">
+          <span class="move-folder is-muted" aria-hidden="true">${icon('file')}</span>
+          <span class="grow"><span class="row-title">${l.subject || 'Brief ohne Betreff'}</span><span class="row-sub">${sub}</span></span>
+          <span class="move-check" aria-hidden="true">${icon('check')}</span>
+        </button></li>`;
+      openDialog(html`<div class="move-sheet">
+        <div class="move-top">
+          <button class="move-link" type="button" data-cancel autofocus>Abbrechen</button>
+          <strong class="move-title">Zu Brief hinzufügen</strong>
+          <button class="move-link move-go" type="button" data-go disabled>Hinzufügen</button>
+        </div>
+        <input class="input move-search" type="search" placeholder="Suchen" data-filter aria-label="Briefe suchen">
+        <ul class="move-list" role="listbox" aria-label="Briefe">
+          ${top.map((l) => row(l, 'Gerade gescannt'))}
+          ${recent.map((l) => row(l, [l.sender, l.letterDate ? formatDate(l.letterDate, { short: true }) : ''].filter(Boolean).join(' · ') || 'Brief'))}
+          ${all.length ? '' : html`<li class="move-empty muted">Noch keine Briefe.</li>`}
+        </ul>
+      </div>`, (dialog, close) => {
+        dialog.classList.add('sheet-full');
+        dialog.addEventListener('close', () => finish(null));
+        const go = dialog.querySelector('[data-go]');
+        dialog.querySelector('[data-filter]').addEventListener('input', (ev) => {
+          const q = ev.target.value.trim().toLowerCase();
+          dialog.querySelectorAll('[data-item]').forEach((li) => {
+            li.hidden = Boolean(q) && !li.dataset.item.includes(q);
+          });
+        });
+        dialog.addEventListener('click', (ev) => {
+          if (ev.target.closest('[data-cancel]')) {
+            close();
+            return;
+          }
+          const pick = ev.target.closest('[data-pick]');
+          if (pick) {
+            chosen = all.find((l) => l.id === pick.dataset.pick);
+            dialog.querySelectorAll('[data-pick]').forEach((b) => b.setAttribute('aria-selected', String(b === pick)));
+            go.disabled = false;
+            return;
+          }
+          if (ev.target.closest('[data-go]') && chosen) {
+            finish({ id: chosen.id, subject: chosen.subject || 'Brief' });
+            close();
+          }
+        });
+      });
+    }).catch((err) => {
+      toast(err.message, { error: true });
+      finish(null);
+    });
+  });
+}

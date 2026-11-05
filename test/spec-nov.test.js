@@ -212,3 +212,47 @@ test('Mehrere Profile: Kurzname, Standard, Auswahl beim Entwurf', async (t) => {
   const d = await c.patch('/api/me', { settings: { defaultProfileId: profiles[1].id } });
   assert.equal(d.data.user.settings.defaultProfileId, profiles[1].id);
 });
+
+test('QR-Websites: nur http(s), höchstens fünf; neue Seiten setzen die Prüfung zurück', async (t) => {
+  const s = await startTestServer();
+  t.after(() => s.stop());
+  const { c } = await registerUser(s);
+  const { letter } = await letterWithFolder(c, s.app);
+  let d = (await c.get(`/api/letters/${letter.id}`)).data;
+  assert.equal(d.letter.qrLinks, null, 'noch nicht geprüft');
+  const res = await c.post(`/api/letters/${letter.id}/qr`, { links: ['https://www.example.de/a', 'javascript:alert(1)', 'ftp://x.de', 'https://www.example.de/a', 'nichts'] });
+  assert.deepEqual(res.data.links, ['https://www.example.de/a']);
+  d = (await c.get(`/api/letters/${letter.id}`)).data;
+  assert.deepEqual(d.letter.qrLinks, ['https://www.example.de/a']);
+  await c.post(`/api/letters/${letter.id}/qr`, { links: [] });
+  assert.deepEqual((await c.get(`/api/letters/${letter.id}`)).data.letter.qrLinks, [], 'geprüft, nichts gefunden');
+  const pdf = buildPdf([[{ type: 'text', x: 70, y: 700, text: 'Seite 2' }]]);
+  const up = await c.upload(pdf, 'application/pdf');
+  await c.post(`/api/letters/${letter.id}/pages`, { fileIds: [up.data.id] });
+  assert.equal((await c.get(`/api/letters/${letter.id}`)).data.letter.qrLinks, null, 'neue Seite → erneut prüfen');
+  await s.app.ctx.analyzer.idle();
+});
+
+test('Zustelldatum wird nur abgefragt, wenn eine Frist ab Zugang läuft', async (t) => {
+  const s = await startTestServer();
+  t.after(() => s.stop());
+  const { c } = await registerUser(s);
+  const { letter } = await letterWithFolder(c, s.app);
+  const db = s.app.ctx.db;
+  db.run("UPDATE letters SET received_suggested = '2026-10-20', received_date = NULL WHERE id = ?", letter.id);
+  let res = (await c.get('/api/tasks?status=zu_pruefen')).data;
+  assert.equal(res.deliveries.length, 0, 'ohne Frist ab Zugang keine Frage nach dem Zustelldatum');
+  const userId = db.get('SELECT user_id FROM letters WHERE id = ?', letter.id).user_id;
+  const now = new Date().toISOString();
+  db.run(`INSERT INTO tasks (id, user_id, letter_id, title, kind, status, origin, is_relative, relative_rule, created_at, updated_at)
+          VALUES ('t-rel', ?, ?, 'Widerspruch', 'frist', 'zu_pruefen', 'ki', 1, ?, ?, ?)`, userId, letter.id, JSON.stringify({ amount: 1, unit: 'monate', anchor: 'zugang' }), now, now);
+  res = (await c.get('/api/tasks?status=zu_pruefen')).data;
+  assert.equal(res.deliveries.length, 1, 'Frist ab Zugang → Zustelldatum bestätigen');
+  // Frist ab Briefdatum: Bestätigen ohne Zugangsdatum klappt
+  db.run(`INSERT INTO tasks (id, user_id, letter_id, title, kind, status, origin, is_relative, relative_rule, created_at, updated_at)
+          VALUES ('t-brief', ?, ?, 'Zahlen', 'zahlung', 'zu_pruefen', 'ki', 1, ?, ?, ?)`, userId, letter.id, JSON.stringify({ amount: 14, unit: 'tage', anchor: 'unbekannt' }), now, now);
+  const ok = await c.post('/api/tasks/t-brief/confirm', { checked: true, dueDate: '2026-12-01' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.data));
+  const need = await c.post('/api/tasks/t-rel/confirm', { checked: true, dueDate: '2026-12-01' });
+  assert.equal(need.status, 400, 'ab Zugang braucht weiter das Zugangsdatum');
+});

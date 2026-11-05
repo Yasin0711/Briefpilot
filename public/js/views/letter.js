@@ -11,8 +11,8 @@ import {
   CATEGORIES, REMINDER_OFFSETS, ANALYSIS_SOURCE_LABELS, TASK_KINDS, categoryLabel,
 } from '../shared/constants.js';
 import { identifierKindLabel } from '../shared/identifiers.js';
-import { formatDate, formatDateTime, computeRelativeEnd, todayIn, isValidIsoDate } from '../shared/dates.js';
-import { setReviewCount, setInboxCount } from '../app.js';
+import { formatDate, formatDateTime, computeRelativeEnd, todayIn, isValidIsoDate, needsReceivedDate, letterDateDeadline } from '../shared/dates.js';
+import { setReviewCount, setInboxCount, backButton, setNavTitle } from '../app.js';
 import { objectChips, objectTile, evidenceList, identifierStatusBadge } from './parts.js';
 import { moveSheet, fileLetterInto } from '../folderSheet.js';
 import { pagesSheet } from '../pagesSheet.js';
@@ -21,6 +21,7 @@ import { mountDecision, forgetObjects } from './assign.js';
 import { repliesPanel, chatPanel, bindAssistant } from './replies.js';
 import { loadHousehold } from './objectDialog.js';
 import { backupNow } from '../backup.js';
+import { scanLetterQr } from '../qr.js';
 
 const STATUS_ORDER = { zu_pruefen: 0, offen: 1, erledigt: 2 };
 
@@ -81,8 +82,8 @@ function visibleNotes(task) {
 }
 
 function confirmForm(task, letter, settings, today, { correcting = false } = {}) {
-  const relative = task.isRelative;
-  const dateValue = task.dueDate || task.suggestedDate || '';
+  const relative = needsReceivedDate(task);
+  const dateValue = task.dueDate || task.suggestedDate || letterDateDeadline(task, letter.letterDate) || '';
   const timeValue = task.dueTime || task.suggestedTime || '';
   const offsets = task.reminders?.length ? settings.reminderOffsets : settings.reminderOffsets;
   return html`<form class="confirm-box stack" data-confirm="${task.id}" novalidate>
@@ -114,12 +115,14 @@ function confirmForm(task, letter, settings, today, { correcting = false } = {})
 
 function taskCard(task, letter, settings, today, correcting) {
   const isReview = task.status === 'zu_pruefen';
-  const shownDate = isReview ? (task.isRelative ? null : task.suggestedDate) : task.dueDate;
+  const needsReceived = needsReceivedDate(task);
+  const suggested = task.suggestedDate || letterDateDeadline(task, letter.letterDate);
+  const shownDate = isReview ? (needsReceived ? null : suggested) : task.dueDate;
   let dateLine;
   if (task.status === 'erledigt') dateLine = html`<p class="small muted">Erledigt${task.completedAt ? ` am ${formatUploaded(task.completedAt)}` : ''}</p>`;
   else if (isReview) {
-    if (task.isRelative) dateLine = html`<p>Frist: ${task.relativeText || 'ab Erhalt des Briefs'}</p>`;
-    else if (task.suggestedDate) dateLine = html`<p>${formatDate(task.suggestedDate, { weekday: true })}${task.suggestedTime ? `, ${task.suggestedTime} Uhr` : ''}</p>`;
+    if (needsReceived) dateLine = html`<p>Frist: ${task.relativeText || 'ab Erhalt des Briefs'}</p>`;
+    else if (suggested) dateLine = html`<p>${formatDate(suggested, { weekday: true })}${task.suggestedTime ? `, ${task.suggestedTime} Uhr` : ''}${task.isRelative ? html` <span class="small muted">(${task.relativeText || 'Frist'} ab Briefdatum)</span>` : ''}</p>`;
     else dateLine = html`<p class="muted">${task.kind === 'aufgabe' ? 'Ohne festes Datum' : 'Kein Datum erkannt'}</p>`;
   } else if (task.dueDate) {
     dateLine = html`<p><strong>${formatDate(task.dueDate, { weekday: true })}${task.dueTime ? `, ${task.dueTime} Uhr` : ''}</strong> ${whenLabel(task.dueDate, today)}</p>`;
@@ -227,6 +230,17 @@ function previewPanel(files, letter, editable) {
   </section>`;
 }
 
+/** Kurzform einer Webadresse für die Anzeige: Domain und Pfad, ohne https:// und www. */
+function webLabel(url) {
+  try {
+    const u = new URL(url);
+    const path = `${u.pathname}${u.search}`.replace(/\/$/, '');
+    return `${u.hostname.replace(/^www\./, '')}${path}`;
+  } catch {
+    return url;
+  }
+}
+
 function factsPanel(letter, persons = [], { folderRow = '', analyzing = false, viewable = false } = {}) {
   const dateStatus = {
     unsicher: html`<span class="badge badge-review">${icon('alert')}unsicher</span>`,
@@ -249,6 +263,7 @@ function factsPanel(letter, persons = [], { folderRow = '', analyzing = false, v
       <div><dt>Briefdatum</dt><dd>${letter.letterDate ? formatDate(letter.letterDate) : html`<span class="muted">unbekannt</span>`} ${dateStatus}
 </dd></div>
       <div><dt>Betreff</dt><dd>${letter.subject || html`<span class="muted">nicht erkannt</span>`}</dd></div>
+      ${(letter.qrLinks || []).map((u) => html`<div><dt>Website</dt><dd><a class="facts-link" href="${u}" target="_blank" rel="noopener noreferrer" title="${u}"><span class="facts-link-text">${webLabel(u)}</span>${icon('external')}</a></dd></div>`)}
     </dl>
     ${folderRow}
   </section>`;
@@ -336,8 +351,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
   // Ansicht: Erklärung, Antwort, Original – oder keine (null): dann folgt direkt der nächste Abschnitt
   let tab = ['erklaerung', 'aufgaben', 'antworten'].includes(query.get('ansicht')) ? query.get('ansicht') : null;
   const openSteps = new Set(); // aufgeklappte Punkte der Erklärung (bleiben beim Neuzeichnen offen)
-  // Link auf eine bestimmte Aufgabe (z. B. aus „Aufgaben“): Erklärung und „Bis wann?“ öffnen
-  if (query.get('aufgabe')) tab = 'aufgaben';
+  // Auch über einen Link auf eine Aufgabe bleibt der Aufgaben-Reiter zu (Wunsch des Nutzers)
   let pollTimer = null;
   const correcting = new Set();
   const today = todayIn(state.me?.timezone || 'Europe/Berlin');
@@ -361,11 +375,21 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     ]);
     const wasAnalyzing = ['wartet', 'laeuft'].includes(data?.letter?.analysisStatus);
     data = letterData;
+    setNavTitle(letterData.letter.subject || 'Brief');
     if (household) persons = household.persons || [];
     // Auswertung fertig: Brief mit den erkannten Angaben gleich sichern
     if (wasAnalyzing && !['wartet', 'laeuft'].includes(data.letter.analysisStatus) && state.me) backupNow(state.me);
     if (!isCurrent()) return;
     draw();
+    // QR-Codes einmal je Brief suchen; gefundene Websites erscheinen bei den Angaben
+    if (!['wartet', 'laeuft'].includes(data.letter.analysisStatus) && data.letter.qrLinks === null && !data.letter.isDemoContent) {
+      const forLetter = data.letter;
+      scanLetterQr(forLetter, data.files).then((list) => {
+        if (!list) return;
+        forLetter.qrLinks = list;
+        if (list.length && isCurrent() && data.letter === forLetter) draw();
+      });
+    }
     clearTimeout(pollTimer);
     if (['wartet', 'laeuft'].includes(data.letter.analysisStatus)) pollTimer = setTimeout(() => load().catch(() => {}), 2500);
     const target = query.get('aufgabe');
@@ -451,7 +475,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     const drafts = data.replies.filter((r) => r.status !== 'gesendet').length;
     const reviewCount = tasks.filter((t) => t.status === 'zu_pruefen').length;
     mount(root, html`<div class="stack-l">
-      <p data-tabs-anchor><a class="btn btn-ghost btn-small" href="#/briefe">${icon('chevronLeft')}Alle Briefe</a></p>
+      <p data-tabs-anchor>${backButton('#/briefe', 'Alle Briefe')}</p>
       <h1 class="visually-hidden">${letter.subject || (analyzing ? 'Neuer Brief' : 'Brief ohne Betreff')}</h1>
       <div class="tabs letter-tabs" role="tablist" aria-label="Ansicht">
         <button class="tab" role="tab" type="button" data-tab="erklaerung" aria-selected="${tab === 'erklaerung'}">Erklärung</button>
@@ -602,7 +626,7 @@ export async function render({ root, params, query, state, navigate, isCurrent }
     const v = formValues(form);
     const body = { checked: v.checked === true, reminders: v.reminders || [] };
     const task = data.tasks.find((t) => t.id === form.dataset.confirm);
-    if (mode === 'nodate' || (!v.dueDate && task?.kind === 'aufgabe' && !task.isRelative)) {
+    if (mode === 'nodate' || (!v.dueDate && task?.kind === 'aufgabe' && !needsReceivedDate(task))) {
       body.withoutDate = true;
     } else {
       body.dueDate = v.dueDate;

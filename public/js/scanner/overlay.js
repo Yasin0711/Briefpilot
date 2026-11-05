@@ -57,3 +57,8 @@ export function closeOnAbort(signal, close) {
   if (signal.aborted) queueMicrotask(close);
   else signal.addEventListener('abort', close, { once: true });
 }
+
+/** Wartet, bis ein laufendes history.back() des Vollbilds fertig ist (danach darf navigiert werden). */
+export function afterBack() {
+  return backPending || Promise.resolve();
+}

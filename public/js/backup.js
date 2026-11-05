@@ -11,6 +11,9 @@ let dbPromise = null;
 let running = null;
 let lastRun = 0;
 let timer = null;
+let again = false; // während einer laufenden Sicherung kam eine Änderung dazu
+let retryTimer = null;
+let retries = 0;
 
 function openDb() {
   if (!('indexedDB' in window)) return Promise.reject(new Error('Kein Gerätespeicher verfügbar.'));
@@ -79,7 +82,10 @@ export async function hasRestorableBackup({ includeLoggedOut = false } = {}) {
 /** Sicherung aktualisieren: Kontodaten neu, Dateien nur, wenn sie noch fehlen. */
 export async function syncBackup(me, { force = false } = {}) {
   if (!me || me.isDemo) return null;
-  if (running) return running;
+  if (running) {
+    if (force) again = true; // danach gleich noch einmal, damit nichts fehlt
+    return running;
+  }
   if (!force && Date.now() - lastRun < MIN_GAP_MS) return null;
   running = (async () => {
     try {
@@ -99,14 +105,32 @@ export async function syncBackup(me, { force = false } = {}) {
       for (const id of have) if (!wanted.has(id)) await deleteFile(id);
       await putMeta({ backup, sig, userId: me.id, savedAt: new Date().toISOString(), fileCount: files.length, bytes, loggedOut: false });
       lastRun = Date.now();
+      retries = 0;
       return true;
     } catch {
+      // z. B. kurz offline: bis zu dreimal später erneut versuchen
+      if (force && retries < 3) {
+        retries += 1;
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => syncBackup(me, { force: true }), 30_000 * retries);
+      }
       return false;
     } finally {
       running = null;
+      if (again) {
+        again = false;
+        setTimeout(() => syncBackup(me, { force: true }), 0);
+      }
     }
   })();
   return running;
+}
+
+/** Sofort sichern – z. B. direkt nach jedem neuen Brief. */
+export function backupNow(me) {
+  clearTimeout(timer);
+  lastRun = 0;
+  return syncBackup(me, { force: true });
 }
 
 /** Nach Änderungen bald sichern (gebündelt). */

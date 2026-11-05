@@ -20,6 +20,7 @@ import { offerCalendarOnce, autoCalendarActive } from '../calendar.js';
 import { mountDecision, forgetObjects } from './assign.js';
 import { repliesPanel, chatPanel, bindAssistant } from './replies.js';
 import { loadHousehold } from './objectDialog.js';
+import { backupNow } from '../backup.js';
 
 const STATUS_ORDER = { zu_pruefen: 0, offen: 1, erledigt: 2 };
 
@@ -358,8 +359,11 @@ export async function render({ root, params, query, state, navigate, isCurrent }
       api.get(`/api/letters/${id}`),
       persons.length ? null : loadHousehold().catch(() => null),
     ]);
+    const wasAnalyzing = ['wartet', 'laeuft'].includes(data?.letter?.analysisStatus);
     data = letterData;
     if (household) persons = household.persons || [];
+    // Auswertung fertig: Brief mit den erkannten Angaben gleich sichern
+    if (wasAnalyzing && !['wartet', 'laeuft'].includes(data.letter.analysisStatus) && state.me) backupNow(state.me);
     if (!isCurrent()) return;
     draw();
     clearTimeout(pollTimer);

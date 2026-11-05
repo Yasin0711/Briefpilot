@@ -1,7 +1,7 @@
 // Einstiegspunkt der Oberfläche: Seitenwechsel (Router), Navigation, Anmeldestatus.
 import { html, mount } from './html.js';
 import { api, setUnauthorizedHandler, setMutationHandler } from './api.js';
-import { syncBackup, scheduleBackup, hasRestorableBackup, restoreFromDevice, requestPersistentStorage } from './backup.js';
+import { syncBackup, scheduleBackup, backupNow, hasRestorableBackup, restoreFromDevice, requestPersistentStorage } from './backup.js';
 import { icon, LOGO, scroller, actionSheet, toast } from './ui.js';
 import { setPendingFiles } from './pending.js';
 import { installContextMenus } from './context.js';
@@ -258,8 +258,11 @@ async function start() {
     if (result.ok) await refreshMe();
     else if (result.conflict) setTimeout(() => import('./ui.js').then(({ toast }) => toast(result.message)), 600);
   }
-  setMutationHandler(() => {
-    if (state.me) scheduleBackup(state.me);
+  setMutationHandler((path) => {
+    if (!state.me) return;
+    // Neuer Brief: sofort sichern, alles andere gebündelt
+    if (path === '/api/letters') backupNow(state.me);
+    else scheduleBackup(state.me);
   });
   if (state.me) {
     requestPersistentStorage();

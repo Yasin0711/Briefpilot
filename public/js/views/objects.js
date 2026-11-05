@@ -10,6 +10,7 @@ import { openObjectDialog } from './objectDialog.js';
 import { forgetObjects } from './assign.js';
 import { taskRow } from './overview.js';
 import { setInboxCount, backButton, setNavTitle } from '../app.js';
+import { createSelection } from '../selection.js';
 
 function idSummary(identifiers = []) {
   const current = identifiers.filter((i) => i.status !== 'alt').slice(0, 3);
@@ -144,12 +145,27 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
   const id = params.id;
   const today = todayIn(state.me?.timezone || 'Europe/Berlin');
   let data = null;
+  let selection = null; // mehrere Briefe auswählen (nach jedem Neuzeichnen neu verbunden)
 
   async function load() {
     data = await api.get(`/api/objects/${id}`);
     if (!isCurrent()) return;
     setNavTitle(data.object.name);
     draw();
+  }
+
+  function bindSelection() {
+    selection?.destroy();
+    selection = null;
+    const btn = root.querySelector('[data-select-btn]');
+    if (!btn) return;
+    selection = createSelection({
+      root: root.querySelector('[data-letter-list]'),
+      button: btn,
+      allButton: root.querySelector('[data-select-all]'),
+      reload: () => load(),
+      folderId: id,
+    });
   }
 
   function draw() {
@@ -183,8 +199,11 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
 
       <section aria-labelledby="letters-h">
         <div class="section-title"><h2 id="letters-h">Briefe</h2>
-          <a href="#/briefe?object=${o.id}">In der Briefliste</a></div>
-        ${letters.length ? html`<div class="panel panel-plain"><ul class="list">${letters.map((l) => letterRow(l, {
+          <span class="page-head-actions">
+            ${letters.length ? html`<button class="btn btn-small btn-ghost" type="button" data-select-all hidden>Alle</button>
+            <button class="btn btn-small btn-ghost" type="button" data-select-btn aria-pressed="false">Auswählen</button>` : ''}
+            <a href="#/briefe?object=${o.id}">In der Briefliste</a></span></div>
+        ${letters.length ? html`<div class="panel panel-plain" data-letter-list><ul class="list">${letters.map((l) => letterRow(l, {
           note: html`<span class="link-why">${icon(l.link.origin === 'nutzer' ? 'user' : 'link')}${ORIGIN_LABEL[l.link.origin] || 'zugeordnet'}${l.link.evidence?.[0] && l.link.evidence[0].type !== 'nutzer' ? `: ${evidenceText(l.link.evidence[0])}` : ''}</span>`,
         }))}</ul></div>`
           : html`<p class="muted">Noch keine Briefe.</p>`}
@@ -199,6 +218,7 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
         <button class="btn btn-small btn-danger" type="button" data-act="delete">${icon('trash')}Löschen</button>
       </div>
     </div>`);
+    bindSelection();
   }
 
   function otherObjectsSelect(name, label, { allowEmpty = true } = {}) {
@@ -389,4 +409,5 @@ export async function renderDetail({ root, params, state, navigate, isCurrent })
   });
 
   await load();
+  return () => selection?.destroy();
 }

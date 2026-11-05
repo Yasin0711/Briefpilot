@@ -91,9 +91,12 @@ function textDialog(title, value) {
 
 async function letterMenu(id, name, refresh) {
   const detail = () => api.get(`/api/letters/${encodeURIComponent(id)}`);
+  // In Listen mit „Auswählen“: mehrere Briefe markieren, beginnend mit diesem
+  const canSelect = Boolean(document.querySelector('[data-select-btn]'));
   actionSheet({
     title: name || 'Brief',
     actions: [
+      ...(canSelect ? [{ label: 'Auswählen', icon: 'checkCircle', onSelect: () => document.dispatchEvent(new CustomEvent('bp:select', { detail: { id } })) }] : []),
       { label: 'Verschieben', icon: 'folderOpen', onSelect: async () => {
         const d = await detail();
         const target = await chooseFolder({ title: 'Verschieben', current: d.links.map((l) => l.objectId), item: name });

@@ -1553,3 +1553,34 @@ dialog .viewer { z-index: 10; }
 .facts-link-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .facts-link svg { width: 14px; height: 14px; flex: none; }
 .facts dd:has(.facts-link) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Mehrere Briefe auswählen: Kreise vor den Zeilen, Leiste unten (wie Mail/Dateien) */
+.page-head-actions { display: inline-flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; justify-content: flex-end; }
+.page-head-actions [hidden] { display: none; }
+.select-circle {
+  flex: none; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--c-separator-strong);
+  display: grid; place-items: center; color: transparent; transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.select-circle svg { width: 14px; height: 14px; stroke-width: 3; }
+.is-selected .select-circle { background: var(--c-accent); border-color: var(--c-accent); color: var(--c-on-accent); }
+.is-selecting a[data-ctx="letter"] .chev { visibility: hidden; }
+.is-selecting a[data-ctx="letter"].is-selected { background: var(--c-accent-tint); }
+.select-bar {
+  position: fixed; left: 0; right: 0; z-index: 26; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  display: grid; grid-template-columns: repeat(3, 1fr); align-items: center; gap: 2px var(--sp-2); padding: var(--sp-1) var(--sp-4) var(--sp-2);
+  background: var(--c-bar); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-top: var(--hairline) solid var(--c-separator);
+  animation: select-in var(--dur) var(--ease);
+}
+@keyframes select-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.select-bar .select-count { grid-column: 1 / -1; }
+.select-act {
+  display: inline-flex; flex-direction: column; align-items: center; gap: 2px; min-height: var(--touch); padding: 2px var(--sp-1); border: 0; background: none;
+  color: var(--c-accent); font: inherit; font-size: var(--fs-caption-2); cursor: pointer; border-radius: var(--r-btn-s);
+}
+.select-act svg { width: 22px; height: 22px; }
+.select-act.is-danger { color: var(--c-red); }
+.select-act:disabled { color: var(--c-label-3); cursor: default; }
+.select-count { font-size: var(--fs-footnote); font-weight: var(--fw-semibold); color: var(--c-label); text-align: center; white-space: nowrap; }
+body.has-select-bar .main-wrap { padding-bottom: 96px; }
+body.has-select-bar .file-bar, body.has-select-bar .file-bar-show { display: none; }
+@media (min-width: 960px) { .select-bar { left: 260px; bottom: 0; padding-left: 32px; padding-right: 32px; } }

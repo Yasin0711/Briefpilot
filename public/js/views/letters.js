@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { icon } from '../ui.js';
 import { CATEGORIES } from '../shared/constants.js';
 import { letterRow, briefeTabs, objectTile } from './parts.js';
+import { createSelection } from '../selection.js';
 
 const FILTERS = [
   { id: 'datum_pruefen', label: 'Datum prüfen', ic: 'alert' },
@@ -63,7 +64,10 @@ export async function render({ root, query, state, isCurrent }) {
 
   mount(root, html`<div class="stack">
     <div class="page-head"><div><h1>Briefe</h1><p data-total></p></div>
-      <a class="btn btn-small btn-secondary" href="#/scannen">${icon('plus')}Neu</a></div>
+      <div class="page-head-actions">
+        <button class="btn btn-small btn-ghost" type="button" data-select-all hidden>Alle</button>
+        <button class="btn btn-small btn-ghost" type="button" data-select-btn aria-pressed="false">Auswählen</button>
+        <a class="btn btn-small btn-secondary" href="#/scannen">${icon('plus')}Neu</a></div></div>
     <div data-tabs>${briefeTabs('briefe', { inbox: state.counts.inbox })}</div>
     ${objectInfo ? html`<div class="filter-note">${objectTile(objectInfo.type)}<span class="grow">Nur Briefe im Ordner <a href="#/akten/${objectInfo.id}"><strong>${objectInfo.name}</strong></a></span>
       <button class="btn btn-small btn-ghost" type="button" data-clear-object>${icon('x')}Filter entfernen</button></div>` : ''}
@@ -84,6 +88,12 @@ export async function render({ root, query, state, isCurrent }) {
 
   const results = root.querySelector('[data-results]');
   let requestId = 0;
+  const selection = createSelection({
+    root: results,
+    button: root.querySelector('[data-select-btn]'),
+    allButton: root.querySelector('[data-select-all]'),
+    reload: () => load(),
+  });
 
   async function load() {
     const id = ++requestId;
@@ -111,6 +121,7 @@ export async function render({ root, query, state, isCurrent }) {
     mount(results, groups.map((g) => html`<section>
       <h2 class="month-head ${g.warn ? 'warn' : ''}">${g.label}</h2>
       <div class="panel panel-plain"><ul class="list">${g.items.map((l) => letterRow(l))}</ul></div></section>`));
+    selection.refresh();
   }
 
   let debounce = null;
@@ -137,5 +148,8 @@ export async function render({ root, query, state, isCurrent }) {
     load();
   });
   await load();
-  return () => clearTimeout(debounce);
+  return () => {
+    clearTimeout(debounce);
+    selection.destroy();
+  };
 }
